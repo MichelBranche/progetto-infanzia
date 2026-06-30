@@ -42,8 +42,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
-          # No Apple Developer account: skip codesign/notarization on CI.
-          APPLE_SIGNING_IDENTITY: "-"
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Branchefy ${{ github.ref_name }}
@@ -54,9 +52,9 @@ jobs:
             Installer `.exe` — aggiornamento automatico in-app (come prima).
 
             ### macOS (Intel e Apple Silicon, M1+)
-            File `.dmg` universale — **non firmato** (nessun account Apple Developer).
-            All'apertura: tasto destro sull'app → **Apri** → conferma, oppure
-            Impostazioni di Sistema → Privacy e sicurezza → **Apri comunque**.
+            File `.dmg` universale — firma **ad-hoc** (gratuita, non notarizzata).
+            All'apertura: tasto destro sull'app → **Apri** → conferma.
+            Se macOS blocca ancora: Impostazioni → Privacy e sicurezza → **Apri comunque**.
 
             L'auto-update in-app su Mac non è supportato in questa release.
           releaseDraft: false
@@ -108,9 +106,9 @@ jobs:
             Installer `.exe` — aggiornamento automatico in-app (come prima).
 
             ### macOS (Intel e Apple Silicon, M1+)
-            File `.dmg` universale — **non firmato** (nessun account Apple Developer).
-            All'apertura: tasto destro sull'app → **Apri** → conferma, oppure
-            Impostazioni di Sistema → Privacy e sicurezza → **Apri comunque**.
+            File `.dmg` universale — firma **ad-hoc** (gratuita, non notarizzata).
+            All'apertura: tasto destro sull'app → **Apri** → conferma.
+            Se macOS blocca ancora: Impostazioni → Privacy e sicurezza → **Apri comunque**.
 
             L'auto-update in-app su Mac non è supportato in questa release.
           releaseDraft: false
