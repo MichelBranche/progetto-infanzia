@@ -33,6 +33,7 @@ export interface NavSection {
 
 const primaryItems: NavItem[] = [
   { id: "home", label: "Home", icon: "Home" },
+  { id: "anime", label: "Anime", icon: "Anime" },
   { id: "profile", label: "Profilo", icon: "User" },
   ...(STREMIO_ADDONS_ENABLED
     ? [{ id: "streaming", label: "In streaming", icon: "Wifi" as const }]
@@ -48,7 +49,7 @@ const browseItems: NavItem[] = [
 ];
 
 function browseSectionItems(): NavItem[] {
-  return [{ id: "anime", label: "Anime", icon: "Anime" }, ...browseItems];
+  return browseItems;
 }
 
 const libraryItems: NavItem[] = [

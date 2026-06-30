@@ -129,6 +129,22 @@ function AppContent() {
     [toggleStreaming],
   );
 
+  const searchableCatalog = useMemo(() => {
+    const seen = new Set<string>();
+    const out: StremioMetaPreview[] = [];
+    const push = (preview: StremioMetaPreview) => {
+      const key = `${preview.type}:${preview.id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(preview);
+    };
+    for (const preview of catalogIndex) push(preview);
+    for (const row of streamingRows) {
+      for (const item of row.items) push(item);
+    }
+    return out;
+  }, [catalogIndex, streamingRows]);
+
   useEffect(() => {
     const q = searchQuery.trim();
     if (!q) {
@@ -138,10 +154,10 @@ function AppContent() {
     }
     setScSearchLoading(true);
     const timer = setTimeout(() => {
+      const lower = q.toLowerCase();
       const localMatches =
         q.length >= 2
-          ? catalogIndex.filter((preview) => {
-              const lower = q.toLowerCase();
+          ? searchableCatalog.filter((preview) => {
               const slug = preview.slug?.toLowerCase().replace(/-/g, " ") ?? "";
               return (
                 preview.name.toLowerCase().includes(lower) || slug.includes(lower)
@@ -168,7 +184,7 @@ function AppContent() {
       clearTimeout(timer);
       setScSearchLoading(false);
     };
-  }, [searchQuery, catalogIndex]);
+  }, [searchQuery, searchableCatalog]);
 
   useEffect(() => {
     if (!isParent && (activeNav === "add" || activeNav === "manage" || activeNav === "settings" || activeNav === "activity")) {

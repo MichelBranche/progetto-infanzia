@@ -210,12 +210,16 @@ export function useStreamingCatalogs(profileId: string): UseStreamingCatalogsRes
       if (cancelled) return;
       applyScCatalog(payload);
       setScLoading(false);
+
+      if (payload.totalCount < 800 || payload.syncedAt <= 0) {
+        void refreshCatalog();
+      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [applyScCatalog]);
+  }, [applyScCatalog, refreshCatalog]);
 
   useEffect(() => {
     if (!STREMIO_ADDONS_ENABLED || addonsLoading || !profileId) {

@@ -973,6 +973,13 @@ pub fn fetch_catalog(db: &Database) -> Result<SaturnCatalogResponse, String> {
         });
     }
 
+    let cached_count = load_cached_index(db).map(|index| index.len()).unwrap_or(0);
+    if cached_count < 100 {
+        if let Ok(refreshed) = refresh_catalog_index(db) {
+            return Ok(refreshed);
+        }
+    }
+
     let rows = load_home_rows(db);
     let mut index = load_cached_index(db).unwrap_or_default();
     enrich_index_from_local_site(db, &mut index);
@@ -1038,7 +1045,7 @@ pub fn search_titles(db: &Database, query: &str) -> Vec<StremioMetaPreview> {
         return Vec::new();
     }
     let index = load_cached_index(db).unwrap_or_default();
-    index
+    let mut results: Vec<StremioMetaPreview> = index
         .into_iter()
         .filter(|p| {
             let name = if p.name.trim().is_empty() {
@@ -1056,6 +1063,74 @@ pub fn search_titles(db: &Database, query: &str) -> Vec<StremioMetaPreview> {
                 .unwrap_or_default();
             name.to_lowercase().contains(&q) || slug.to_lowercase().contains(&q)
         })
+        .collect();
+
+    if results.len() < 24 {
+        let online = search_titles_online(db, query);
+        let mut seen: HashSet<String> = results
+            .iter()
+            .map(|p| format!("{}:{}", p.r#type, p.id))
+            .collect();
+        for preview in online {
+            let key = format!("{}:{}", preview.r#type, preview.id);
+            if seen.insert(key) {
+                results.push(preview);
+            }
+        }
+    }
+
+    results
+}
+
+fn search_titles_online(db: &Database, query: &str) -> Vec<StremioMetaPreview> {
+    let trimmed = query.trim();
+    if trimmed.len() < 2 {
+        return Vec::new();
+    }
+    let client = match http_client() {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let base = app_url(db).trim_end_matches('/').to_string();
+    let encoded = urlencoding::encode(trimmed);
+    let url = format!("{base}/index.php?search=1&key={encoded}");
+    let body = match client
+        .get(&url)
+        .header("Accept", "text/html,application/json")
+        .send()
+        .and_then(|r| r.error_for_status())
+        .and_then(|r| r.text())
+    {
+        Ok(text) => text,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut cards: HashMap<String, SaturnCard> = HashMap::new();
+    ingest_html_page(&mut cards, &body);
+
+    if cards.is_empty() {
+        let slug_re =
+            Regex::new(r#"(?i)/anime/([^"/?#\s]+)"#).expect("saturn search slug regex");
+        for cap in slug_re.captures_iter(&body) {
+            let slug = cap
+                .get(1)
+                .map(|m| m.as_str().trim())
+                .unwrap_or_default()
+                .to_string();
+            if slug.is_empty() || slug.contains("ep-") {
+                continue;
+            }
+            ingest_card(&mut cards, minimal_card(slug.clone(), None));
+        }
+    }
+
+    cards
+        .values()
+        .filter(|card| {
+            is_browseable(card)
+                || (!card.is_upcoming && card.episode_count.is_none() && !card.slug.is_empty())
+        })
+        .map(|card| card_to_preview(db, card))
         .collect()
 }
 

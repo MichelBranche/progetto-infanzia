@@ -10,23 +10,40 @@ export interface BootCatalogPayload {
   error: string | null;
 }
 
+const MIN_CATALOG_COUNT = 800;
+const CATALOG_TTL_MS = 2 * 3600 * 1000;
+
 let cache: BootCatalogPayload | null = null;
 let inflight: Promise<BootCatalogPayload> | null = null;
+
+function isCacheFresh(payload: BootCatalogPayload): boolean {
+  if (payload.error) return false;
+  if (payload.totalCount < MIN_CATALOG_COUNT) return false;
+  if (payload.syncedAt <= 0) return false;
+  return Date.now() - payload.syncedAt * 1000 <= CATALOG_TTL_MS;
+}
+
+function isResponseStale(response: {
+  totalCount: number;
+  syncedAt: number;
+}): boolean {
+  return (
+    response.totalCount < MIN_CATALOG_COUNT ||
+    response.syncedAt <= 0 ||
+    Date.now() - response.syncedAt * 1000 > CATALOG_TTL_MS
+  );
+}
 
 async function loadCatalog(): Promise<BootCatalogPayload> {
   try {
     const response = await fetchScCatalog();
-    const stale =
-      response.totalCount < 800 ||
-      response.syncedAt <= 0 ||
-      Date.now() / 1000 - response.syncedAt > 2 * 3600;
 
     let rows = response.rows;
     let index = response.index;
     let syncedAt = response.syncedAt;
     let totalCount = response.totalCount;
 
-    if (stale) {
+    if (isResponseStale(response)) {
       const refreshed = await refreshScCatalog();
       rows = refreshed.rows;
       index = refreshed.index;
@@ -54,13 +71,26 @@ async function loadCatalog(): Promise<BootCatalogPayload> {
 
 /** Precarica il catalogo streaming (SC + Saturn) per la home. Idempotente. */
 export function prefetchBootCatalog(): Promise<BootCatalogPayload> {
-  if (cache) return Promise.resolve(cache);
-  if (!inflight) {
-    inflight = loadCatalog().then((payload) => {
-      cache = payload;
-      return payload;
-    });
+  if (cache && isCacheFresh(cache)) {
+    return Promise.resolve(cache);
   }
+
+  if (!inflight) {
+    inflight = loadCatalog()
+      .then((payload) => {
+        if (
+          isCacheFresh(payload) ||
+          payload.totalCount > (cache?.totalCount ?? 0)
+        ) {
+          cache = payload;
+        }
+        return payload;
+      })
+      .finally(() => {
+        inflight = null;
+      });
+  }
+
   return inflight;
 }
 

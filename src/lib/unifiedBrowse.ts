@@ -316,6 +316,43 @@ export interface UnifiedHomeRow {
   items: BrowseItem[];
 }
 
+function streamingCatalogHomeRows(
+  streamingRows: StreamingRow[],
+  usedStreamingIds: Set<string>,
+  markUsed: (items: BrowseItem[]) => void,
+): UnifiedHomeRow[] {
+  const rows: UnifiedHomeRow[] = [];
+
+  for (const streamRow of streamingRows) {
+    const items = streamRow.items
+      .filter(
+        (preview) =>
+          !usedStreamingIds.has(`${preview.type}:${preview.id}`),
+      )
+      .map((preview) =>
+        streamingBrowseItem(
+          enrichStreamingPreview(preview, {
+            rowKey: streamRow.key,
+            rowTitle: streamRow.title,
+          }),
+        ),
+      )
+      .slice(0, HOME_ROW_DISPLAY_LIMIT);
+
+    if (items.length < MIN_HOME_ROW_ITEMS) continue;
+
+    markUsed(items);
+    rows.push({
+      key: `streaming-row-${streamRow.key}`,
+      title: streamRow.title,
+      subtitle: streamRow.subtitle || "In streaming",
+      items,
+    });
+  }
+
+  return rows;
+}
+
 export function buildUnifiedHomeRows(
   collections: MediaCollection[],
   streamingRows: StreamingRow[],
@@ -353,6 +390,12 @@ export function buildUnifiedHomeRows(
       subtitle: "Riprendi da dove eri rimasto · Locale e streaming",
       items: continueRowItems,
     });
+  }
+
+  if (mergeStreaming) {
+    rows.push(
+      ...streamingCatalogHomeRows(streamingRows, usedStreamingIds, markUsed),
+    );
   }
 
   for (const collection of collections) {
