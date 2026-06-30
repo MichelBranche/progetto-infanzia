@@ -6,7 +6,7 @@ import { top10NumberPad, top10PosterWidth } from "../lib/useCardDimensions";
 import { prefetchScPreview } from "../lib/streamingPreviewCache";
 import { streamingPreviewDisplayName } from "../lib/streamingBrowse";
 import { usePreviewAudio } from "../context/PreviewAudioContext";
-import { CoverImage } from "./CoverImage";
+import { PreviewAudioToggle } from "./PreviewAudioToggle";
 import { StreamingVideoPreview } from "./StreamingVideoPreview";
 
 interface NetflixTop10RowProps {
@@ -26,7 +26,7 @@ export function NetflixTop10Row({
     top10PosterWidth(typeof window !== "undefined" ? window.innerWidth : 1024),
   );
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const { claimCardPreviewFocus, releaseCardPreviewFocus, isPreviewMuted } =
+  const { claimCardPreviewFocus, releaseCardPreviewFocus, isPreviewMuted, previewAudio, togglePreviewAudio } =
     usePreviewAudio();
 
   useEffect(() => {
@@ -40,7 +40,7 @@ export function NetflixTop10Row({
   const visibleItems = items.slice(0, 10);
   const posterHeight = Math.round(posterWidth * (3 / 2));
   const numberSize =
-    posterWidth >= 162 ? "8.5rem" : posterWidth >= 148 ? "7.75rem" : "6.75rem";
+    posterWidth >= 156 ? "7.25rem" : posterWidth >= 140 ? "6.5rem" : "5.75rem";
 
   const scroll = (direction: "left" | "right") => {
     const amount = Math.round(posterWidth * 2.8);
@@ -105,84 +105,97 @@ export function NetflixTop10Row({
         </div>
       </div>
 
-      <div
-        ref={scrollRef}
-        className="scrollbar-hide flex items-end gap-0.5 overflow-x-auto overflow-y-visible px-[var(--page-px)] pb-3 pt-1 sm:gap-1"
-      >
-        {visibleItems.map((preview, index) => {
-          const rank = index + 1;
-          const previewId = `top10:${preview.id}`;
-          const numberPad = top10NumberPad(rank, posterWidth);
-          const canPreview = preview.catalogPrefix === "sc" && !!preview.slug;
-          const isHovered = hoveredId === previewId;
+      <div className="overflow-visible px-[var(--page-px)] pb-2">
+        <div
+          ref={scrollRef}
+          className="scrollbar-hide flex items-end gap-3 overflow-x-auto overflow-y-visible pb-2 pt-1 sm:gap-4"
+        >
+          {visibleItems.map((preview, index) => {
+            const rank = index + 1;
+            const previewId = `top10:${preview.id}`;
+            const numberPad = top10NumberPad(rank, posterWidth);
+            const canPreview = preview.catalogPrefix === "sc" && !!preview.slug;
+            const isHovered = hoveredId === previewId;
 
-          return (
-            <button
-              key={`${preview.type}:${preview.id}`}
-              type="button"
-              onClick={() => onPlayStreaming(preview)}
-              onMouseEnter={() => handleItemEnter(preview)}
-              onMouseLeave={() => handleItemLeave(preview)}
-              className="group/item relative flex shrink-0 flex-col items-end"
-              style={{
-                width: numberPad + posterWidth,
-              }}
-            >
-              <div
-                className="relative flex items-end"
-                style={{ height: posterHeight + 18 }}
+            return (
+              <button
+                key={`${preview.type}:${preview.id}`}
+                type="button"
+                onClick={() => onPlayStreaming(preview)}
+                onMouseEnter={() => handleItemEnter(preview)}
+                onMouseLeave={() => handleItemLeave(preview)}
+                className="group/item relative flex shrink-0 flex-col items-end"
+                style={{
+                  width: numberPad + posterWidth,
+                }}
               >
-                <span
-                  aria-hidden
-                  className="pointer-events-none absolute bottom-[-6px] left-0 select-none font-display font-black leading-[0.82] tracking-[-0.06em] text-void sm:bottom-[-8px]"
-                  style={{
-                    fontSize: numberSize,
-                    WebkitTextStroke: "2px rgba(255,255,255,0.45)",
-                    paintOrder: "stroke fill",
-                    color: "transparent",
-                  }}
-                >
-                  {rank}
-                </span>
                 <div
-                  className="relative z-10 ml-auto overflow-hidden rounded-md bg-[#1a1a1a] shadow-[0_8px_24px_rgba(0,0,0,0.45)] ring-1 ring-white/10 transition-transform duration-200 group-hover/item:scale-[1.05] group-hover/item:ring-white/25"
-                  style={{ width: posterWidth, height: posterHeight }}
+                  className="relative flex w-full items-end"
+                  style={{ height: posterHeight }}
                 >
-                  {canPreview && isHovered && (
-                    <StreamingVideoPreview
-                      titleId={preview.id}
-                      slug={preview.slug!}
-                      active={isHovered}
-                      maxDurationSec={CARD_PREVIEW_SEC}
-                      muted={isPreviewMuted(previewId, isHovered)}
-                      className="absolute inset-0 z-[1] h-full w-full object-cover"
-                    />
-                  )}
-                  <CoverImage
-                    src={preview.poster}
-                    alt=""
-                    className="h-full w-full"
-                    imgClassName={`transition-opacity duration-200 ${
-                      canPreview && isHovered ? "opacity-0" : ""
-                    }`}
-                    fallback={
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute bottom-0 left-0 z-[5] select-none font-display font-black leading-[0.82] tracking-[-0.06em]"
+                    style={{
+                      fontSize: numberSize,
+                      color: "#060608",
+                      WebkitTextStroke: "2.5px rgba(255,255,255,0.6)",
+                      paintOrder: "stroke fill",
+                    }}
+                  >
+                    {rank}
+                  </span>
+                  <div
+                    className="relative z-[2] ml-auto shrink-0 overflow-hidden rounded-md bg-[#1a1a1a] shadow-[0_8px_24px_rgba(0,0,0,0.45)] ring-1 ring-white/10 transition-transform duration-200 group-hover/item:scale-[1.05] group-hover/item:ring-white/25"
+                    style={{ width: posterWidth, height: posterHeight }}
+                  >
+                    {canPreview && isHovered && (
+                      <StreamingVideoPreview
+                        titleId={preview.id}
+                        slug={preview.slug!}
+                        active={isHovered}
+                        maxDurationSec={CARD_PREVIEW_SEC}
+                        muted={isPreviewMuted(previewId, isHovered)}
+                        className="absolute inset-0 z-[1] h-full w-full object-cover"
+                      />
+                    )}
+                    {preview.poster ? (
+                      <img
+                        src={preview.poster}
+                        alt=""
+                        loading="eager"
+                        decoding="async"
+                        className={`h-full w-full object-cover transition-opacity duration-200 ${
+                          canPreview && isHovered ? "opacity-0" : ""
+                        }`}
+                      />
+                    ) : (
                       <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-indigo-950 to-violet-950 px-2 text-center text-[11px] text-white/70">
                         {streamingPreviewDisplayName(preview)}
                       </div>
-                    }
-                  />
-                  <div className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity group-hover/item:opacity-100" />
+                    )}
+                    <div className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity group-hover/item:opacity-100" />
+                    {canPreview && isHovered && (
+                      <div className="absolute right-1.5 top-1.5 z-[10]">
+                        <PreviewAudioToggle
+                          enabled={previewAudio}
+                          onToggle={togglePreviewAudio}
+                          className="!h-8 !w-8"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <p
-                className="title-clip mt-1.5 w-full pr-0.5 text-right text-[11px] font-medium leading-tight text-text-primary sm:text-[12px]"
-                style={{ maxWidth: posterWidth + numberPad }}
-              >
-                {streamingPreviewDisplayName(preview)}
-              </p>
-            </button>
-          );
-        })}
+                <p
+                  className="title-clip mt-1.5 w-full pr-0.5 text-right text-[11px] font-medium leading-tight text-text-primary sm:text-[12px]"
+                  style={{ maxWidth: posterWidth + numberPad }}
+                >
+                  {streamingPreviewDisplayName(preview)}
+                </p>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </section>
   );

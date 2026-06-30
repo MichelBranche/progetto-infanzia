@@ -69,6 +69,8 @@ export function MediaCard({
   const isSeries =
     browse.kind === "series" ||
     (isStreaming && isStreamingSeries(browse.preview));
+  const hasVideoPreview =
+    isScPreview || (!isStreaming && !isSeries);
   const progress =
     browse.kind === "media"
       ? watchProgressPercent(browse.item)
@@ -130,12 +132,13 @@ export function MediaCard({
   };
 
   useEffect(() => {
-    if (!expanded || isSeries || (isStreaming && !isScPreview)) return;
+    if (!expanded) return;
     if (isScPreview && scPreview) {
       prefetchScPreview(scPreview.titleId, scPreview.slug);
       claimCardPreviewFocus(previewMedia.id);
       return () => releaseCardPreviewFocus(previewMedia.id);
     }
+    if (isSeries || isStreaming) return;
     claimCardPreviewFocus(previewMedia.id);
     return () => releaseCardPreviewFocus(previewMedia.id);
   }, [
@@ -182,11 +185,11 @@ export function MediaCard({
               </span>
             )}
           </div>
-          <div className="px-1 py-2.5">
-            <h3 className="title-clip text-[13px] font-medium leading-tight text-text-primary sm:text-[14px]">
+          <div className="px-1 py-2">
+            <h3 className="title-clip text-[12px] font-medium leading-tight text-text-primary">
               {title}
             </h3>
-            <p className="title-clip mt-0.5 text-[11px] text-text-muted">
+            <p className="title-clip mt-0.5 text-[10px] text-text-muted">
               {browse.kind === "series"
                 ? `${browse.episodeCount} episodi`
                 : isStreaming
@@ -266,9 +269,7 @@ export function MediaCard({
               item={item}
               variant="browse"
               className={
-                expanded && !isSeries && (!isStreaming || isScPreview)
-                  ? "opacity-0"
-                  : undefined
+                expanded && hasVideoPreview ? "opacity-0" : undefined
               }
             />
             <div className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-t from-black/80 via-black/15 to-transparent" />
@@ -313,6 +314,16 @@ export function MediaCard({
               <span className="absolute left-1.5 top-1.5 rounded bg-black/65 px-1.5 py-0.5 text-[9px] font-medium text-white/90">
                 {item.tag}
               </span>
+            )}
+
+            {expanded && hasVideoPreview && (
+              <div className="absolute right-2 top-2 z-[4]">
+                <PreviewAudioToggle
+                  enabled={previewAudio}
+                  onToggle={togglePreviewAudio}
+                  className="!h-8 !w-8"
+                />
+              </div>
             )}
 
             {expanded && (
@@ -360,13 +371,6 @@ export function MediaCard({
                       <Plus className="h-3 w-3" strokeWidth={2} />
                     )}
                   </button>
-                )}
-                {!isSeries && (!isStreaming || isScPreview) && (
-                  <PreviewAudioToggle
-                    enabled={previewAudio}
-                    onToggle={togglePreviewAudio}
-                    className="!h-7 !w-7 shrink-0"
-                  />
                 )}
                 {onEdit && !isSeries && !isStreaming && (
                   <button

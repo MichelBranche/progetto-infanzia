@@ -14,8 +14,7 @@ import { WatchPage } from "./components/WatchPage";
 import { AddMediaPage } from "./components/AddMediaPage";
 import { SeriesDetailPage } from "./components/SeriesDetailPage";
 import { ManageLibraryPage } from "./components/ManageLibraryPage";
-import { MyListPage } from "./components/MyListPage";
-import { FriendsPage } from "./components/FriendsPage";
+import { ProfilePage, type ProfileTab } from "./components/ProfilePage";
 import { VideoPlayer } from "./components/VideoPlayer";
 import { SettingsPage } from "./components/SettingsPage";
 import { ParentalActivityPage } from "./components/ParentalActivityPage";
@@ -73,6 +72,7 @@ function AppContent() {
   } = useLibrary();
 
   const [activeNav, setActiveNav] = useState("home");
+  const [profileTab, setProfileTab] = useState<ProfileTab>("watched");
   const [searchOpen, setSearchOpen] = useState(false);
   const [scSearchLoading, setScSearchLoading] = useState(false);
   const [watchingId, setWatchingId] = useState<string | null>(null);
@@ -197,6 +197,23 @@ function AppContent() {
   const handleNav = (id: string) => {
     if ((id === "add" || id === "manage" || id === "settings" || id === "activity") && !isParent) return;
     setSeriesKey(null);
+    if (id === "mylist") {
+      setProfileTab("list");
+      setSearchOpen(false);
+      setSearchQuery("");
+      setActiveNav("profile");
+      return;
+    }
+    if (id === "friends") {
+      setProfileTab("friends");
+      setSearchOpen(false);
+      setSearchQuery("");
+      setActiveNav("profile");
+      return;
+    }
+    if (id === "profile") {
+      setProfileTab("watched");
+    }
     if (id === "search") {
       setSearchOpen(true);
       setActiveNav("search");
@@ -275,7 +292,7 @@ function AppContent() {
   );
 
   const sidebarBadges = useMemo(
-    () => (myListCount > 0 ? { mylist: myListCount } : undefined),
+    () => (myListCount > 0 ? { profile: myListCount } : undefined),
     [myListCount],
   );
 
@@ -355,7 +372,13 @@ function AppContent() {
       return;
     }
 
-    const resumeVideoId = preview.resumeVideoId;
+    const resumeVideoId =
+      preview.resumeVideoId?.trim() ||
+      (preview.type === "movie" &&
+      preview.watchPosition != null &&
+      preview.watchPosition > 5
+        ? preview.id
+        : undefined);
 
     if (preview.catalogPrefix === "sc") {
       if (!preview.slug) return;
@@ -502,7 +525,7 @@ function AppContent() {
         hasAnime={hasSaturnCatalog}
       />
 
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <Header
           profile={activeProfile}
           searchQuery={searchQuery}
@@ -610,26 +633,24 @@ function AppContent() {
                   />
                 )}
 
-                {!seriesKey && activeNav === "friends" && (
-                  <FriendsPage
+                {!seriesKey && activeNav === "profile" && library && (
+                  <ProfilePage
+                    profile={activeProfile}
                     profileId={activeProfile.id}
-                    profileName={activeProfile.name}
-                    onJoinSession={(session) => {
-                      setPartyGuestSession(session);
-                    }}
-                  />
-                )}
-
-                {!seriesKey && activeNav === "mylist" && library && (
-                  <MyListPage
+                    activeTab={profileTab}
+                    onTabChange={setProfileTab}
+                    libraryItems={library.items}
                     localFavorites={localFavorites}
-                    streamingItems={streamingList}
+                    streamingList={streamingList}
                     streamingListKeys={streamingListKeys}
                     onPlay={handlePlay}
                     onPlayStreaming={handlePlayStreaming}
                     onToggleFavorite={toggleFavorite}
                     onToggleStreamingList={handleToggleStreamingList}
                     onEdit={isParent ? (id) => setEditingId(id) : undefined}
+                    onJoinSession={(session) => {
+                      setPartyGuestSession(session);
+                    }}
                   />
                 )}
 
@@ -703,7 +724,10 @@ function AppContent() {
                               }
                               onActionClick={
                                 row.key === "favorites"
-                                  ? () => handleNav("mylist")
+                                  ? () => {
+                                      setProfileTab("list");
+                                      setActiveNav("profile");
+                                    }
                                   : undefined
                               }
                               onEdit={
@@ -729,10 +753,9 @@ function AppContent() {
                 {!seriesKey &&
                   activeNav !== "home" &&
                   activeNav !== "anime" &&
+                  activeNav !== "profile" &&
                   activeNav !== "add" &&
                   activeNav !== "manage" &&
-                  activeNav !== "mylist" &&
-                  activeNav !== "friends" &&
                   activeNav !== "settings" &&
                   activeNav !== "streaming" && (
                   <>

@@ -182,6 +182,16 @@ export async function getStreamingWatchProgress(
   );
 }
 
+export async function getStreamingWatchHistory(
+  profileId: string,
+  limit = 50,
+): Promise<StreamingContinueItem[]> {
+  return invoke<StreamingContinueItem[]>("get_streaming_watch_history_cmd", {
+    profileId,
+    limit,
+  });
+}
+
 export async function getStreamingContinue(
   profileId: string,
   limit = 20,

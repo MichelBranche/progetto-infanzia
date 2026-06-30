@@ -306,7 +306,7 @@ export function StreamingPage({
               <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            <div className="browse-grid">
               {items.map((item) => (
                 <button
                   key={`${item.type}-${item.id}`}

@@ -73,7 +73,7 @@ export function SearchOverlay({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          className="fixed inset-x-0 bottom-0 top-[4.5rem] z-[25] bg-void sm:top-[5.25rem]"
+          className="absolute inset-x-0 bottom-0 top-[4.5rem] z-[25] bg-void sm:top-[5.25rem]"
           aria-hidden={!open}
         >
           <div className="flex h-full min-h-0 flex-col">
@@ -206,7 +206,7 @@ function SearchGrid({
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      className="page-px grid grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5"
+      className="page-px browse-grid"
     >
       {items.map((browse, i) => (
         <MediaCard

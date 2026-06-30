@@ -306,7 +306,9 @@ export function AddonWatchPage({
 
   useEffect(() => {
     if (!meta || !initialVideoId || loading) return;
-    void startPlayback(initialVideoId, meta.name);
+    const video = meta.videos.find((v) => v.id === initialVideoId);
+    const title = video?.title?.trim() || meta.name;
+    void startPlayback(initialVideoId, title);
   }, [meta, initialVideoId, loading, startPlayback]);
 
   if (!STREMIO_ADDONS_ENABLED && !isBuiltinStreamingCatalog(catalogPrefix)) {

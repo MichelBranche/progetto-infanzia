@@ -213,7 +213,10 @@ export function VideoPlayer({
             contentType: remotePlayback.contentType,
             titleId: remotePlayback.titleId,
             slug: remotePlayback.slug,
-            videoId: remotePlayback.videoId,
+            videoId:
+              remotePlayback.videoId?.trim() ||
+              remotePlayback.titleId ||
+              media.id,
             titleName: remotePlayback.titleName ?? media.title,
             episodeLabel: remotePlayback.episodeLabel,
             poster: remotePlayback.poster ?? media.posterUrl,

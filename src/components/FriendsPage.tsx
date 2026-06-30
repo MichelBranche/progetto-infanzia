@@ -22,12 +22,14 @@ import type { FriendRecord, WatchPartySession } from "../types/watchParty";
 interface FriendsPageProps {
   profileId: string;
   profileName: string;
+  embedded?: boolean;
   onJoinSession?: (session: WatchPartySession) => void;
 }
 
 export function FriendsPage({
   profileId,
   profileName,
+  embedded = false,
   onJoinSession,
 }: FriendsPageProps) {
   const { profile: cloudProfile, configured: cloudConfigured } = useCloudAccount();
@@ -140,7 +142,9 @@ export function FriendsPage({
 
   if (loading) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center pt-24">
+      <div
+        className={`flex min-h-[50vh] items-center justify-center ${embedded ? "py-16" : "pt-24"}`}
+      >
         <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
       </div>
     );
@@ -148,18 +152,22 @@ export function FriendsPage({
 
   return (
     <>
-      <div className="page-px pb-16 pt-24 sm:pt-28">
-        <div className="mb-8 flex items-center gap-3">
-          <Users className="h-5 w-5 text-accent" />
-          <div>
-            <h2 className="font-display text-3xl font-semibold tracking-[-0.03em] text-text-primary">
-              Amici
-            </h2>
-            <p className="mt-1 text-[14px] text-text-secondary">
-              In casa con il codice locale, ovunque con l&apos;account email
-            </p>
+      <div
+        className={`page-px pb-16 ${embedded ? "pt-2" : "pt-24 sm:pt-28"}`}
+      >
+        {!embedded && (
+          <div className="mb-8 flex items-center gap-3">
+            <Users className="h-5 w-5 text-accent" />
+            <div>
+              <h2 className="font-display text-3xl font-semibold tracking-[-0.03em] text-text-primary">
+                Amici
+              </h2>
+              <p className="mt-1 text-[14px] text-text-secondary">
+                In casa con il codice locale, ovunque con l&apos;account email
+              </p>
+            </div>
           </div>
-        </div>
+        )}
 
         {error && (
           <p className="mb-6 rounded-xl border border-warm/20 bg-warm/10 px-4 py-3 text-[13px] text-warm">

@@ -36,7 +36,7 @@ export function MediaGrid({
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="page-px grid grid-cols-2 gap-x-3 gap-y-8 pt-6 pb-16 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
+      className="page-px browse-grid pt-6 pb-16"
     >
       {items.map((browse, i) => (
         <MediaCard

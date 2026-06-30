@@ -1,6 +1,6 @@
 import { Film, Sparkles, Tv } from "lucide-react";
+import { useState } from "react";
 import type { MediaItem } from "../types/media";
-import { CoverImage } from "./CoverImage";
 
 export type PosterVariant = "browse" | "episode";
 
@@ -27,18 +27,24 @@ export function PosterImage({
   className = "",
 }: PosterImageProps) {
   const posterUrl = posterUrlFor(item, variant);
+  const [failed, setFailed] = useState(false);
+
+  if (!posterUrl || failed) {
+    return (
+      <div
+        className={`absolute inset-0 bg-gradient-to-br ${item.gradient} ${className}`}
+      />
+    );
+  }
 
   return (
-    <CoverImage
+    <img
       src={posterUrl}
       alt={item.title}
-      className={`absolute inset-0 ${className}`}
-      imgClassName="absolute inset-0"
-      fallback={
-        <div
-          className={`absolute inset-0 bg-gradient-to-br ${item.gradient} ${className}`}
-        />
-      }
+      loading="eager"
+      decoding="async"
+      onError={() => setFailed(true)}
+      className={`absolute inset-0 h-full w-full object-cover ${className}`}
     />
   );
 }

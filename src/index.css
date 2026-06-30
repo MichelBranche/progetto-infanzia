@@ -107,6 +107,9 @@ body {
   --card-collapsed: 148px;
   --card-expanded: 288px;
   --card-title-slot: 38px;
+  --sidebar-collapsed: 56px;
+  --sidebar-expanded: 220px;
+  --sidebar-layout-width: var(--sidebar-collapsed);
 }
 
 @media (min-width: 640px) {
@@ -138,6 +141,27 @@ body {
 .page-px {
   padding-left: var(--page-px);
   padding-right: var(--page-px);
+}
+
+/* Griglia catalogo: card compatte, max ~140px — evita poster sgranati */
+.browse-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 132px));
+  gap: 1.25rem 0.625rem;
+  justify-content: start;
+}
+
+@media (min-width: 640px) {
+  .browse-grid {
+    grid-template-columns: repeat(auto-fill, minmax(112px, 136px));
+    gap: 1.5rem 0.75rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  .browse-grid {
+    grid-template-columns: repeat(auto-fill, minmax(116px, 140px));
+  }
 }
 
 /* Custom subtitle overlay in VideoPlayer — hide native browser captions */

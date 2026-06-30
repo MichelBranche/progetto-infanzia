@@ -256,7 +256,12 @@ export function browseItemId(item: BrowseItem) {
     return `series-${seriesKey(item.series.mediaType, item.series.seriesTitle)}`;
   }
   if (item.kind === "streaming") {
-    return `streaming-${item.preview.type}-${item.preview.id}`;
+    const base = `streaming-${item.preview.type}-${item.preview.id}`;
+    const vid = item.preview.resumeVideoId?.trim();
+    if (vid && vid !== item.preview.id) {
+      return `${base}-${vid}`;
+    }
+    return base;
   }
   return item.item.id;
 }

@@ -15,6 +15,7 @@ import {
   Tv,
   Wifi,
   Users,
+  User,
   type LucideIcon,
 } from "lucide-react";
 import { getNavSections, type NavItem } from "../data/nav";
@@ -24,8 +25,8 @@ import { roleLabel } from "../types/profile";
 import { ProfileAvatar } from "./ProfileAvatar";
 
 const SIDEBAR_PIN_KEY = "branchefy-sidebar-pinned";
-const COLLAPSED_W = 56;
-const EXPANDED_W = 220;
+export const SIDEBAR_COLLAPSED_W = 56;
+export const SIDEBAR_EXPANDED_W = 220;
 
 const iconMap: Record<string, LucideIcon> = {
   Home,
@@ -40,6 +41,7 @@ const iconMap: Record<string, LucideIcon> = {
   Clock,
   Wifi,
   Users,
+  User,
   Anime: Clapperboard,
 };
 
@@ -161,6 +163,9 @@ export function Sidebar({
   const [hovered, setHovered] = useState(false);
 
   const expanded = pinned || hovered;
+  const layoutWidth = pinned ? SIDEBAR_EXPANDED_W : SIDEBAR_COLLAPSED_W;
+  const panelWidth = expanded ? SIDEBAR_EXPANDED_W : SIDEBAR_COLLAPSED_W;
+  const isFlyout = expanded && !pinned;
 
   useEffect(() => {
     try {
@@ -170,18 +175,35 @@ export function Sidebar({
     }
   }, [pinned]);
 
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      "--sidebar-layout-width",
+      `${layoutWidth}px`,
+    );
+  }, [layoutWidth]);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const onChange = () => {
+      if (mq.matches) setPinned(false);
+    };
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
   return (
     <aside
-      className="relative z-30 h-full shrink-0"
-      style={{ width: COLLAPSED_W }}
+      className="relative z-30 h-full shrink-0 transition-[width] duration-200 ease-out"
+      style={{ width: layoutWidth }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       <div
-        className={`absolute inset-y-0 left-0 flex flex-col overflow-hidden border-r border-white/[0.08] bg-void/75 shadow-[4px_0_32px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-[width] duration-200 ease-out ${
-          expanded ? "z-40" : "z-30"
+        className={`flex h-full flex-col overflow-hidden border-r border-white/[0.08] bg-void/90 shadow-[4px_0_32px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-[width] duration-200 ease-out ${
+          isFlyout ? "absolute inset-y-0 left-0 z-50" : "relative"
         }`}
-        style={{ width: expanded ? EXPANDED_W : COLLAPSED_W }}
+        style={{ width: panelWidth }}
       >
         <div
           className={`flex shrink-0 items-center pt-6 pb-5 ${
@@ -276,17 +298,26 @@ export function Sidebar({
               expanded ? "gap-2.5 px-2 py-2" : "justify-center p-1.5"
             }`}
           >
-            <ProfileAvatar profile={profile} size="sm" />
-            {expanded && (
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[12px] font-medium text-text-primary">
-                  {profile.name}
-                </p>
-                <p className="truncate text-[10px] text-text-muted">
-                  {roleLabel(profile.role)}
-                </p>
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={() => onNavigate("profile")}
+              className={`flex min-w-0 flex-1 items-center rounded-lg transition-colors hover:bg-white/[0.04] ${
+                expanded ? "gap-2.5" : "justify-center"
+              }`}
+              title="Il mio profilo"
+            >
+              <ProfileAvatar profile={profile} size="sm" />
+              {expanded && (
+                <div className="min-w-0 flex-1 text-left">
+                  <p className="truncate text-[12px] font-medium text-text-primary">
+                    {profile.name}
+                  </p>
+                  <p className="truncate text-[10px] text-text-muted">
+                    {roleLabel(profile.role)}
+                  </p>
+                </div>
+              )}
+            </button>
           </div>
         </div>
       </div>

@@ -15,7 +15,8 @@ export type NavIcon =
   | "Clock"
   | "Wifi"
   | "Users"
-  | "Anime";
+  | "Anime"
+  | "User";
 
 export interface NavItem {
   id: string;
@@ -32,6 +33,7 @@ export interface NavSection {
 
 const primaryItems: NavItem[] = [
   { id: "home", label: "Home", icon: "Home" },
+  { id: "profile", label: "Profilo", icon: "User" },
   ...(STREMIO_ADDONS_ENABLED
     ? [{ id: "streaming", label: "In streaming", icon: "Wifi" as const }]
     : []),
@@ -42,8 +44,6 @@ const browseItems: NavItem[] = [
   { id: "cartoni", label: "Cartoni", icon: "Sparkles" },
   { id: "serie", label: "Serie TV", icon: "Tv" },
   { id: "capsula", label: "Capsula del tempo", icon: "Clock" },
-  { id: "mylist", label: "La mia Lista", icon: "Library" },
-  { id: "friends", label: "Amici", icon: "Users" },
   { id: "search", label: "Cerca", icon: "Search" },
 ];
 
@@ -124,6 +124,10 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
     manage: {
       title: "Gestisci libreria",
       subtitle: "Modifica ed elimina titoli dalla libreria",
+    },
+    profile: {
+      title: "Profilo",
+      subtitle: "Titoli guardati, lista personale e amici",
     },
     mylist: {
       title: "La mia Lista",

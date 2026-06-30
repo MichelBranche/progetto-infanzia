@@ -6,7 +6,6 @@ import {
   streamingBrowseItem,
   streamingPreviewDisplayName,
 } from "../lib/streamingBrowse";
-import { CoverImage } from "./CoverImage";
 import { LoadingSpinner } from "./LoadingSpinner";
 
 interface AnimePageProps {
@@ -62,18 +61,15 @@ const AnimeTile = memo(function AnimeTile({
       }
       onClick={() => onPlay(preview)}
       className="group w-full cursor-pointer text-left"
-      style={{
-        contentVisibility: "auto",
-        containIntrinsicSize: "0 280px",
-      }}
     >
       <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-[#14141c] ring-1 ring-white/[0.06] transition group-hover:ring-white/15">
         {preview.poster ? (
-          <CoverImage
+          <img
             src={preview.poster}
             alt={title}
-            className="absolute inset-0"
-            imgClassName="transition-transform duration-300 group-hover:scale-[1.03]"
+            loading="eager"
+            decoding="async"
+            className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-indigo-950 to-violet-950 px-3 text-center text-[12px] text-white/70">
@@ -175,7 +171,7 @@ export function AnimePage({
           Nessun anime disponibile. Aggiorna il catalogo dalle impostazioni.
         </p>
       ) : (
-        <div className="mt-8 grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <div className="mt-8 page-px browse-grid">
           {animePreviews.map((preview, index) => (
             <AnimeTile
               key={`${preview.type}:${preview.id}`}

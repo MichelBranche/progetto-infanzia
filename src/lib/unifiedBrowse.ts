@@ -253,11 +253,38 @@ export function mergeContinueBrowseItems(
   localItems: MediaItem[],
   continueItems: StreamingContinueItem[],
 ): BrowseItem[] {
-  const local = toBrowseItems(localItems);
   const streaming = continueItems.map((item) =>
     streamingBrowseItem(enrichStreamingPreview(continueToPreview(item))),
   );
-  return dedupeBrowseItems([...local, ...streaming]);
+  const local = toBrowseItems(localItems);
+  return dedupeContinueBrowseItems([...streaming, ...local]);
+}
+
+function continueItemScore(item: BrowseItem): number {
+  if (item.kind === "streaming") {
+    const pos = item.preview.watchPosition ?? 0;
+    if (pos > 5) return 3;
+    if (item.preview.resumeVideoId) return 2;
+    return 1;
+  }
+  if (item.kind === "media" && isWatchInProgress(item.item)) return 2;
+  if (item.kind === "series") {
+    const rep = item.representative;
+    if (isWatchInProgress(rep)) return 2;
+  }
+  return 0;
+}
+
+function dedupeContinueBrowseItems(items: BrowseItem[]): BrowseItem[] {
+  const byId = new Map<string, BrowseItem>();
+  for (const item of items) {
+    const id = browseItemId(item);
+    const existing = byId.get(id);
+    if (!existing || continueItemScore(item) > continueItemScore(existing)) {
+      byId.set(id, item);
+    }
+  }
+  return [...byId.values()];
 }
 
 function compareContinueUpdated(a: MediaItem, b: MediaItem) {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { LoadingSpinner } from "./LoadingSpinner";
 
 interface CoverImageProps {
@@ -18,14 +18,30 @@ export function CoverImage({
   imgClassName = "",
   fallback,
   spinnerSize = "sm",
-  loading = "lazy",
+  loading = "eager",
 }: CoverImageProps) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
-    setLoaded(false);
     setFailed(false);
+    setLoaded(false);
+
+    const img = imgRef.current;
+    if (!img || !src) return;
+
+    const markLoaded = () => {
+      if (img.naturalWidth > 0) setLoaded(true);
+    };
+
+    if (img.complete) {
+      markLoaded();
+      return;
+    }
+
+    img.addEventListener("load", markLoaded);
+    return () => img.removeEventListener("load", markLoaded);
   }, [src]);
 
   const showImage = Boolean(src) && !failed;
@@ -33,24 +49,24 @@ export function CoverImage({
 
   return (
     <div className={`relative overflow-hidden ${className}`}>
-      {showSpinner && (
-        <div className="absolute inset-0 z-[1] flex items-center justify-center bg-[#14141c]">
-          <LoadingSpinner size={spinnerSize} />
-        </div>
-      )}
-
       {showImage ? (
-        <img
-          src={src!}
-          alt={alt}
-          loading={loading}
-          decoding="async"
-          onLoad={() => setLoaded(true)}
-          onError={() => setFailed(true)}
-          className={`h-full w-full object-cover transition-opacity duration-300 ${
-            loaded ? "opacity-100" : "opacity-0"
-          } ${imgClassName}`}
-        />
+        <>
+          <img
+            ref={imgRef}
+            src={src!}
+            alt={alt}
+            loading={loading}
+            decoding="async"
+            onLoad={() => setLoaded(true)}
+            onError={() => setFailed(true)}
+            className={`h-full w-full object-cover ${imgClassName}`}
+          />
+          {showSpinner && (
+            <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center bg-black/30">
+              <LoadingSpinner size={spinnerSize} />
+            </div>
+          )}
+        </>
       ) : (
         fallback
       )}

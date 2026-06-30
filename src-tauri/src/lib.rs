@@ -895,6 +895,17 @@ fn get_streaming_continue_cmd(
 }
 
 #[tauri::command]
+fn get_streaming_watch_history_cmd(
+    state: State<'_, AppState>,
+    profile_id: String,
+    limit: Option<usize>,
+) -> Result<Vec<StreamingContinueItem>, String> {
+    state
+        .db
+        .list_streaming_watch_history(&profile_id, limit.unwrap_or(50))
+}
+
+#[tauri::command]
 fn get_debrid_config_cmd(state: State<'_, AppState>) -> Result<DebridConfig, String> {
     state.db.get_debrid_config()
 }
@@ -1606,6 +1617,7 @@ pub fn run() {
             update_streaming_watch_progress_cmd,
             get_streaming_watch_progress_cmd,
             get_streaming_continue_cmd,
+            get_streaming_watch_history_cmd,
             can_play_addon_cmd,
             get_addon_allowlist_cmd,
             set_addon_allowlist_cmd,

@@ -718,6 +718,46 @@ impl Database {
             .map_err(|e| e.to_string())
     }
 
+    pub fn list_streaming_watch_history(
+        &self,
+        profile_id: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::stremio::StreamingContinueItem>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT catalog_prefix, content_type, title_id, slug, video_id,
+                        title_name, episode_label, poster_url,
+                        position_secs, duration_secs, updated_at
+                 FROM streaming_watch_progress
+                 WHERE profile_id = ?1 AND position_secs > 5
+                 ORDER BY updated_at DESC
+                 LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map(params![profile_id, limit as i64], |row| {
+                Ok(crate::stremio::StreamingContinueItem {
+                    catalog_prefix: row.get(0)?,
+                    content_type: row.get(1)?,
+                    title_id: row.get(2)?,
+                    slug: row.get(3)?,
+                    video_id: row.get(4)?,
+                    title_name: row.get(5)?,
+                    episode_label: row.get(6)?,
+                    poster: row.get(7)?,
+                    position_secs: row.get(8)?,
+                    duration_secs: row.get(9)?,
+                    updated_at: row.get(10)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
+    }
+
     pub fn toggle_favorite(&self, profile_id: &str, media_id: &str) -> Result<bool, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let exists: i32 = conn

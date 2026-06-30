@@ -50,14 +50,14 @@ export function useCardDimensions(): CardDimensions {
 }
 
 export function top10PosterWidth(viewportWidth: number): number {
-  if (viewportWidth >= 1280) return 188;
-  if (viewportWidth >= 1024) return 176;
-  if (viewportWidth >= 640) return 164;
-  return 148;
+  if (viewportWidth >= 1280) return 168;
+  if (viewportWidth >= 1024) return 156;
+  if (viewportWidth >= 640) return 144;
+  return 128;
 }
 
 export function top10NumberPad(rank: number, posterWidth: number): number {
-  const scale = posterWidth / 148;
-  const base = [0, 40, 60, 72, 80, 88, 94, 100, 106, 112, 118];
-  return Math.round((base[rank] ?? 118) * scale);
+  const scale = posterWidth / 128;
+  const base = [0, 48, 68, 80, 88, 96, 102, 108, 114, 120, 126];
+  return Math.round((base[rank] ?? 126) * scale);
 }
