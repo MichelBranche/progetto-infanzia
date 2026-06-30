@@ -123,8 +123,9 @@ grant execute on function public.lookup_friend_by_email(text) to authenticated;
 
 -- Realtime: replica identity per postgres_changes
 alter table public.watch_party_rooms replica identity full;
+alter table public.friend_requests replica identity full;
 
--- Aggiungi tabella a Realtime solo se non già presente
+-- Aggiungi tabelle a Realtime solo se non già presenti
 do $$
 begin
   if not exists (
@@ -135,5 +136,14 @@ begin
       and tablename = 'watch_party_rooms'
   ) then
     alter publication supabase_realtime add table public.watch_party_rooms;
+  end if;
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'friend_requests'
+  ) then
+    alter publication supabase_realtime add table public.friend_requests;
   end if;
 end $$;

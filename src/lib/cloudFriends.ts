@@ -206,6 +206,43 @@ export async function respondFriendRequest(
   if (error) throw new Error(error.message);
 }
 
+/** Realtime subscription for incoming requests and acceptance of outgoing ones. */
+export function subscribeFriendRequests(
+  userId: string,
+  onChange: () => void,
+): () => void {
+  const supabase = getSupabase();
+  if (!supabase) return () => {};
+
+  const channel = supabase
+    .channel(`friend-requests-${userId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "friend_requests",
+        filter: `addressee_id=eq.${userId}`,
+      },
+      () => onChange(),
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "friend_requests",
+        filter: `requester_id=eq.${userId}`,
+      },
+      () => onChange(),
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+}
+
 export async function removeCloudFriend(friendUserId: string): Promise<void> {
   const supabase = getSupabase();
   if (!supabase) throw new Error("Cloud non configurato");

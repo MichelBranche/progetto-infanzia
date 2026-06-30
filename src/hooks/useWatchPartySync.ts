@@ -179,7 +179,11 @@ export function useWatchPartySync({
               room.content.isHls,
             );
           }
-          applyRemoteSync(room.playing, room.positionSecs);
+          applyRemoteSync(
+            room.playing,
+            room.positionSecs,
+            room.updatedAt ? Date.parse(room.updatedAt) : undefined,
+          );
         }
       };
 
@@ -188,7 +192,13 @@ export function useWatchPartySync({
         if (content.streamUrl && content.contentKind !== "streaming") {
           onGuestContentRef.current?.(content.streamUrl, content.isHls);
         }
-        applyRemoteSync(session.room.playing, session.room.positionSecs);
+        applyRemoteSync(
+          session.room.playing,
+          session.room.positionSecs,
+          session.room.updatedAt
+            ? Date.parse(session.room.updatedAt)
+            : undefined,
+        );
       }
 
       let realtimeOk = false;

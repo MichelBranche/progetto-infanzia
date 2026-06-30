@@ -34,6 +34,7 @@ interface ProfilePageProps {
   onToggleStreamingList?: (preview: StremioMetaPreview) => void;
   onEdit?: (id: string) => void;
   onJoinSession?: (session: WatchPartySession) => void;
+  pendingFriendRequests?: number;
 }
 
 const tabs: { id: ProfileTab; label: string; icon: typeof Clock }[] = [
@@ -57,6 +58,7 @@ export function ProfilePage({
   onToggleStreamingList,
   onEdit,
   onJoinSession,
+  pendingFriendRequests = 0,
 }: ProfilePageProps) {
   const [streamingHistory, setStreamingHistory] = useState<
     Awaited<ReturnType<typeof getStreamingWatchHistory>>
@@ -118,12 +120,16 @@ export function ProfilePage({
         <div className="mt-8 flex gap-1 overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
           {tabs.map(({ id, label, icon: Icon }) => {
             const active = activeTab === id;
+            const tabBadge =
+              id === "friends" && pendingFriendRequests > 0
+                ? pendingFriendRequests
+                : undefined;
             return (
               <button
                 key={id}
                 type="button"
                 onClick={() => onTabChange(id)}
-                className={`flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-[13px] font-medium transition-colors ${
+                className={`relative flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-[13px] font-medium transition-colors ${
                   active
                     ? "bg-white/[0.08] text-text-primary ring-1 ring-white/[0.08]"
                     : "text-text-muted hover:bg-white/[0.04] hover:text-text-secondary"
@@ -131,6 +137,11 @@ export function ProfilePage({
               >
                 <Icon className="h-4 w-4" strokeWidth={1.5} />
                 {label}
+                {tabBadge != null && (
+                  <span className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-[10px] font-semibold text-white">
+                    {tabBadge > 9 ? "9+" : tabBadge}
+                  </span>
+                )}
               </button>
             );
           })}

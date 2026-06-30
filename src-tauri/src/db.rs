@@ -699,7 +699,14 @@ impl Database {
         video_id: &str,
     ) -> Result<Option<(f64, Option<f64>)>, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
-        let progress_key = format!("{catalog_prefix}:{content_type}:{title_id}:{slug}:{video_id}");
+        let progress_key = format!(
+            "{}:{}:{}:{}:{}",
+            catalog_prefix.trim(),
+            content_type.trim(),
+            title_id.trim(),
+            slug.trim(),
+            video_id.trim()
+        );
         let row = conn.query_row(
             "SELECT position_secs, duration_secs FROM streaming_watch_progress
              WHERE profile_id = ?1 AND progress_key = ?2",
@@ -733,8 +740,9 @@ impl Database {
             )
             .map_err(|e| e.to_string())?;
 
+        let fetch_limit = (limit.saturating_mul(4)).max(limit) as i64;
         let rows = stmt
-            .query_map(params![profile_id, limit as i64], |row| {
+            .query_map(params![profile_id, fetch_limit], |row| {
                 Ok(crate::stremio::StreamingContinueItem {
                     catalog_prefix: row.get(0)?,
                     content_type: row.get(1)?,
@@ -751,8 +759,17 @@ impl Database {
             })
             .map_err(|e| e.to_string())?;
 
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())
+        let mut items = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+        let mut seen_series = std::collections::HashSet::new();
+        items.retain(|item| {
+            let key = format!(
+                "{}:{}:{}:{}",
+                item.catalog_prefix, item.content_type, item.title_id, item.slug
+            );
+            seen_series.insert(key)
+        });
+        items.truncate(limit);
+        Ok(items)
     }
 
     pub fn list_streaming_watch_history(

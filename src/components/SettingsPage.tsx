@@ -7,6 +7,7 @@ import { fetchSettings, setMediaRoot, updateSettings } from "../lib/settingsApi"
 import { STREAMING_SERVICES } from "../data/streaming";
 import { ParentalLimitsPanel } from "./ParentalLimitsPanel";
 import { AppUpdaterSection } from "./AppUpdaterSection";
+import { CloudAuthPanel } from "./CloudAuthPanel";
 import { AddonManagerPanel } from "./AddonManagerPanel";
 import { DebridPanel } from "./DebridPanel";
 import { STREMIO_ADDONS_ENABLED } from "../lib/features";
@@ -168,6 +169,8 @@ export function SettingsPage({ profileId, onRescanComplete, onOpenManage }: Sett
       )}
 
       <div className="grid max-w-3xl gap-6">
+        <CloudAuthPanel />
+
         <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
           <div className="flex items-center gap-2 text-text-primary">
             <FolderOpen className="h-4 w-4 text-accent" />

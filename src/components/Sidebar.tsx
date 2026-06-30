@@ -50,6 +50,7 @@ interface SidebarProps {
   profile: Profile;
   onNavigate: (id: string) => void;
   badgeCounts?: Record<string, number>;
+  alertDots?: readonly string[];
 }
 
 function NavButton({
@@ -58,12 +59,14 @@ function NavButton({
   expanded,
   onNavigate,
   badgeCount,
+  showAlertDot,
 }: {
   item: NavItem;
   isActive: boolean;
   expanded: boolean;
   onNavigate: (id: string) => void;
   badgeCount?: number;
+  showAlertDot?: boolean;
 }) {
   const Icon = iconMap[item.icon];
   const showBadge = badgeCount != null && badgeCount > 0;
@@ -119,6 +122,9 @@ function NavButton({
             {badgeCount > 9 ? "9+" : badgeCount}
           </span>
         )}
+        {showAlertDot && !showBadge && (
+          <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-warm ring-2 ring-void" />
+        )}
       </span>
 
       <AnimatePresence>
@@ -148,6 +154,7 @@ export function Sidebar({
   profile,
   onNavigate,
   badgeCounts,
+  alertDots,
 }: SidebarProps) {
   const { hasStreaming } = useAddons();
   const sections = getNavSections(profile, hasStreaming);
@@ -262,6 +269,7 @@ export function Sidebar({
                     expanded={expanded}
                     onNavigate={onNavigate}
                     badgeCount={badgeCounts?.[item.id]}
+                    showAlertDot={alertDots?.includes(item.id)}
                   />
                 ))}
               </div>

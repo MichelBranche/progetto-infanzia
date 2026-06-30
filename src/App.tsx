@@ -327,11 +327,13 @@ function AppContent() {
   const sidebarBadges = useMemo(() => {
     const badges: Record<string, number> = {};
     if (myListCount > 0) badges.profile = myListCount;
-    if (pendingFriendRequests > 0) {
-      badges.profile = (badges.profile ?? 0) + pendingFriendRequests;
-    }
     return Object.keys(badges).length > 0 ? badges : undefined;
-  }, [myListCount, pendingFriendRequests]);
+  }, [myListCount]);
+
+  const sidebarAlertDots = useMemo(
+    () => (pendingFriendRequests > 0 ? ["profile"] as const : undefined),
+    [pendingFriendRequests],
+  );
 
   const { top10Row, otherRows: streamingRowsWithoutTop10 } = useMemo(
     () => splitTop10Row(streamingRows),
@@ -480,7 +482,11 @@ function AppContent() {
           catalogPrefix={streamingTarget.catalogPrefix}
           watchPartySession={partyGuestSession}
           onWatchPartySessionChange={setPartyGuestSession}
-          onBack={() => setPartyGuestSession(null)}
+          onBack={async () => {
+            setPartyGuestSession(null);
+            await refreshStreamingContinue();
+          }}
+          onRefreshContinue={refreshStreamingContinue}
         />
       );
     }
@@ -507,7 +513,10 @@ function AppContent() {
         isHls={guestContent.isHls}
         watchPartySession={partyGuestSession}
         onWatchPartySessionChange={setPartyGuestSession}
-        onBack={() => setPartyGuestSession(null)}
+        onBack={async () => {
+          setPartyGuestSession(null);
+          await refreshStreamingContinue();
+        }}
       />
     );
   }
@@ -579,6 +588,7 @@ function AppContent() {
         profile={activeProfile}
         onNavigate={handleNav}
         badgeCounts={sidebarBadges}
+        alertDots={sidebarAlertDots}
       />
 
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -709,6 +719,7 @@ function AppContent() {
                     onJoinSession={(session) => {
                       setPartyGuestSession(session);
                     }}
+                    pendingFriendRequests={pendingFriendRequests}
                   />
                 )}
 

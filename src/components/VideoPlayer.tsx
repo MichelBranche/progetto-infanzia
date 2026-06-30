@@ -148,6 +148,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const castDeviceRef = useRef<CastDevice | null>(null);
   const saveChainRef = useRef(Promise.resolve());
   const partySessionRef = useRef<WatchPartySession | null>(null);
+  const remoteSyncTargetRef = useRef<{ playing: boolean; position: number } | null>(
+    null,
+  );
+  const pendingGuestSeekRef = useRef<number | null>(null);
 
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(false);
@@ -492,12 +496,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   }, [streamUrl, isHls, partySession]);
 
   const handleRemoteSync = useCallback((nextPlaying: boolean, position: number) => {
+    remoteSyncTargetRef.current = { playing: nextPlaying, position };
     const video = videoRef.current;
     if (!video) return;
-    if (Math.abs(video.currentTime - position) > DRIFT_THRESHOLD_SEC) {
+
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      pendingGuestSeekRef.current = position;
+    } else if (Math.abs(video.currentTime - position) > DRIFT_THRESHOLD_SEC) {
       video.currentTime = position;
       setCurrentTime(position);
+      pendingGuestSeekRef.current = null;
     }
+
     if (nextPlaying && video.paused) {
       void video.play();
       setPlaying(true);
@@ -506,6 +516,37 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setPlaying(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (partySession?.role !== "guest") {
+      remoteSyncTargetRef.current = null;
+      pendingGuestSeekRef.current = null;
+      return;
+    }
+
+    const id = window.setInterval(() => {
+      const target = remoteSyncTargetRef.current;
+      const video = videoRef.current;
+      if (!target || !video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        return;
+      }
+
+      const drift = Math.abs(video.currentTime - target.position);
+      if (target.playing && drift > 0.2 && drift <= DRIFT_THRESHOLD_SEC) {
+        video.currentTime = target.position;
+        setCurrentTime(target.position);
+      }
+
+      if (pendingGuestSeekRef.current != null) {
+        const pending = pendingGuestSeekRef.current;
+        video.currentTime = pending;
+        setCurrentTime(pending);
+        pendingGuestSeekRef.current = null;
+      }
+    }, 400);
+
+    return () => window.clearInterval(id);
+  }, [partySession?.role]);
 
   const {
     members: partyMembers,

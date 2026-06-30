@@ -4,13 +4,14 @@ import { useNotifications } from "../context/NotificationContext";
 import {
   listAcceptedAsRequester,
   listPendingFriendRequests,
+  subscribeFriendRequests,
 } from "../lib/cloudFriends";
 
-const POLL_MS = 20_000;
+const POLL_FALLBACK_MS = 60_000;
 
 /**
- * Polls cloud friend requests and surfaces toasts for new incoming requests
- * and accepted outgoing requests. Also exposes pending count for sidebar badge.
+ * Realtime + slow polling for cloud friend requests.
+ * Surfaces toasts and exposes pending count for profile badge.
  */
 export function useCloudFriendAlerts() {
   const { profile } = useCloudAccount();
@@ -50,6 +51,11 @@ export function useCloudFriendAlerts() {
             });
           }
         }
+        for (const id of [...seenIncomingRef.current]) {
+          if (!incoming.some((r) => r.id === id)) {
+            seenIncomingRef.current.delete(id);
+          }
+        }
       }
 
       const acceptedKeys = acceptedAsRequester.map(
@@ -78,10 +84,16 @@ export function useCloudFriendAlerts() {
   }, [profile, notify]);
 
   useEffect(() => {
-    void poll();
     if (!profile) return;
-    const id = window.setInterval(() => void poll(), POLL_MS);
-    return () => window.clearInterval(id);
+
+    void poll();
+    const unsubscribe = subscribeFriendRequests(profile.id, () => void poll());
+    const id = window.setInterval(() => void poll(), POLL_FALLBACK_MS);
+
+    return () => {
+      unsubscribe();
+      window.clearInterval(id);
+    };
   }, [profile, poll]);
 
   const refresh = useCallback(() => void poll(), [poll]);
