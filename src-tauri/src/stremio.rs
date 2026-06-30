@@ -157,6 +157,8 @@ pub struct StremioMeta {
     pub quality: Option<String>,
     #[serde(default)]
     pub has_preview: bool,
+    #[serde(default)]
+    pub season_numbers: Vec<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

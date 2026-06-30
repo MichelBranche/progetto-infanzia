@@ -106,7 +106,13 @@ export function inferEpisodeSeason(episode: TitleDetailEpisode): number {
   return inferSeasonFromLabel(episode.code, episode.title) ?? 1;
 }
 
-export function seasonsFromEpisodes(episodes: TitleDetailEpisode[]): number[] {
+export function seasonsFromEpisodes(
+  episodes: TitleDetailEpisode[],
+  seasonNumbers?: number[],
+): number[] {
+  if (seasonNumbers && seasonNumbers.length > 0) {
+    return [...seasonNumbers].sort((a, b) => a - b);
+  }
   const nums = [
     ...new Set(episodes.map((ep) => inferEpisodeSeason(ep))),
   ].sort((a, b) => a - b);
@@ -143,6 +149,39 @@ function episodeProgressPercent(progress?: TitleDetailEpisodeProgress) {
   } as MediaItem);
 }
 
+export function stremioVideosToDetailEpisodes(
+  meta: StremioMeta,
+  videos: StremioMeta["videos"],
+  progressByVideoId?: Record<string, TitleDetailEpisodeProgress>,
+): TitleDetailEpisode[] {
+  const isSeries = meta.type === "series" || meta.type === "channel";
+  return sortedEpisodes(
+    videos.map((video, index) => {
+      const genericThumb =
+        !video.thumbnail || video.thumbnail === meta.poster;
+      return {
+        id: video.id,
+        title: isSeries
+          ? video.title?.trim() ||
+            (video.episode != null
+              ? `Episodio ${video.episode}`
+              : `Episodio ${index + 1}`)
+          : video.title || meta.name,
+        code:
+          stremioEpisodeCode(video) ?? `Episodio ${video.episode ?? index + 1}`,
+        thumbnail: genericThumb ? undefined : video.thumbnail,
+        useVideoFrame: genericThumb,
+        durationHintSec: parseDurationHint(meta.runtime),
+        description: video.description,
+        runtime: video.runtime,
+        season: video.season,
+        episode: video.episode,
+        progressPercent: episodeProgressPercent(progressByVideoId?.[video.id]),
+      };
+    }),
+  );
+}
+
 export function titleDetailFromStremio(
   meta: StremioMeta,
   progressByVideoId?: Record<string, TitleDetailEpisodeProgress>,
@@ -166,31 +205,7 @@ export function titleDetailFromStremio(
     genreLine: meta.genres.join(", ") || undefined,
     directorsLine: meta.directors?.join(", "),
     description: meta.description?.trim(),
-    episodes: sortedEpisodes(
-      meta.videos.map((video, index) => {
-        const genericThumb =
-          !video.thumbnail || video.thumbnail === meta.poster;
-        return {
-          id: video.id,
-          title: isSeries
-            ? video.title?.trim() ||
-              (video.episode != null
-                ? `Episodio ${video.episode}`
-                : `Episodio ${index + 1}`)
-            : video.title || meta.name,
-          code:
-            stremioEpisodeCode(video) ?? `Episodio ${video.episode ?? index + 1}`,
-          thumbnail: genericThumb ? undefined : video.thumbnail,
-          useVideoFrame: genericThumb,
-          durationHintSec: parseDurationHint(meta.runtime),
-          description: video.description,
-          runtime: video.runtime,
-          season: video.season,
-          episode: video.episode,
-          progressPercent: episodeProgressPercent(progressByVideoId?.[video.id]),
-        };
-      }),
-    ),
+    episodes: stremioVideosToDetailEpisodes(meta, meta.videos, progressByVideoId),
     primaryEpisodeId: primaryVideo?.id,
     playLabel: "Riproduci",
     hasPreview: meta.hasPreview,

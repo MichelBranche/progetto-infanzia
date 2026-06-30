@@ -1,10 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchAddonCatalog,
   fetchScCatalog,
   getStreamingContinue,
   refreshScCatalog,
 } from "./addonsApi";
+import {
+  applyStreamingProgress,
+  buildStreamingProgressMap,
+  enrichStreamingPreview,
+} from "./unifiedBrowse";
 import {
   getBootCatalogCache,
   hasUsableCatalog,
@@ -30,6 +35,7 @@ interface UseStreamingCatalogsResult {
   catalogSyncedAt: number;
   previews: StremioMetaPreview[];
   continueItems: StreamingContinueItem[];
+  progressMap: Map<string, StreamingContinueItem>;
   loading: boolean;
   syncingIndex: boolean;
   error: string | null;
@@ -297,22 +303,32 @@ export function useStreamingCatalogs(profileId: string): UseStreamingCatalogsRes
   const rows = [...scRows, ...(STREMIO_ADDONS_ENABLED ? addonRows : [])];
   const loading = scLoading || (STREMIO_ADDONS_ENABLED && addonLoading);
 
-  const previews: StremioMetaPreview[] =
-    catalogIndex.length > 0
-      ? catalogIndex
-      : (() => {
-          const seen = new Set<string>();
-          const fallback: StremioMetaPreview[] = [];
-          for (const row of rows) {
-            for (const item of row.items) {
-              const key = `${item.type}:${item.id}`;
-              if (seen.has(key)) continue;
-              seen.add(key);
-              fallback.push(item);
+  const progressMap = useMemo(
+    () => buildStreamingProgressMap(continueItems),
+    [continueItems],
+  );
+
+  const previews: StremioMetaPreview[] = useMemo(() => {
+    const base =
+      catalogIndex.length > 0
+        ? catalogIndex
+        : (() => {
+            const seen = new Set<string>();
+            const fallback: StremioMetaPreview[] = [];
+            for (const row of rows) {
+              for (const item of row.items) {
+                const key = `${item.type}:${item.id}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                fallback.push(item);
+              }
             }
-          }
-          return fallback;
-        })();
+            return fallback;
+          })();
+    return base.map((preview) =>
+      applyStreamingProgress(enrichStreamingPreview(preview), progressMap),
+    );
+  }, [catalogIndex, rows, progressMap]);
 
   return {
     rows,
@@ -321,6 +337,7 @@ export function useStreamingCatalogs(profileId: string): UseStreamingCatalogsRes
     catalogSyncedAt,
     previews,
     continueItems,
+    progressMap,
     loading,
     syncingIndex,
     error,

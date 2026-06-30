@@ -129,6 +129,7 @@ export interface StremioMeta {
   viewCount?: number;
   quality?: string;
   hasPreview?: boolean;
+  seasonNumbers?: number[];
 }
 
 export interface PlayableStream {

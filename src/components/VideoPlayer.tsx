@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import Hls, { type Level, type MediaPlaylist } from "hls.js";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -58,10 +58,21 @@ interface VideoPlayerProps {
     episodeLabel?: string;
     poster?: string;
   };
-  onBack: () => void;
+  onBack: () => void | Promise<void>;
   onPlayEpisode?: (id: string) => void;
   watchPartySession?: WatchPartySession | null;
   onWatchPartySessionChange?: (session: WatchPartySession | null) => void;
+}
+
+export interface VideoPlayerHandle {
+  flushWatchProgress: () => Promise<void>;
+}
+
+/** Secondi prima della fine in cui mostrare "Continua a guardare" (5–10 min, ~12% runtime). */
+function upNextLeadSeconds(duration: number): number {
+  if (!Number.isFinite(duration) || duration <= 0) return 90;
+  const fromPercent = duration * 0.12;
+  return Math.min(600, Math.max(300, fromPercent));
 }
 
 function episodeCode(ep: MediaItem) {
@@ -106,17 +117,21 @@ function buildSubtitleOptions(tracks: MediaPlaylist[]): SubtitleOption[] {
   return options;
 }
 
-export function VideoPlayer({
-  streamUrl,
-  media,
-  episodes = [],
-  isHls = false,
-  remotePlayback,
-  onBack,
-  onPlayEpisode,
-  watchPartySession: watchPartySessionProp,
-  onWatchPartySessionChange,
-}: VideoPlayerProps) {
+export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
+  function VideoPlayer(
+    {
+      streamUrl,
+      media,
+      episodes = [],
+      isHls = false,
+      remotePlayback,
+      onBack,
+      onPlayEpisode,
+      watchPartySession: watchPartySessionProp,
+      onWatchPartySessionChange,
+    },
+    ref,
+  ) {
   const { activeProfile } = useProfile();
   const { profile: cloudProfile } = useCloudAccount();
   const profileId = activeProfile?.id ?? "";
@@ -130,7 +145,7 @@ export function VideoPlayer({
   const sessionStartRef = useRef(0);
   const autoplayCancelledRef = useRef(false);
   const episodeNavTriggeredRef = useRef(false);
-  const autoplayLeadSecs = 20;
+  const castDeviceRef = useRef<CastDevice | null>(null);
 
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(false);
@@ -153,6 +168,7 @@ export function VideoPlayer({
   const [partyStreamUrl, setPartyStreamUrl] = useState(streamUrl);
   const [partyIsHls, setPartyIsHls] = useState(isHls);
   const [castDevice, setCastDevice] = useState<CastDevice | null>(null);
+  castDeviceRef.current = castDevice;
   const [qualityOptions, setQualityOptions] = useState<QualityOption[]>([]);
   const [selectedQuality, setSelectedQuality] = useState(-1);
   const [subtitleOptions, setSubtitleOptions] = useState<SubtitleOption[]>([]);
@@ -242,6 +258,31 @@ export function VideoPlayer({
     },
     [media.id, media.title, media.posterUrl, profileId, remotePlayback],
   );
+
+  const saveProgressRef = useRef(saveProgress);
+  saveProgressRef.current = saveProgress;
+
+  const flushWatchProgress = useCallback(async () => {
+    if (castDeviceRef.current) {
+      try {
+        const pos = await getCastPosition(castDeviceRef.current);
+        await saveProgressRef.current(pos.positionSecs, pos.durationSecs);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    const video = videoRef.current;
+    if (!video) return;
+    await saveProgressRef.current(video.currentTime, video.duration);
+  }, []);
+
+  useImperativeHandle(ref, () => ({ flushWatchProgress }), [flushWatchProgress]);
+
+  const handleBack = useCallback(async () => {
+    await flushWatchProgress();
+    await onBack();
+  }, [flushWatchProgress, onBack]);
 
   const resetHideTimer = useCallback(() => {
     setShowControls(true);
@@ -518,7 +559,7 @@ export function VideoPlayer({
       if (!video) return;
       video.currentTime = time;
       setCurrentTime(time);
-      if (duration - time > 15) {
+      if (duration - time > upNextLeadSeconds(duration)) {
         setShowUpNext(false);
         setAutoplaySeconds(null);
       }
@@ -597,17 +638,18 @@ export function VideoPlayer({
         lastSave.current = now;
         saveProgress(video.currentTime, video.duration);
       }
+      const lead = upNextLeadSeconds(video.duration);
       if (
         nextEp &&
         onPlayEpisode &&
         !autoplayCancelledRef.current &&
         video.duration > 0 &&
-        video.duration - video.currentTime <= autoplayLeadSecs
+        video.duration - video.currentTime <= lead
       ) {
         const secs = Math.max(0, Math.ceil(video.duration - video.currentTime));
         setShowUpNext(true);
         setAutoplaySeconds(secs);
-      } else if (video.duration - video.currentTime > autoplayLeadSecs) {
+      } else if (video.duration - video.currentTime > lead) {
         setShowUpNext(false);
         setAutoplaySeconds(null);
       }
@@ -647,7 +689,7 @@ export function VideoPlayer({
       video.removeEventListener("playing", onPlaying);
       saveProgress(video.currentTime, video.duration);
     };
-  }, [effectiveStreamUrl, resumeAt, saveProgress, nextEp, playNextEpisode, castDevice, onPlayEpisode, autoplayLeadSecs]);
+  }, [effectiveStreamUrl, resumeAt, saveProgress, nextEp, playNextEpisode, castDevice, onPlayEpisode]);
 
   useEffect(() => {
     if (!castDevice) return;
@@ -949,7 +991,7 @@ export function VideoPlayer({
         <div className="pointer-events-auto bg-gradient-to-b from-black/80 to-transparent px-6 py-5">
           <div className="flex items-center gap-4">
             <button
-              onClick={onBack}
+              onClick={() => void handleBack()}
               className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/40 backdrop-blur-sm transition-colors hover:bg-black/60"
             >
               <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />
@@ -1378,4 +1420,4 @@ export function VideoPlayer({
       />
     </div>
   );
-}
+});

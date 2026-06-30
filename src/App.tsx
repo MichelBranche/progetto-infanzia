@@ -514,9 +514,9 @@ function AppContent() {
           videoId={addonWatch.videoId}
           slug={addonWatch.slug}
           catalogPrefix={addonWatch.catalogPrefix}
-          onBack={() => {
+          onBack={async () => {
             setAddonWatch(null);
-            void refreshStreamingContinue();
+            await refreshStreamingContinue();
           }}
         />
       </div>

@@ -78,6 +78,11 @@ pub fn fetch_title_meta(
             .and_then(|v| v.as_str())
             .map(str::to_string),
         has_preview: title.get("preview").map(|p| !p.is_null()).unwrap_or(false),
+        season_numbers: if title_type(title) == "movie" {
+            Vec::new()
+        } else {
+            season_numbers_from_title(title)
+        },
     })
 }
 
@@ -252,6 +257,102 @@ fn credits_from_title(title: &Value, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn season_numbers_from_title(title: &Value) -> Vec<i32> {
+    let mut nums: Vec<i32> = title
+        .get("seasons")
+        .and_then(|v| v.as_array())
+        .map(|seasons| {
+            seasons
+                .iter()
+                .filter_map(|s| s.get("number").and_then(|v| v.as_i64()).map(|n| n as i32))
+                .collect()
+        })
+        .unwrap_or_default();
+    nums.sort_unstable();
+    nums.dedup();
+    nums
+}
+
+fn loaded_season_number(loaded: &Value) -> Option<i32> {
+    loaded
+        .get("number")
+        .and_then(|v| v.as_i64())
+        .map(|n| n as i32)
+}
+
+fn season_fetch_paths(
+    locale: &str,
+    title_id: i64,
+    slug: &str,
+    season_number: i32,
+    season_id: Option<i64>,
+) -> Vec<String> {
+    let mut paths = vec![title_path(locale, title_id, slug, Some(season_number))];
+    if let Some(sid) = season_id {
+        paths.push(format!(
+            "/{locale}/titles/{title_id}-{slug}?season_id={sid}"
+        ));
+    }
+    paths
+}
+
+fn episodes_from_season_deduped(
+    cdn: &str,
+    loaded: &Value,
+    season_number: i32,
+    seen_ids: &mut HashMap<String, i32>,
+) -> Vec<StremioVideo> {
+    if let Some(loaded_num) = loaded_season_number(loaded) {
+        if loaded_num != season_number {
+            return Vec::new();
+        }
+    }
+    let batch = episodes_from_season(cdn, loaded, Some(season_number));
+    let mut result = Vec::new();
+    for ep in batch {
+        if let Some(prev_season) = seen_ids.get(&ep.id) {
+            if *prev_season != season_number {
+                continue;
+            }
+            continue;
+        }
+        seen_ids.insert(ep.id.clone(), season_number);
+        result.push(ep);
+    }
+    result
+}
+
+fn load_season_episodes(
+    session: &ScSession,
+    cdn: &str,
+    locale: &str,
+    title_id: i64,
+    slug: &str,
+    season_number: i32,
+    season_entry: Option<&Value>,
+    seen_ids: &mut HashMap<String, i32>,
+) -> Result<Vec<StremioVideo>, String> {
+    let referer = title_path(locale, title_id, slug, None);
+    let season_id = season_entry
+        .and_then(|s| s.get("id"))
+        .and_then(|v| v.as_i64());
+    let paths = season_fetch_paths(locale, title_id, slug, season_number, season_id);
+
+    for path in paths {
+        let season_props = match session.props_from_html_page(&path, Some(&referer)) {
+            Ok(props) => props,
+            Err(_) => continue,
+        };
+        if let Some(loaded) = season_props.get("loadedSeason") {
+            let batch = episodes_from_season_deduped(cdn, loaded, season_number, seen_ids);
+            if !batch.is_empty() {
+                return Ok(batch);
+            }
+        }
+    }
+    Ok(Vec::new())
+}
+
 fn collect_series_videos(
     session: &mut ScSession,
     cdn: &str,
@@ -268,24 +369,91 @@ fn collect_series_videos(
         .unwrap_or_default();
 
     let mut videos = Vec::new();
+    let mut seen_ids = HashMap::new();
+
     if seasons.is_empty() {
         if let Some(loaded) = props.get("loadedSeason") {
-            videos.extend(episodes_from_season(cdn, loaded, None));
+            let season_number = loaded_season_number(loaded).unwrap_or(1);
+            videos.extend(episodes_from_season_deduped(
+                cdn,
+                loaded,
+                season_number,
+                &mut seen_ids,
+            ));
         }
         return Ok(videos);
     }
 
-    let referer = title_path(locale, title_id, slug, None);
-    for season in seasons {
-        let season_number = season.get("number").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
-        let path = title_path(locale, title_id, slug, Some(season_number));
-        let season_props = session.props_from_html_page(&path, Some(&referer))?;
-        if let Some(loaded) = season_props.get("loadedSeason") {
-            videos.extend(episodes_from_season(cdn, loaded, Some(season_number)));
+    let first = seasons.first().expect("seasons non vuoto");
+    let season_number = first
+        .get("number")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(1) as i32;
+    videos.extend(load_season_episodes(
+        session,
+        cdn,
+        locale,
+        title_id,
+        slug,
+        season_number,
+        Some(first),
+        &mut seen_ids,
+    )?);
+
+    if videos.is_empty() {
+        if let Some(loaded) = props.get("loadedSeason") {
+            let fallback_season = loaded_season_number(loaded).unwrap_or(season_number);
+            videos.extend(episodes_from_season_deduped(
+                cdn,
+                loaded,
+                fallback_season,
+                &mut seen_ids,
+            ));
         }
     }
 
     Ok(videos)
+}
+
+pub fn fetch_season_episodes(
+    app: &str,
+    cdn: &str,
+    locale: &str,
+    title_id: i64,
+    slug: &str,
+    season_number: i32,
+) -> Result<Vec<StremioVideo>, String> {
+    let mut session = ScSession::open(app, locale)?;
+    let path = title_path(locale, title_id, slug, None);
+    let page = session.inertia_page(&path, None)?;
+    let props = page_props(&page)?;
+    let title = props
+        .get("title")
+        .ok_or_else(|| "Metadati titolo non disponibili".to_string())?;
+
+    let seasons = title
+        .get("seasons")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let season_entry = seasons.iter().find(|s| {
+        s.get("number")
+            .and_then(|v| v.as_i64())
+            .map(|n| n as i32)
+            == Some(season_number)
+    });
+
+    let mut seen_ids = HashMap::new();
+    load_season_episodes(
+        &session,
+        cdn,
+        locale,
+        title_id,
+        slug,
+        season_number,
+        season_entry,
+        &mut seen_ids,
+    )
 }
 
 struct ScSession {
@@ -598,6 +766,57 @@ fn episode_image(cdn: &str, episode: &Value) -> Option<String> {
 mod tests {
     use super::*;
     use crate::addon_proxy::AddonProxyRegistry;
+
+    #[test]
+    fn rejects_loaded_season_with_wrong_number() {
+        let loaded = serde_json::json!({
+            "number": 2,
+            "episodes": [{"id": 100, "name": "Ep 1", "number": 1}]
+        });
+        let mut seen = HashMap::new();
+        let eps = episodes_from_season_deduped("https://cdn.test", &loaded, 1, &mut seen);
+        assert!(eps.is_empty());
+    }
+
+    #[test]
+    fn accepts_matching_season_and_dedupes_duplicate_ids() {
+        let loaded = serde_json::json!({
+            "number": 1,
+            "episodes": [
+                {"id": 1, "name": "A", "number": 1},
+                {"id": 1, "name": "A dup", "number": 1}
+            ]
+        });
+        let mut seen = HashMap::new();
+        let eps = episodes_from_season_deduped("https://cdn.test", &loaded, 1, &mut seen);
+        assert_eq!(eps.len(), 1);
+        assert_eq!(eps[0].id, "1");
+    }
+
+    #[test]
+    fn dedup_skips_episode_id_already_in_other_season() {
+        let mut seen = HashMap::new();
+        seen.insert("42".to_string(), 1);
+        let loaded = serde_json::json!({
+            "number": 2,
+            "episodes": [{"id": 42, "name": "Dup", "number": 1}]
+        });
+        let eps = episodes_from_season_deduped("https://cdn.test", &loaded, 2, &mut seen);
+        assert!(eps.is_empty());
+    }
+
+    #[test]
+    fn season_numbers_from_title_sorted_unique() {
+        let title = serde_json::json!({
+            "seasons": [
+                {"number": 3},
+                {"number": 1},
+                {"number": 2},
+                {"number": 2}
+            ]
+        });
+        assert_eq!(season_numbers_from_title(&title), vec![1, 2, 3]);
+    }
 
     #[test]
     fn resolve_movie_playback_live() {

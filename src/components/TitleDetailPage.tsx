@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -13,7 +13,9 @@ import type {
 } from "../lib/titleDetail";
 import {
   episodesForSeason,
+  inferEpisodeSeason,
   seasonsFromEpisodes,
+  sortedEpisodes,
 } from "../lib/titleDetail";
 import { EpisodeThumbnail } from "./EpisodeThumbnail";
 type DetailTab = "overview" | "details" | "trailer";
@@ -39,6 +41,8 @@ export interface TitleDetailPageProps {
   resolveEpisodeStream?: (
     episodeId: string,
   ) => Promise<{ url: string; isHls: boolean } | null>;
+  seasonNumbers?: number[];
+  onLoadSeason?: (season: number) => Promise<TitleDetailEpisode[] | void>;
 }
 
 function RatingBadge({ rating }: { rating: string }) {
@@ -174,22 +178,33 @@ function SeasonSelector({
   );
 }
 
-function useSeasonSelection(detail: TitleDetailModel) {
+function useSeasonSelection(
+  detail: TitleDetailModel,
+  seasonNumbers?: number[],
+  onLoadSeason?: (season: number) => Promise<TitleDetailEpisode[] | void>,
+) {
+  const [extraEpisodes, setExtraEpisodes] = useState<TitleDetailEpisode[]>([]);
+  const [seasonLoading, setSeasonLoading] = useState(false);
+  const allEpisodes = useMemo(
+    () => sortedEpisodes([...detail.episodes, ...extraEpisodes]),
+    [detail.episodes, extraEpisodes],
+  );
   const episodesKey = useMemo(
     () =>
-      detail.episodes
+      allEpisodes
         .map((ep) => `${ep.id}:${ep.season ?? ""}:${ep.episode ?? ""}`)
         .join("|"),
-    [detail.episodes],
+    [allEpisodes],
   );
   const seasons = useMemo(
-    () => seasonsFromEpisodes(detail.episodes),
-    [episodesKey, detail.episodes],
+    () => seasonsFromEpisodes(allEpisodes, seasonNumbers),
+    [episodesKey, allEpisodes, seasonNumbers],
   );
   const seasonsKey = seasons.join(",");
   const [activeSeason, setActiveSeason] = useState(seasons[0] ?? 1);
 
   useEffect(() => {
+    setExtraEpisodes([]);
     setActiveSeason(seasons[0] ?? 1);
   }, [detail.id, seasonsKey]);
 
@@ -199,12 +214,32 @@ function useSeasonSelection(detail: TitleDetailModel) {
     }
   }, [seasons, seasonsKey, activeSeason]);
 
+  const handleSeasonChange = useCallback(
+    (season: number) => {
+      setActiveSeason(season);
+      if (!onLoadSeason) return;
+      const loadedSeasons = new Set(
+        allEpisodes.map((ep) => inferEpisodeSeason(ep)),
+      );
+      if (loadedSeasons.has(season)) return;
+      setSeasonLoading(true);
+      void onLoadSeason(season)
+        .then((eps) => {
+          if (eps?.length) {
+            setExtraEpisodes((prev) => sortedEpisodes([...prev, ...eps]));
+          }
+        })
+        .finally(() => setSeasonLoading(false));
+    },
+    [onLoadSeason, allEpisodes],
+  );
+
   const filteredEpisodes = useMemo(() => {
     if (!detail.isSeries || seasons.length <= 1) {
-      return detail.episodes;
+      return allEpisodes;
     }
-    return episodesForSeason(detail.episodes, activeSeason);
-  }, [detail.episodes, detail.isSeries, seasons, activeSeason]);
+    return episodesForSeason(allEpisodes, activeSeason);
+  }, [allEpisodes, detail.isSeries, seasons, activeSeason]);
 
   const primaryEpisodeInSeason = useMemo(() => {
     const resume = filteredEpisodes.find((ep) => (ep.progressPercent ?? 0) > 2);
@@ -221,10 +256,11 @@ function useSeasonSelection(detail: TitleDetailModel) {
   return {
     seasons,
     activeSeason,
-    setActiveSeason,
+    setActiveSeason: handleSeasonChange,
     filteredEpisodes,
     primaryEpisodeInSeason,
     showSeasonPicker: detail.isSeries && seasons.length > 1,
+    seasonLoading,
   };
 }
 
@@ -238,6 +274,7 @@ function EpisodeList({
   filteredEpisodes,
   showSeasonPicker,
   resolveEpisodeStream,
+  seasonLoading = false,
 }: {
   loading: boolean;
   onPlay: (episodeId: string, episodeTitle: string) => void;
@@ -250,6 +287,7 @@ function EpisodeList({
   resolveEpisodeStream?: (
     episodeId: string,
   ) => Promise<{ url: string; isHls: boolean } | null>;
+  seasonLoading?: boolean;
 }) {
   return (
     <div>
@@ -262,6 +300,11 @@ function EpisodeList({
         />
       )}
 
+      {(loading || seasonLoading) && filteredEpisodes.length === 0 ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+        </div>
+      ) : (
       <div className="grid gap-3">
         {filteredEpisodes.map((episode, index) => (          <motion.article
             key={episode.id}
@@ -335,6 +378,7 @@ function EpisodeList({
           </motion.article>
         ))}
       </div>
+      )}
     </div>
   );
 }
@@ -354,6 +398,8 @@ export function TitleDetailPage({
   onToggleMyList,
   myListLoading = false,
   resolveEpisodeStream,
+  seasonNumbers,
+  onLoadSeason,
 }: TitleDetailPageProps) {
   const [activeTab, setActiveTab] = useState<DetailTab>("overview");
   const [expandedPlot, setExpandedPlot] = useState(false);
@@ -364,7 +410,8 @@ export function TitleDetailPage({
     filteredEpisodes,
     primaryEpisodeInSeason,
     showSeasonPicker,
-  } = useSeasonSelection(detail);
+    seasonLoading,
+  } = useSeasonSelection(detail, seasonNumbers, onLoadSeason);
 
   const primaryEpisodeId =
     primaryEpisodeInSeason?.id ??
@@ -616,6 +663,7 @@ export function TitleDetailPage({
                   filteredEpisodes={filteredEpisodes}
                   showSeasonPicker={showSeasonPicker}
                   resolveEpisodeStream={resolveEpisodeStream}
+                  seasonLoading={seasonLoading}
                 />
               </>
             ) : showNoEpisodes ? (

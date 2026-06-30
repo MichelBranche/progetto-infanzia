@@ -224,9 +224,9 @@ export function WatchPage({
         streamUrl={streamUrl}
         media={media}
         episodes={episodes}
-        onBack={() => {
+        onBack={async () => {
           if (autoplay) {
-            onBack();
+            await onBack();
             return;
           }
           setPhase("detail");

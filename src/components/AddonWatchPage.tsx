@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import {
   fetchAddonMeta,
   fetchScMeta,
+  fetchScSeasonEpisodes,
   fetchSaturnMeta,
   getStreamingWatchProgress,
   listStreamingTitleProgress,
@@ -17,6 +18,7 @@ import {
   metaVideosToMediaItems,
 } from "../lib/streamingBrowse";
 import type { TitleDetailEpisodeProgress } from "../lib/titleDetail";
+import { stremioVideosToDetailEpisodes } from "../lib/titleDetail";
 import type { AddonWatchTarget } from "../lib/streamingBrowse";
 import { STREMIO_ADDONS_ENABLED, isBuiltinStreamingCatalog } from "../lib/features";
 import { streamingListKey } from "../lib/myList";
@@ -348,6 +350,15 @@ export function AddonWatchPage({
     }
   }, [meta, isSc, slug, metaId, playStream]);
 
+  const handleLoadSeason = useCallback(
+    async (season: number) => {
+      if (!isSc || !slug || !meta) return;
+      const videos = await fetchScSeasonEpisodes(metaId, slug, season);
+      return stremioVideosToDetailEpisodes(meta, videos, episodeProgress);
+    },
+    [isSc, slug, meta, metaId, episodeProgress],
+  );
+
   useEffect(() => {
     if (!meta || !initialVideoId || loading) return;
     const video = meta.videos.find((v) => v.id === initialVideoId);
@@ -410,15 +421,15 @@ export function AddonWatchPage({
         }}
         watchPartySession={watchPartySession}
         onWatchPartySessionChange={onWatchPartySessionChange}
-        onBack={() => {
+        onBack={async () => {
           if (watchPartySession) {
             onWatchPartySessionChange?.(null);
-            onBack();
+            await onBack();
             return;
           }
           setPlayback(null);
           void loadEpisodeProgress();
-          if (initialVideoId) onBack();
+          if (initialVideoId) await onBack();
         }}
       />
     );
@@ -466,6 +477,7 @@ export function AddonWatchPage({
         onToggleMyList={() => void handleToggleMyList()}
         myListLoading={myListLoading}
         resolveEpisodeStream={isBuiltin ? resolveEpisodeStream : undefined}
+        onLoadSeason={isSc ? handleLoadSeason : undefined}
       />
       {streamPick && (
         <StreamPickModal

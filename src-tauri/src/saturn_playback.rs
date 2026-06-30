@@ -490,6 +490,7 @@ pub fn fetch_title_meta(db: &crate::db::Database, slug: &str) -> Result<StremioM
         view_count: None,
         quality: None,
         has_preview: false,
+        season_numbers: Vec::new(),
     })
 }
 

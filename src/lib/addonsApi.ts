@@ -115,6 +115,18 @@ export async function fetchScMeta(
   });
 }
 
+export async function fetchScSeasonEpisodes(
+  titleId: string,
+  slug: string,
+  season: number,
+): Promise<StremioMeta["videos"]> {
+  return invoke<StremioMeta["videos"]>("fetch_sc_season_episodes_cmd", {
+    titleId: Number(titleId),
+    slug,
+    season,
+  });
+}
+
 export async function resolveScStream(
   titleId: string,
   slug: string,

@@ -58,8 +58,43 @@ export function enrichStreamingPreview(
   };
 }
 
+export function streamingProgressKey(
+  preview: Pick<StremioMetaPreview, "catalogPrefix" | "type" | "id">,
+): string {
+  return `${preview.catalogPrefix ?? "sc"}:${preview.type}:${preview.id}`;
+}
+
+export function buildStreamingProgressMap(
+  continueItems: StreamingContinueItem[],
+): Map<string, StreamingContinueItem> {
+  const map = new Map<string, StreamingContinueItem>();
+  for (const item of continueItems) {
+    const key = `${item.catalogPrefix}:${item.contentType}:${item.titleId}`;
+    const existing = map.get(key);
+    if (!existing || item.updatedAt.localeCompare(existing.updatedAt) > 0) {
+      map.set(key, item);
+    }
+  }
+  return map;
+}
+
+export function applyStreamingProgress(
+  preview: StremioMetaPreview,
+  progressMap: Map<string, StreamingContinueItem>,
+): StremioMetaPreview {
+  const item = progressMap.get(streamingProgressKey(preview));
+  if (!item) return preview;
+  return {
+    ...preview,
+    watchPosition: item.positionSecs,
+    watchDuration: item.durationSecs,
+    resumeVideoId: item.videoId,
+  };
+}
+
 export function flattenEnrichedStreaming(
   rows: StreamingRow[],
+  progressMap?: Map<string, StreamingContinueItem>,
 ): StremioMetaPreview[] {
   const seen = new Set<string>();
   const result: StremioMetaPreview[] = [];
@@ -69,11 +104,12 @@ export function flattenEnrichedStreaming(
       const key = `${item.type}:${item.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      const enriched = enrichStreamingPreview(item, {
+        rowKey: row.key,
+        rowTitle: row.title,
+      });
       result.push(
-        enrichStreamingPreview(item, {
-          rowKey: row.key,
-          rowTitle: row.title,
-        }),
+        progressMap ? applyStreamingProgress(enriched, progressMap) : enriched,
       );
     }
   }
@@ -331,6 +367,7 @@ function streamingCatalogHomeRows(
   streamingRows: StreamingRow[],
   usedStreamingIds: Set<string>,
   markUsed: (items: BrowseItem[]) => void,
+  progressMap: Map<string, StreamingContinueItem>,
 ): UnifiedHomeRow[] {
   const rows: UnifiedHomeRow[] = [];
   const minItems = 4;
@@ -343,10 +380,13 @@ function streamingCatalogHomeRows(
       )
       .map((preview) =>
         streamingBrowseItem(
-          enrichStreamingPreview(preview, {
-            rowKey: streamRow.key,
-            rowTitle: streamRow.title,
-          }),
+          applyStreamingProgress(
+            enrichStreamingPreview(preview, {
+              rowKey: streamRow.key,
+              rowTitle: streamRow.title,
+            }),
+            progressMap,
+          ),
         ),
       )
       .slice(0, HOME_ROW_DISPLAY_LIMIT);
@@ -375,8 +415,13 @@ export function buildUnifiedHomeRows(
   options?: { mergeStreaming?: boolean },
 ): UnifiedHomeRow[] {
   const mergeStreaming = options?.mergeStreaming ?? true;
-  const enriched = mergeStreaming ? flattenEnrichedStreaming(streamingRows) : [];
-  const catalog = catalogIndex.map((preview) => enrichStreamingPreview(preview));
+  const progressMap = buildStreamingProgressMap(continueItems);
+  const enriched = mergeStreaming
+    ? flattenEnrichedStreaming(streamingRows, progressMap)
+    : [];
+  const catalog = catalogIndex.map((preview) =>
+    applyStreamingProgress(enrichStreamingPreview(preview), progressMap),
+  );
   const usedStreamingIds = new Set<string>();
 
   const markUsed = (items: BrowseItem[]) => {
@@ -406,7 +451,12 @@ export function buildUnifiedHomeRows(
 
   if (mergeStreaming) {
     rows.push(
-      ...streamingCatalogHomeRows(streamingRows, usedStreamingIds, markUsed),
+      ...streamingCatalogHomeRows(
+        streamingRows,
+        usedStreamingIds,
+        markUsed,
+        progressMap,
+      ),
     );
   }
 
@@ -425,7 +475,12 @@ export function buildUnifiedHomeRows(
           ? dedupeBrowseItems([
               ...localBrowseForCollection(collection),
               ...streamingListPreviews.map((preview) =>
-                streamingBrowseItem(enrichStreamingPreview(preview)),
+                streamingBrowseItem(
+                  applyStreamingProgress(
+                    enrichStreamingPreview(preview),
+                    progressMap,
+                  ),
+                ),
               ),
             ])
           : mergeCollectionBrowseItems(collection, availableStreaming);
@@ -435,7 +490,12 @@ export function buildUnifiedHomeRows(
           ? dedupeBrowseItems([
               ...localBrowseForCollection(collection),
               ...streamingListPreviews.map((preview) =>
-                streamingBrowseItem(enrichStreamingPreview(preview)),
+                streamingBrowseItem(
+                  applyStreamingProgress(
+                    enrichStreamingPreview(preview),
+                    progressMap,
+                  ),
+                ),
               ),
             ])
           : localBrowseForCollection(collection);

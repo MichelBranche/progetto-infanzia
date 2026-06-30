@@ -832,6 +832,27 @@ async fn fetch_sc_meta_cmd(
 }
 
 #[tauri::command]
+async fn fetch_sc_season_episodes_cmd(
+    state: State<'_, AppState>,
+    title_id: i64,
+    slug: String,
+    season: i32,
+) -> Result<Vec<crate::stremio::StremioVideo>, String> {
+    if !sc_catalog::catalog_enabled(&state.db) {
+        return Err("Catalogo Streaming Community disabilitato".into());
+    }
+    let db = Arc::clone(&state.db);
+    let cdn = sc_catalog::cdn_url(&state.db);
+    let locale = sc_catalog::lang(&state.db);
+    tokio::task::spawn_blocking(move || {
+        let app = sc_catalog::resolve_app_url(db.as_ref())?;
+        sc_playback::fetch_season_episodes(&app, &cdn, &locale, title_id, &slug, season)
+    })
+    .await
+    .map_err(|e| format!("Errore episodi stagione: {e}"))?
+}
+
+#[tauri::command]
 async fn resolve_sc_stream_cmd(
     state: State<'_, AppState>,
     title_id: i64,
@@ -1789,6 +1810,7 @@ pub fn run() {
             fetch_sc_catalog_cmd,
             refresh_sc_catalog_cmd,
             fetch_sc_meta_cmd,
+            fetch_sc_season_episodes_cmd,
             resolve_sc_stream_cmd,
             search_sc_catalog_cmd,
             search_sc_catalog_page_cmd,

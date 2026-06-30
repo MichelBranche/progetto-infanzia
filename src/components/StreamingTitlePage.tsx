@@ -26,5 +26,11 @@ export function StreamingTitlePage({
     () => titleDetailFromStremio(meta, episodeProgress),
     [meta, progressKey, episodeProgress],
   );
-  return <TitleDetailPage detail={detail} {...props} />;
+  return (
+    <TitleDetailPage
+      detail={detail}
+      seasonNumbers={meta.seasonNumbers}
+      {...props}
+    />
+  );
 }
