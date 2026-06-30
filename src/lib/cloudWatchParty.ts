@@ -18,6 +18,7 @@ function mapRoom(row: {
   content: WatchPartyContent;
   playing: boolean;
   position_secs: number;
+  updated_at?: string;
 }): WatchPartyRoom {
   return {
     code: row.code,
@@ -27,6 +28,7 @@ function mapRoom(row: {
     playing: row.playing,
     positionSecs: row.position_secs,
     members: [],
+    updatedAt: row.updated_at,
   };
 }
 
@@ -152,6 +154,7 @@ export function subscribeCloudWatchParty(
           content: WatchPartyContent;
           playing: boolean;
           position_secs: number;
+          updated_at: string;
         };
         onUpdate(mapRoom(row));
       },

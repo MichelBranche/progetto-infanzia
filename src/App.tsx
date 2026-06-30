@@ -30,6 +30,8 @@ import { EditMediaModal } from "./components/EditMediaModal";
 import { LibraryProvider, useLibrary } from "./context/LibraryContext";
 import { AddonsProvider, useAddons } from "./context/AddonsContext";
 import { CloudAccountProvider } from "./context/CloudAccountContext";
+import { NotificationProvider } from "./context/NotificationContext";
+import { CloudFriendAlertsProvider, useCloudFriendAlertsContext } from "./context/CloudFriendAlertsContext";
 import { ProfileProvider, useProfile } from "./context/ProfileContext";
 import { PreviewAudioProvider } from "./context/PreviewAudioContext";
 import { sectionMeta } from "./data/nav";
@@ -59,6 +61,8 @@ import type { WatchPartySession } from "./types/watchParty";
 
 function AppContent() {
   const { activeProfile, clearProfile, isParent } = useProfile();
+  const { pendingCount: pendingFriendRequests, refreshFriendAlerts } =
+    useCloudFriendAlertsContext();
   const {
     library,
     loading,
@@ -320,10 +324,14 @@ function AppContent() {
     [localFavorites.length, streamingList.length],
   );
 
-  const sidebarBadges = useMemo(
-    () => (myListCount > 0 ? { profile: myListCount } : undefined),
-    [myListCount],
-  );
+  const sidebarBadges = useMemo(() => {
+    const badges: Record<string, number> = {};
+    if (myListCount > 0) badges.profile = myListCount;
+    if (pendingFriendRequests > 0) {
+      badges.profile = (badges.profile ?? 0) + pendingFriendRequests;
+    }
+    return Object.keys(badges).length > 0 ? badges : undefined;
+  }, [myListCount, pendingFriendRequests]);
 
   const { top10Row, otherRows: streamingRowsWithoutTop10 } = useMemo(
     () => splitTop10Row(streamingRows),
@@ -517,7 +525,9 @@ function AppContent() {
           onBack={async () => {
             setAddonWatch(null);
             await refreshStreamingContinue();
+            refreshFriendAlerts();
           }}
+          onRefreshContinue={refreshStreamingContinue}
         />
       </div>
     );
@@ -936,7 +946,9 @@ function AppGate() {
         <LibraryProvider profileId={activeProfile.id}>
           <AddonsProvider profileId={activeProfile.id}>
             <AppUpdaterProvider>
-              <AppContent />
+              <CloudFriendAlertsProvider>
+                <AppContent />
+              </CloudFriendAlertsProvider>
             </AppUpdaterProvider>
           </AddonsProvider>
         </LibraryProvider>
@@ -948,11 +960,13 @@ function AppGate() {
 function App() {
   return (
     <CloudAccountProvider>
-      <ProfileProvider>
-        <PreviewAudioProvider>
-          <AppGate />
-        </PreviewAudioProvider>
-      </ProfileProvider>
+      <NotificationProvider>
+        <ProfileProvider>
+          <PreviewAudioProvider>
+            <AppGate />
+          </PreviewAudioProvider>
+        </ProfileProvider>
+      </NotificationProvider>
     </CloudAccountProvider>
   );
 }

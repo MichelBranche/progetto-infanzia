@@ -37,7 +37,7 @@ import { PosterImage } from "./PosterImage";
 import { CastDialog } from "./CastDialog";
 import { PlayerScrubBar } from "./PlayerScrubBar";
 import { WatchPartyPanel } from "./WatchPartyPanel";
-import { useWatchPartySync } from "../hooks/useWatchPartySync";
+import { useWatchPartySync, DRIFT_THRESHOLD_SEC } from "../hooks/useWatchPartySync";
 import { closeCloudWatchParty } from "../lib/cloudWatchParty";
 import { closeWatchParty } from "../lib/watchPartyApi";
 import type { WatchPartySession } from "../types/watchParty";
@@ -146,6 +146,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const autoplayCancelledRef = useRef(false);
   const episodeNavTriggeredRef = useRef(false);
   const castDeviceRef = useRef<CastDevice | null>(null);
+  const saveChainRef = useRef(Promise.resolve());
+  const partySessionRef = useRef<WatchPartySession | null>(null);
 
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(false);
@@ -218,43 +220,47 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const saveProgress = useCallback(
     async (position: number, dur: number) => {
       if (!profileId) return;
-      if (
-        (remotePlayback?.catalogPrefix === "sc" ||
-          remotePlayback?.catalogPrefix === "saturn") &&
-        remotePlayback.slug &&
-        (remotePlayback.titleId || remotePlayback.catalogPrefix === "saturn")
-      ) {
+      const persist = async () => {
+        if (
+          (remotePlayback?.catalogPrefix === "sc" ||
+            remotePlayback?.catalogPrefix === "saturn") &&
+          remotePlayback.slug &&
+          (remotePlayback.titleId || remotePlayback.catalogPrefix === "saturn")
+        ) {
+          try {
+            await saveStreamingWatchProgress(profileId, {
+              catalogPrefix: remotePlayback.catalogPrefix,
+              contentType: remotePlayback.contentType,
+              titleId:
+                remotePlayback.titleId ||
+                remotePlayback.slug ||
+                remotePlayback.videoId ||
+                media.id,
+              slug: remotePlayback.slug,
+              videoId:
+                remotePlayback.videoId?.trim() ||
+                remotePlayback.titleId ||
+                media.id,
+              titleName: remotePlayback.titleName ?? media.title,
+              episodeLabel: remotePlayback.episodeLabel,
+              poster: remotePlayback.poster ?? media.posterUrl,
+              positionSecs: position,
+              durationSecs: dur > 0 ? dur : undefined,
+            });
+          } catch {
+            // silent
+          }
+          return;
+        }
+        if (remotePlayback) return;
         try {
-          await saveStreamingWatchProgress(profileId, {
-            catalogPrefix: remotePlayback.catalogPrefix,
-            contentType: remotePlayback.contentType,
-            titleId:
-              remotePlayback.titleId ||
-              remotePlayback.slug ||
-              remotePlayback.videoId ||
-              media.id,
-            slug: remotePlayback.slug,
-            videoId:
-              remotePlayback.videoId?.trim() ||
-              remotePlayback.titleId ||
-              media.id,
-            titleName: remotePlayback.titleName ?? media.title,
-            episodeLabel: remotePlayback.episodeLabel,
-            poster: remotePlayback.poster ?? media.posterUrl,
-            positionSecs: position,
-            durationSecs: dur > 0 ? dur : undefined,
-          });
+          await saveWatchProgress(profileId, media.id, position, dur || undefined);
         } catch {
           // silent
         }
-        return;
-      }
-      if (remotePlayback) return;
-      try {
-        await saveWatchProgress(profileId, media.id, position, dur || undefined);
-      } catch {
-        // silent
-      }
+      };
+      saveChainRef.current = saveChainRef.current.then(persist, persist);
+      await saveChainRef.current;
     },
     [media.id, media.title, media.posterUrl, profileId, remotePlayback],
   );
@@ -263,6 +269,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   saveProgressRef.current = saveProgress;
 
   const flushWatchProgress = useCallback(async () => {
+    await saveChainRef.current.catch(() => {});
     if (castDeviceRef.current) {
       try {
         const pos = await getCastPosition(castDeviceRef.current);
@@ -475,6 +482,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     setPartySession(watchPartySessionProp ?? null);
   }, [watchPartySessionProp]);
 
+  partySessionRef.current = partySession;
+
   useEffect(() => {
     if (!partySession || partySession.role !== "guest") {
       setPartyStreamUrl(streamUrl);
@@ -485,7 +494,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const handleRemoteSync = useCallback((nextPlaying: boolean, position: number) => {
     const video = videoRef.current;
     if (!video) return;
-    if (Math.abs(video.currentTime - position) > 2.5) {
+    if (Math.abs(video.currentTime - position) > DRIFT_THRESHOLD_SEC) {
       video.currentTime = position;
       setCurrentTime(position);
     }
@@ -543,6 +552,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
   const seek = useCallback(
     async (time: number) => {
+      if (partySession?.role === "guest") return;
       if (castDevice) {
         const clamped = Math.max(0, duration > 0 ? Math.min(duration, time) : time);
         setCurrentTime(clamped);
@@ -580,6 +590,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   );
 
   const togglePlay = useCallback(async () => {
+    if (partySession?.role === "guest") return;
     if (castDevice) {
       try {
         await castTransport(castDevice, playing ? "pause" : "play");
@@ -624,6 +635,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       if (resumeAt > 5 && resumeAt < video.duration - 10) {
         video.currentTime = resumeAt;
         setCurrentTime(resumeAt);
+      }
+      const guestSession = partySessionRef.current;
+      if (guestSession?.role === "guest") {
+        setPlaying(guestSession.room.playing);
+        if (guestSession.room.playing) {
+          void video.play().catch(() => setPlaying(false));
+        }
+        return;
       }
       video.play().catch(() => setPlaying(false));
     };
@@ -687,9 +706,24 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       video.removeEventListener("ended", onEnded);
       video.removeEventListener("waiting", onWaiting);
       video.removeEventListener("playing", onPlaying);
-      saveProgress(video.currentTime, video.duration);
+      void saveProgress(video.currentTime, video.duration);
     };
   }, [effectiveStreamUrl, resumeAt, saveProgress, nextEp, playNextEpisode, castDevice, onPlayEpisode]);
+
+  useEffect(() => {
+    const flushOnHide = () => {
+      void flushWatchProgress();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flushOnHide();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flushOnHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flushOnHide);
+    };
+  }, [flushWatchProgress]);
 
   useEffect(() => {
     if (!castDevice) return;

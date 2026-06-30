@@ -29,6 +29,7 @@ export interface WatchPartyRoom {
   playing: boolean;
   positionSecs: number;
   members: WatchPartyMember[];
+  updatedAt?: string;
 }
 
 export type WatchPartyRole = "host" | "guest";

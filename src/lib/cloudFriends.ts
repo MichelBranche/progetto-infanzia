@@ -114,6 +114,45 @@ export async function listCloudFriends(): Promise<CloudFriend[]> {
   }));
 }
 
+/** Accepted requests where the current user was the requester (for acceptance toasts). */
+export async function listAcceptedAsRequester(): Promise<CloudFriendRequest[]> {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  const myId = sessionData.session?.user?.id;
+  if (!myId) return [];
+
+  const { data, error } = await supabase
+    .from("friend_requests")
+    .select(
+      "*, addressee:cloud_profiles!friend_requests_addressee_id_fkey(id, email, display_name, friend_code, created_at)",
+    )
+    .eq("requester_id", myId)
+    .eq("status", "accepted");
+
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    requesterId: row.requester_id,
+    addresseeId: row.addressee_id,
+    status: row.status,
+    createdAt: row.created_at,
+    addressee: row.addressee
+      ? mapProfile(
+          row.addressee as {
+            id: string;
+            email: string;
+            display_name: string;
+            friend_code: string;
+            created_at: string;
+          },
+        )
+      : undefined,
+  }));
+}
+
 export async function listPendingFriendRequests(): Promise<CloudFriendRequest[]> {
   const supabase = getSupabase();
   if (!supabase) return [];

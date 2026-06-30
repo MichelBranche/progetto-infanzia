@@ -3,6 +3,8 @@ import { Check, Copy, Loader2, Mail, Trash2, UserPlus, Users, X } from "lucide-r
 import { CloudAuthPanel } from "./CloudAuthPanel";
 import { WatchPartyPanel } from "./WatchPartyPanel";
 import { useCloudAccount } from "../context/CloudAccountContext";
+import { useNotifications } from "../context/NotificationContext";
+import { useCloudFriendAlertsContext } from "../context/CloudFriendAlertsContext";
 import {
   listCloudFriends,
   listPendingFriendRequests,
@@ -33,6 +35,8 @@ export function FriendsPage({
   onJoinSession,
 }: FriendsPageProps) {
   const { profile: cloudProfile, configured: cloudConfigured } = useCloudAccount();
+  const { notify } = useNotifications();
+  const { refreshFriendAlerts } = useCloudFriendAlertsContext();
   const [loading, setLoading] = useState(true);
   const [myCode, setMyCode] = useState("");
   const [friends, setFriends] = useState<FriendRecord[]>([]);
@@ -71,8 +75,9 @@ export function FriendsPage({
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+      refreshFriendAlerts();
     }
-  }, [profileId, cloudProfile]);
+  }, [profileId, cloudProfile, refreshFriendAlerts]);
 
   useEffect(() => {
     void load();
@@ -95,12 +100,18 @@ export function FriendsPage({
   };
 
   const handleAddCloud = async () => {
-    if (!friendEmail.trim()) return;
+    const email = friendEmail.trim();
+    if (!email) return;
     setSaving(true);
     setError(null);
     try {
-      await sendFriendRequestByEmail(friendEmail);
+      await sendFriendRequestByEmail(email);
       setFriendEmail("");
+      notify({
+        kind: "success",
+        title: "Richiesta inviata",
+        message: `Inviata a ${email}`,
+      });
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -114,6 +125,10 @@ export function FriendsPage({
     setError(null);
     try {
       await respondFriendRequest(requestId, accept);
+      notify({
+        kind: accept ? "success" : "info",
+        title: accept ? "Amicizia accettata" : "Richiesta rifiutata",
+      });
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

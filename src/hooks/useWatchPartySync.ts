@@ -6,9 +6,7 @@ import {
   subscribeCloudWatchParty,
   updateCloudWatchPartySync,
 } from "../lib/cloudWatchParty";
-import {
-  lanWatchPartyErrorMessage,
-} from "../lib/watchPartyNetwork";
+import { lanWatchPartyErrorMessage } from "../lib/watchPartyNetwork";
 import {
   lanWatchPartyWsUrl,
   localhostWatchPartyWsUrl,
@@ -20,8 +18,21 @@ import type {
   WatchPartyWsMessage,
 } from "../types/watchParty";
 
-const DRIFT_THRESHOLD_SEC = 2.5;
-const HOST_HEARTBEAT_MS = 2500;
+export const DRIFT_THRESHOLD_SEC = 0.75;
+const HOST_HEARTBEAT_MS = 1500;
+const SYNC_THROTTLE_MS = 350;
+const MAX_EXTRAPOLATE_SEC = 4;
+const LAN_RECONNECT_BASE_MS = 1200;
+
+function extrapolatePosition(
+  position: number,
+  playing: boolean,
+  sentAt?: number,
+): number {
+  if (!playing || !sentAt) return position;
+  const ageSec = (Date.now() - sentAt) / 1000;
+  return position + Math.min(Math.max(ageSec, 0), MAX_EXTRAPOLATE_SEC);
+}
 
 interface UseWatchPartySyncOptions {
   session: {
@@ -52,8 +63,13 @@ export function useWatchPartySync({
   const wsRef = useRef<WebSocket | null>(null);
   const applyingRemoteRef = useRef(false);
   const lastSentRef = useRef(0);
+  const playingRef = useRef(playing);
+  const currentTimeRef = useRef(currentTime);
   const onRemoteSyncRef = useRef(onRemoteSync);
   const onGuestContentRef = useRef(onGuestContent);
+  const lastCloudUpdatedAtRef = useRef<string | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<number | null>(null);
   const [members, setMembers] = useState<WatchPartyMember[]>(
     session?.room.members ?? [],
   );
@@ -62,27 +78,41 @@ export function useWatchPartySync({
 
   const isCloud = session?.relay === "cloud";
 
+  playingRef.current = playing;
+  currentTimeRef.current = currentTime;
   onRemoteSyncRef.current = onRemoteSync;
   onGuestContentRef.current = onGuestContent;
+
+  const applyRemoteSync = useCallback(
+    (nextPlaying: boolean, position: number, sentAt?: number) => {
+      const adjusted = extrapolatePosition(position, nextPlaying, sentAt);
+      applyingRemoteRef.current = true;
+      onRemoteSyncRef.current(nextPlaying, adjusted);
+      window.setTimeout(() => {
+        applyingRemoteRef.current = false;
+      }, 400);
+    },
+    [],
+  );
 
   const pushCloudSync = useCallback(
     async (force = false) => {
       if (!session || session.role !== "host" || !cloudUserId) return;
       const now = Date.now();
-      if (!force && now - lastSentRef.current < 400) return;
+      if (!force && now - lastSentRef.current < SYNC_THROTTLE_MS) return;
       lastSentRef.current = now;
       try {
         await updateCloudWatchPartySync(
           session.room.code,
           cloudUserId,
-          playing,
-          currentTime,
+          playingRef.current,
+          currentTimeRef.current,
         );
       } catch {
         setError("Sync cloud non riuscita");
       }
     },
-    [session, cloudUserId, playing, currentTime],
+    [session, cloudUserId],
   );
 
   const sendLanSync = useCallback(
@@ -91,18 +121,18 @@ export function useWatchPartySync({
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       const now = Date.now();
-      if (!force && now - lastSentRef.current < 400) return;
+      if (!force && now - lastSentRef.current < SYNC_THROTTLE_MS) return;
       lastSentRef.current = now;
       ws.send(
         JSON.stringify({
           type: "sync",
-          playing,
-          position: currentTime,
+          playing: playingRef.current,
+          position: currentTimeRef.current,
           sentAt: now,
         }),
       );
     },
-    [session, playing, currentTime],
+    [session],
   );
 
   const sendSync = useCallback(
@@ -125,8 +155,20 @@ export function useWatchPartySync({
 
     if (isCloud) {
       setError(null);
+      lastCloudUpdatedAtRef.current = null;
 
       const applyRoom = (room: WatchPartyRoom) => {
+        if (
+          room.updatedAt &&
+          lastCloudUpdatedAtRef.current &&
+          room.updatedAt <= lastCloudUpdatedAtRef.current
+        ) {
+          return;
+        }
+        if (room.updatedAt) {
+          lastCloudUpdatedAtRef.current = room.updatedAt;
+        }
+
         if (session.role === "guest") {
           if (
             room.content.streamUrl &&
@@ -137,11 +179,7 @@ export function useWatchPartySync({
               room.content.isHls,
             );
           }
-          applyingRemoteRef.current = true;
-          onRemoteSyncRef.current(room.playing, room.positionSecs);
-          window.setTimeout(() => {
-            applyingRemoteRef.current = false;
-          }, 300);
+          applyRemoteSync(room.playing, room.positionSecs);
         }
       };
 
@@ -150,10 +188,12 @@ export function useWatchPartySync({
         if (content.streamUrl && content.contentKind !== "streaming") {
           onGuestContentRef.current?.(content.streamUrl, content.isHls);
         }
-        onRemoteSyncRef.current(session.room.playing, session.room.positionSecs);
+        applyRemoteSync(session.room.playing, session.room.positionSecs);
       }
 
       let realtimeOk = false;
+      let stopPoll: (() => void) | null = null;
+
       const unsubscribeRealtime = subscribeCloudWatchParty(
         session.room.code,
         applyRoom,
@@ -162,6 +202,8 @@ export function useWatchPartySync({
             realtimeOk = true;
             setConnected(true);
             setError(null);
+            stopPoll?.();
+            stopPoll = null;
           } else if (
             status === "CHANNEL_ERROR" ||
             status === "TIMED_OUT"
@@ -169,20 +211,30 @@ export function useWatchPartySync({
             setError(
               "Sync live non disponibile — uso aggiornamento periodico",
             );
+            if (!stopPoll) {
+              stopPoll = pollCloudWatchParty(session.room.code, (room) => {
+                setConnected(true);
+                applyRoom(room);
+              });
+            }
           }
         },
       );
 
-      const stopPoll = pollCloudWatchParty(session.room.code, (room) => {
-        setConnected(true);
-        applyRoom(room);
-      });
+      const pollFallbackTimer = window.setTimeout(() => {
+        if (!realtimeOk && !stopPoll) {
+          stopPoll = pollCloudWatchParty(session.room.code, (room) => {
+            setConnected(true);
+            applyRoom(room);
+          });
+        }
+      }, 4000);
 
       void fetchCloudWatchParty(session.room.code)
         .then((room) => {
           if (room) {
             setConnected(true);
-            if (!realtimeOk && session.role === "guest") {
+            if (session.role === "guest") {
               applyRoom(room);
             }
           } else if (session.role === "guest") {
@@ -200,72 +252,103 @@ export function useWatchPartySync({
       }
 
       return () => {
+        window.clearTimeout(pollFallbackTimer);
         unsubscribeRealtime();
-        stopPoll();
+        stopPoll?.();
         setConnected(false);
       };
     }
 
     const isHost = session.role === "host";
-    const wsUrl = isHost
-      ? localhostWatchPartyWsUrl(session.room.code, profileId, profileName)
-      : lanWatchPartyWsUrl(
-          session.hostIp ?? session.room.hostIp ?? "127.0.0.1",
-          session.room.code,
-          profileId,
-          profileName,
+    let cancelled = false;
+
+    const connectLan = () => {
+      if (cancelled) return;
+
+      const wsUrl = isHost
+        ? localhostWatchPartyWsUrl(session.room.code, profileId, profileName)
+        : lanWatchPartyWsUrl(
+            session.hostIp ?? session.room.hostIp ?? "127.0.0.1",
+            session.room.code,
+            profileId,
+            profileName,
+          );
+
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        reconnectAttemptRef.current = 0;
+        setConnected(true);
+        setError(null);
+        if (isHost) sendLanSync(true);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(String(event.data)) as WatchPartyWsMessage;
+          if (msg.type === "members") {
+            setMembers(msg.members);
+            return;
+          }
+          if (msg.type === "content" && !isHost) {
+            onGuestContentRef.current?.(
+              msg.content.streamUrl,
+              msg.content.isHls,
+            );
+            return;
+          }
+          if (msg.type === "sync" && !isHost) {
+            applyRemoteSync(msg.playing, msg.position, msg.sentAt);
+          }
+        } catch {
+          // messaggio non valido
+        }
+      };
+
+      ws.onerror = () => {
+        setError(
+          lanWatchPartyErrorMessage(
+            session.hostIp ?? session.room.hostIp,
+          ),
         );
+        setConnected(false);
+      };
 
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+      ws.onclose = () => {
+        wsRef.current = null;
+        setConnected(false);
+        if (cancelled || isHost) return;
 
-    ws.onopen = () => {
-      setConnected(true);
-      setError(null);
-      if (isHost) sendLanSync(true);
+        const attempt = reconnectAttemptRef.current + 1;
+        reconnectAttemptRef.current = attempt;
+        const delay = Math.min(
+          LAN_RECONNECT_BASE_MS * attempt,
+          8000,
+        );
+        reconnectTimerRef.current = window.setTimeout(connectLan, delay);
+      };
     };
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(String(event.data)) as WatchPartyWsMessage;
-        if (msg.type === "members") {
-          setMembers(msg.members);
-          return;
-        }
-        if (msg.type === "content" && !isHost) {
-          onGuestContentRef.current?.(msg.content.streamUrl, msg.content.isHls);
-          return;
-        }
-        if (msg.type === "sync" && !isHost) {
-          applyingRemoteRef.current = true;
-          onRemoteSyncRef.current(msg.playing, msg.position);
-          window.setTimeout(() => {
-            applyingRemoteRef.current = false;
-          }, 300);
-        }
-      } catch {
-        // messaggio non valido
-      }
-    };
-
-    ws.onerror = () => {
-      setError(
-        lanWatchPartyErrorMessage(
-          session.hostIp ?? session.room.hostIp,
-        ),
-      );
-      setConnected(false);
-    };
-
-    ws.onclose = () => {
-      setConnected(false);
-    };
+    connectLan();
 
     return () => {
-      ws.close();
+      cancelled = true;
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [session, profileId, profileName, isCloud, sendLanSync]);
+  }, [
+    session,
+    profileId,
+    profileName,
+    isCloud,
+    sendLanSync,
+    applyRemoteSync,
+  ]);
 
   useEffect(() => {
     if (!session || session.role !== "host" || applyingRemoteRef.current) {
@@ -277,20 +360,21 @@ export function useWatchPartySync({
   useEffect(() => {
     if (!session || session.role !== "host") return;
     const timer = window.setInterval(() => {
-      if (playing) sendSync();
+      if (playingRef.current) sendSync();
     }, HOST_HEARTBEAT_MS);
     return () => window.clearInterval(timer);
-  }, [session, playing, sendSync]);
+  }, [session, sendSync]);
 
   const notifySeek = useCallback(
     (position: number, nextPlaying?: boolean) => {
       if (!session || session.role !== "host") return;
 
+      const nextPlay = nextPlaying ?? playingRef.current;
       if (isCloud && cloudUserId) {
         void updateCloudWatchPartySync(
           session.room.code,
           cloudUserId,
-          nextPlaying ?? playing,
+          nextPlay,
           position,
         );
         lastSentRef.current = Date.now();
@@ -299,17 +383,18 @@ export function useWatchPartySync({
 
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const now = Date.now();
       ws.send(
         JSON.stringify({
           type: "sync",
-          playing: nextPlaying ?? playing,
+          playing: nextPlay,
           position,
-          sentAt: Date.now(),
+          sentAt: now,
         }),
       );
-      lastSentRef.current = Date.now();
+      lastSentRef.current = now;
     },
-    [session, playing, isCloud, cloudUserId],
+    [session, isCloud, cloudUserId],
   );
 
   return {

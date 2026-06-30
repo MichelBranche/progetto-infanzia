@@ -31,6 +31,7 @@ import { StreamingTitlePage } from "./StreamingTitlePage";
 interface AddonWatchPageProps extends AddonWatchTarget {
   profileId: string;
   onBack: () => void;
+  onRefreshContinue?: () => void | Promise<void>;
   watchPartySession?: WatchPartySession | null;
   onWatchPartySessionChange?: (session: WatchPartySession | null) => void;
 }
@@ -101,6 +102,7 @@ export function AddonWatchPage({
   slug,
   catalogPrefix,
   onBack,
+  onRefreshContinue,
   watchPartySession,
   onWatchPartySessionChange,
 }: AddonWatchPageProps) {
@@ -445,6 +447,7 @@ export function AddonWatchPage({
           }
           setPlayback(null);
           void loadEpisodeProgress();
+          await onRefreshContinue?.();
           if (initialVideoId) await onBack();
         }}
       />
