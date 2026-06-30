@@ -63,6 +63,8 @@ export interface StremioMetaPreview {
   watchPosition?: number;
   watchDuration?: number;
   resumeVideoId?: string;
+  /** Episodio da riprendere (riga Continua a guardare) */
+  resumeEpisodeLabel?: string;
   /** Salvato in "La mia Lista" (streaming) */
   inMyList?: boolean;
 }

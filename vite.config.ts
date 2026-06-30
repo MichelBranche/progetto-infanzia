@@ -8,6 +8,24 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
 
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/hls.js")) return "hls";
+          if (id.includes("node_modules/framer-motion")) return "motion";
+          if (id.includes("node_modules/@supabase")) return "supabase";
+          if (
+            id.includes("node_modules/react-dom") ||
+            id.includes("node_modules/react/")
+          ) {
+            return "vendor";
+          }
+        },
+      },
+    },
+  },
+
   clearScreen: false,
   server: {
     port: 1420,

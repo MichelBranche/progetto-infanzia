@@ -69,6 +69,10 @@ export const MediaCard = memo(function MediaCard({
   const isSeries =
     browse.kind === "series" ||
     (isStreaming && isStreamingSeries(browse.preview));
+  const resumeEpisodeLabel =
+    browse.kind === "streaming" && browse.preview.resumeEpisodeLabel
+      ? browse.preview.resumeEpisodeLabel
+      : null;
   const hasVideoPreview =
     isScPreview || (!isStreaming && !isSeries);
   const progress =
@@ -272,6 +276,17 @@ export const MediaCard = memo(function MediaCard({
               </div>
             )}
 
+            {!expanded && resumeEpisodeLabel && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] bg-gradient-to-t from-black/90 via-black/50 to-transparent p-2 pt-6">
+                <p className="line-clamp-1 text-[11px] font-semibold leading-snug text-white drop-shadow-sm sm:text-[12px]">
+                  {title}
+                </p>
+                <p className="mt-0.5 truncate text-[10px] font-medium text-accent">
+                  {resumeEpisodeLabel}
+                </p>
+              </div>
+            )}
+
             {progress > 2 && (
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/20">
                 <div
@@ -394,6 +409,9 @@ export const MediaCard = memo(function MediaCard({
                 {title}
               </h3>
               <p className="title-clip text-[11px] text-white/50">
+                {resumeEpisodeLabel && (
+                  <span className="text-accent">{resumeEpisodeLabel} · </span>
+                )}
                 {mediaTypeLabel(item.mediaType)}
                 {item.year ? ` · ${item.year}` : ""}
                 {durationLabel ? ` · ${durationLabel}` : ""}

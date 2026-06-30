@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useStreamingSearch } from "./lib/useStreamingSearch";
 import { LoadingScreen } from "./components/LoadingScreen";
@@ -10,21 +10,8 @@ import { HeroBanner } from "./components/HeroBanner";
 import { MediaRow } from "./components/MediaRow";
 import { MediaGrid } from "./components/MediaGrid";
 import { EmptyLibrary } from "./components/EmptyLibrary";
-import { WatchPage } from "./components/WatchPage";
-import { AddMediaPage } from "./components/AddMediaPage";
-import { SeriesDetailPage } from "./components/SeriesDetailPage";
-import { ManageLibraryPage } from "./components/ManageLibraryPage";
 import { ProfilePage, type ProfileTab } from "./components/ProfilePage";
-import { VideoPlayer } from "./components/VideoPlayer";
-import { SettingsPage } from "./components/SettingsPage";
 import { AppUpdaterProvider } from "./context/AppUpdaterContext";
-import { ParentalActivityPage } from "./components/ParentalActivityPage";
-import { StreamingPage } from "./components/StreamingPage";
-import { AnimePage } from "./components/AnimePage";
-import { splitTop10Row } from "./lib/streamingRows";
-import { SearchOverlay } from "./components/SearchOverlay";
-import { NetflixTop10Row } from "./components/NetflixTop10Row";
-import { AddonWatchPage } from "./components/AddonWatchPage";
 import { ProfilePinModal } from "./components/ProfilePinModal";
 import { EditMediaModal } from "./components/EditMediaModal";
 import { LibraryProvider, useLibrary } from "./context/LibraryContext";
@@ -48,6 +35,7 @@ import {
 import { useStreamingCatalogs } from "./lib/useStreamingCatalogs";
 import { useMyList } from "./lib/useMyList";
 import { markStreamingInMyList } from "./lib/myList";
+import { splitTop10Row } from "./lib/streamingRows";
 import type { BrowseItem } from "./lib/browse";
 import { STREMIO_ADDONS_ENABLED, isBuiltinStreamingCatalog } from "./lib/features";
 import {
@@ -58,6 +46,65 @@ import {
 } from "./lib/unifiedBrowse";
 import type { StremioMetaPreview } from "./types/stremio";
 import type { WatchPartySession } from "./types/watchParty";
+
+const WatchPage = lazy(() =>
+  import("./components/WatchPage").then((m) => ({ default: m.WatchPage })),
+);
+const AddMediaPage = lazy(() =>
+  import("./components/AddMediaPage").then((m) => ({ default: m.AddMediaPage })),
+);
+const SeriesDetailPage = lazy(() =>
+  import("./components/SeriesDetailPage").then((m) => ({
+    default: m.SeriesDetailPage,
+  })),
+);
+const ManageLibraryPage = lazy(() =>
+  import("./components/ManageLibraryPage").then((m) => ({
+    default: m.ManageLibraryPage,
+  })),
+);
+const VideoPlayer = lazy(() =>
+  import("./components/VideoPlayer").then((m) => ({ default: m.VideoPlayer })),
+);
+const SettingsPage = lazy(() =>
+  import("./components/SettingsPage").then((m) => ({ default: m.SettingsPage })),
+);
+const ParentalActivityPage = lazy(() =>
+  import("./components/ParentalActivityPage").then((m) => ({
+    default: m.ParentalActivityPage,
+  })),
+);
+const StreamingPage = lazy(() =>
+  import("./components/StreamingPage").then((m) => ({ default: m.StreamingPage })),
+);
+const AnimePage = lazy(() =>
+  import("./components/AnimePage").then((m) => ({ default: m.AnimePage })),
+);
+const SearchOverlay = lazy(() =>
+  import("./components/SearchOverlay").then((m) => ({ default: m.SearchOverlay })),
+);
+const NetflixTop10Row = lazy(() =>
+  import("./components/NetflixTop10Row").then((m) => ({
+    default: m.NetflixTop10Row,
+  })),
+);
+const AddonWatchPage = lazy(() =>
+  import("./components/AddonWatchPage").then((m) => ({
+    default: m.AddonWatchPage,
+  })),
+);
+
+function RouteFallback() {
+  return (
+    <div className="flex h-full min-h-[40vh] items-center justify-center bg-void">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/10 border-t-accent" />
+    </div>
+  );
+}
+
+function SuspenseRoute({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
+}
 
 function AppContent() {
   const { activeProfile, clearProfile, isParent } = useProfile();
@@ -473,7 +520,8 @@ function AppContent() {
 
     if (streamingTarget) {
       return (
-        <AddonWatchPage
+        <SuspenseRoute>
+          <AddonWatchPage
           profileId={activeProfile.id}
           contentType={streamingTarget.contentType}
           metaId={streamingTarget.metaId}
@@ -487,7 +535,8 @@ function AppContent() {
             await refreshStreamingContinue();
           }}
           onRefreshContinue={refreshStreamingContinue}
-        />
+          />
+        </SuspenseRoute>
       );
     }
 
@@ -507,7 +556,8 @@ function AppContent() {
     };
 
     return (
-      <VideoPlayer
+      <SuspenseRoute>
+        <VideoPlayer
         streamUrl={guestContent.streamUrl}
         media={guestMedia}
         isHls={guestContent.isHls}
@@ -517,14 +567,16 @@ function AppContent() {
           setPartyGuestSession(null);
           await refreshStreamingContinue();
         }}
-      />
+        />
+      </SuspenseRoute>
     );
   }
 
   if (addonWatch) {
     return (
       <div className="h-full overflow-y-auto overflow-x-hidden bg-void">
-        <AddonWatchPage
+        <SuspenseRoute>
+          <AddonWatchPage
           profileId={activeProfile.id}
           contentType={addonWatch.contentType}
           metaId={addonWatch.metaId}
@@ -537,19 +589,22 @@ function AppContent() {
             refreshFriendAlerts();
           }}
           onRefreshContinue={refreshStreamingContinue}
-        />
+          />
+        </SuspenseRoute>
       </div>
     );
   }
 
   if (watchingId) {
     return (
-      <WatchPage
+      <SuspenseRoute>
+        <WatchPage
         mediaId={watchingId}
         autoplay={watchAutoplay}
         onBack={handleBackFromWatch}
         onPlayEpisode={handlePlayNow}
-      />
+        />
+      </SuspenseRoute>
     );
   }
 
@@ -605,7 +660,8 @@ function AppContent() {
           totalCount={library?.totalCount}
         />
 
-        <SearchOverlay
+        <SuspenseRoute>
+          <SearchOverlay
           open={searchOpen}
           query={searchQuery}
           onClose={handleCloseSearch}
@@ -624,7 +680,8 @@ function AppContent() {
           onToggleStreamingList={handleToggleStreamingList}
           enrichStreamingPreview={enrichListedPreview}
           onEdit={isParent ? (id) => setEditingId(id) : undefined}
-        />
+          />
+        </SuspenseRoute>
 
         <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
           {loading && !library ? (
@@ -648,7 +705,8 @@ function AppContent() {
                 transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
               >
                 {seriesKey && library && (
-                  <SeriesDetailPage
+                  <SuspenseRoute>
+                    <SeriesDetailPage
                     seriesKey={seriesKey}
                     items={library.items}
                     isParent={isParent}
@@ -664,41 +722,50 @@ function AppContent() {
                       setSeriesKey(null);
                       setActiveNav("add");
                     }}
-                  />
+                    />
+                  </SuspenseRoute>
                 )}
 
                 {!seriesKey && activeNav === "add" && isParent && (
-                  <AddMediaPage
+                  <SuspenseRoute>
+                    <AddMediaPage
                     presetSeries={addPresetSeries}
                     onSuccess={handleAddSuccess}
                     onCancel={() => {
                       setAddPresetSeries(null);
                       setActiveNav("home");
                     }}
-                  />
+                    />
+                  </SuspenseRoute>
                 )}
 
                 {!seriesKey && activeNav === "anime" && (
-                  <AnimePage
+                  <SuspenseRoute>
+                    <AnimePage
                     seedPreviews={saturnSeedPreviews}
                     onPlayStreaming={handlePlayStreaming}
                     enrichStreamingPreview={enrichListedPreview}
-                  />
+                    />
+                  </SuspenseRoute>
                 )}
 
                 {!seriesKey && activeNav === "streaming" && STREMIO_ADDONS_ENABLED && (
-                  <StreamingPage
+                  <SuspenseRoute>
+                    <StreamingPage
                     profileId={activeProfile.id}
                     onStartWatch={setAddonWatch}
-                  />
+                    />
+                  </SuspenseRoute>
                 )}
 
                 {!seriesKey && activeNav === "settings" && isParent && (
-                  <SettingsPage
+                  <SuspenseRoute>
+                    <SettingsPage
                     profileId={activeProfile.id}
                     onRescanComplete={() => void refresh()}
                     onOpenManage={() => setActiveNav("manage")}
-                  />
+                    />
+                  </SuspenseRoute>
                 )}
 
                 {!seriesKey && activeNav === "profile" && library && (
@@ -724,11 +791,14 @@ function AppContent() {
                 )}
 
                 {!seriesKey && activeNav === "activity" && isParent && (
-                  <ParentalActivityPage />
+                  <SuspenseRoute>
+                    <ParentalActivityPage />
+                  </SuspenseRoute>
                 )}
 
                 {!seriesKey && activeNav === "manage" && isParent && library && (
-                  <ManageLibraryPage
+                  <SuspenseRoute>
+                    <ManageLibraryPage
                     items={library.items}
                     onPlay={handlePlay}
                     onEdit={setEditingId}
@@ -736,7 +806,8 @@ function AppContent() {
                       await deleteMedia(activeProfile.id, id);
                       await refresh();
                     }}
-                  />
+                    />
+                  </SuspenseRoute>
                 )}
 
                 {!seriesKey && activeNav === "home" && (
@@ -779,11 +850,13 @@ function AppContent() {
                       />
                     )}
                     {top10Row && (
-                      <NetflixTop10Row
+                      <SuspenseRoute>
+                        <NetflixTop10Row
                         title={top10Row.title}
                         items={top10Row.items}
                         onPlayStreaming={handlePlayStreaming}
-                      />
+                        />
+                      </SuspenseRoute>
                     )}
                     {(unifiedHomeRows.length > 0 || streamingError) && (
                       <div className="relative z-10 -mt-4 space-y-0.5 sm:-mt-5">

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useCloudAccount } from "../context/CloudAccountContext";
 import { useNotifications } from "../context/NotificationContext";
+import { sendOsNotification } from "../lib/osNotifications";
 import {
   listAcceptedAsRequester,
   listPendingFriendRequests,
@@ -19,6 +20,14 @@ export function useCloudFriendAlerts() {
   const [pendingCount, setPendingCount] = useState(0);
   const seenIncomingRef = useRef<Set<string> | null>(null);
   const seenAcceptedRef = useRef<Set<string> | null>(null);
+
+  const pushAlert = useCallback(
+    (title: string, message?: string, kind: "friend" | "success" | "info" = "info") => {
+      notify({ kind, title, message });
+      void sendOsNotification(title, message);
+    },
+    [notify],
+  );
 
   const poll = useCallback(async () => {
     if (!profile) {
@@ -42,13 +51,13 @@ export function useCloudFriendAlerts() {
         for (const req of incoming) {
           if (!seenIncomingRef.current.has(req.id)) {
             seenIncomingRef.current.add(req.id);
-            notify({
-              kind: "friend",
-              title: "Nuova richiesta di amicizia",
-              message: req.requester
+            pushAlert(
+              "Nuova richiesta di amicizia",
+              req.requester
                 ? `${req.requester.displayName} vuole aggiungerti`
                 : "Hai una nuova richiesta in attesa",
-            });
+              "friend",
+            );
           }
         }
         for (const id of [...seenIncomingRef.current]) {
@@ -69,11 +78,11 @@ export function useCloudFriendAlerts() {
           if (!seenAcceptedRef.current.has(key)) {
             seenAcceptedRef.current.add(key);
             if (req.addressee) {
-              notify({
-                kind: "success",
-                title: "Richiesta accettata",
-                message: `${req.addressee.displayName} ha accettato la tua richiesta`,
-              });
+              pushAlert(
+                "Richiesta accettata",
+                `${req.addressee.displayName} ha accettato la tua richiesta`,
+                "success",
+              );
             }
           }
         }
@@ -81,7 +90,7 @@ export function useCloudFriendAlerts() {
     } catch {
       // ignore transient network errors
     }
-  }, [profile, notify]);
+  }, [profile, pushAlert]);
 
   useEffect(() => {
     if (!profile) return;

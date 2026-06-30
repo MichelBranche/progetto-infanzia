@@ -202,9 +202,8 @@ export function continueToPreview(item: StreamingContinueItem): StremioMetaPrevi
   return {
     id: item.titleId,
     type: item.contentType,
-    name: item.episodeLabel
-      ? `${item.titleName} · ${item.episodeLabel}`
-      : item.titleName,
+    name: item.titleName,
+    resumeEpisodeLabel: item.episodeLabel,
     poster: item.poster,
     catalogPrefix: item.catalogPrefix,
     slug: item.slug,

@@ -2473,3 +2473,83 @@ fn collect_posters_from_dir(
         );
     }
 }
+
+#[cfg(test)]
+mod continue_watching_tests {
+    use super::*;
+    use crate::stremio::StreamingWatchProgressInput;
+
+    fn test_db() -> Database {
+        Database::open(std::path::Path::new(":memory:")).expect("in-memory db")
+    }
+
+    fn sample_progress(
+        video_id: &str,
+        episode_label: &str,
+        position: f64,
+    ) -> StreamingWatchProgressInput {
+        StreamingWatchProgressInput {
+            catalog_prefix: "sc".to_string(),
+            content_type: "series".to_string(),
+            title_id: "show-1".to_string(),
+            slug: "my-show".to_string(),
+            video_id: video_id.to_string(),
+            title_name: "My Show".to_string(),
+            episode_label: Some(episode_label.to_string()),
+            poster: None,
+            position_secs: position,
+            duration_secs: Some(3600.0),
+        }
+    }
+
+    #[test]
+    fn continue_watching_dedupes_to_latest_episode_per_series() {
+        let db = test_db();
+        let profile = "kid-1";
+
+        db.upsert_streaming_watch_progress(
+            profile,
+            &sample_progress("ep1", "S01E01", 120.0),
+        )
+        .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        db.upsert_streaming_watch_progress(
+            profile,
+            &sample_progress("ep2", "S01E02", 240.0),
+        )
+        .unwrap();
+
+        let items = db
+            .list_streaming_continue_watching(profile, 10)
+            .expect("list continue");
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].video_id, "ep2");
+        assert_eq!(items[0].episode_label.as_deref(), Some("S01E02"));
+    }
+
+    #[test]
+    fn get_streaming_progress_trims_key_fields() {
+        let db = test_db();
+        let profile = "kid-1";
+
+        db.upsert_streaming_watch_progress(
+            profile,
+            &sample_progress("ep1", "S01E01", 90.0),
+        )
+        .unwrap();
+
+        let progress = db
+            .get_streaming_watch_progress(
+                profile,
+                " sc ",
+                "series",
+                "show-1",
+                " my-show ",
+                " ep1 ",
+            )
+            .expect("get progress");
+
+        assert_eq!(progress.map(|p| p.0), Some(90.0));
+    }
+}

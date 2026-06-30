@@ -9,6 +9,7 @@ import type { BrowseItem } from "../lib/browse";
 import { toBrowseItems, browseItemId } from "../lib/browse";
 import { streamingBrowseItem } from "../lib/streamingBrowse";
 import { enrichStreamingPreview } from "../lib/unifiedBrowse";
+import { partitionStreamingBrowseItems } from "../lib/searchGroups";
 import { LoadingSpinner } from "./LoadingSpinner";
 
 interface SearchOverlayProps {
@@ -62,6 +63,10 @@ export function SearchOverlay({
   const streamingBrowse = useMemo(
     () => streamingResults.map((preview) => streamingBrowseItem(enrich(preview))),
     [streamingResults, enrich],
+  );
+  const streamingGroups = useMemo(
+    () => partitionStreamingBrowseItems(streamingBrowse),
+    [streamingBrowse],
   );
   const suggestionBrowse = useMemo(
     () =>
@@ -146,7 +151,7 @@ export function SearchOverlay({
                 <p className="page-px pb-2 pt-2 text-[13px] text-text-muted">
                   {totalResults} risultat{totalResults === 1 ? "o" : "i"}
                   {streamingResults.length > 0 &&
-                    ` · ${streamingCountLabel} in streaming`}
+                    ` · ${streamingCountLabel} in catalogo`}
                   {streamingHasMore && " · scorri per altri"}
                 </p>
               )}
@@ -167,22 +172,52 @@ export function SearchOverlay({
               )}
 
               {hasQuery && streamingBrowse.length > 0 && (
-                <SearchSection title="In streaming">
-                  <SearchGrid
-                    items={streamingBrowse}
-                    onPlay={onPlay}
-                    onPlayStreaming={onPlayStreaming}
-                    onOpenSeries={onOpenSeries}
-                    onToggleFavorite={onToggleFavorite}
-                    onToggleStreamingList={onToggleStreamingList}
-                    onEdit={onEdit}
-                  />
+                <>
+                  {streamingGroups.sc.length > 0 && (
+                    <SearchSection title="Streaming Community">
+                      <SearchGrid
+                        items={streamingGroups.sc}
+                        onPlay={onPlay}
+                        onPlayStreaming={onPlayStreaming}
+                        onOpenSeries={onOpenSeries}
+                        onToggleFavorite={onToggleFavorite}
+                        onToggleStreamingList={onToggleStreamingList}
+                        onEdit={onEdit}
+                      />
+                    </SearchSection>
+                  )}
+                  {streamingGroups.saturn.length > 0 && (
+                    <SearchSection title="Anime (AnimeSaturn)">
+                      <SearchGrid
+                        items={streamingGroups.saturn}
+                        onPlay={onPlay}
+                        onPlayStreaming={onPlayStreaming}
+                        onOpenSeries={onOpenSeries}
+                        onToggleFavorite={onToggleFavorite}
+                        onToggleStreamingList={onToggleStreamingList}
+                        onEdit={onEdit}
+                      />
+                    </SearchSection>
+                  )}
+                  {streamingGroups.other.length > 0 && (
+                    <SearchSection title="Altri cataloghi">
+                      <SearchGrid
+                        items={streamingGroups.other}
+                        onPlay={onPlay}
+                        onPlayStreaming={onPlayStreaming}
+                        onOpenSeries={onOpenSeries}
+                        onToggleFavorite={onToggleFavorite}
+                        onToggleStreamingList={onToggleStreamingList}
+                        onEdit={onEdit}
+                      />
+                    </SearchSection>
+                  )}
                   {streamingHasMore && (
                     <div ref={loadMoreRef} className="flex justify-center py-8">
                       <LoadingSpinner size="sm" className="border-t-accent" />
                     </div>
                   )}
-                </SearchSection>
+                </>
               )}
 
               {hasQuery && localBrowse.length > 0 && (
