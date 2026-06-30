@@ -1,0 +1,40 @@
+[package]
+name = "tauri-app"
+version = "0.1.0"
+description = "Branchefy - streaming locale per famiglia"
+authors = ["miche"]
+edition = "2021"
+
+[lib]
+name = "tauri_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+walkdir = "2"
+regex = "1"
+urlencoding = "2"
+notify = "8.2"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "fs", "io-util", "process", "sync", "time"] }
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["cors"] }
+mime_guess = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "json", "stream", "cookies"] }
+futures-util = "0.3"
+local-ip-address = "0.6"
+url = "2"
+if-addrs = "0.14"
+socket2 = { version = "0.6", features = ["all"] }
+tokio-util = { version = "0.7", features = ["io"] }
+librqbit = "8"
+parking_lot = "0.12"
+base64 = "0.22"

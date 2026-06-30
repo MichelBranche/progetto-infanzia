@@ -1,0 +1,151 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Syne", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+
+  --color-void: #060608;
+  --color-void-elevated: #0c0c10;
+  --color-surface: #12121a;
+  --color-surface-hover: #1a1a24;
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-hover: rgba(255, 255, 255, 0.12);
+
+  --color-accent: #6b7fff;
+  --color-accent-soft: rgba(107, 127, 255, 0.12);
+  --color-mint: #3ddbd9;
+  --color-mint-soft: rgba(61, 219, 217, 0.1);
+  --color-warm: #ff8a6b;
+  --color-warm-soft: rgba(255, 138, 107, 0.1);
+  --color-lavender: #b8a4ff;
+
+  --color-text-primary: #f4f4f6;
+  --color-text-secondary: #9898a4;
+  --color-text-muted: #5c5c68;
+
+  --color-midnight: var(--color-void);
+  --color-midnight-light: var(--color-void-elevated);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-void);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+.noise-overlay {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 128px 128px;
+  pointer-events: none;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+/* Titoli home: mai a capo a metà parola */
+.title-safe {
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: manual;
+  text-wrap: pretty;
+}
+
+.title-clip {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root {
+  --page-px: 1.25rem;
+  --card-collapsed: 148px;
+  --card-expanded: 288px;
+  --card-title-slot: 38px;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --page-px: 2rem;
+    --card-collapsed: 164px;
+    --card-expanded: 308px;
+    --card-title-slot: 40px;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --page-px: 2.75rem;
+    --card-collapsed: 176px;
+    --card-expanded: 324px;
+    --card-title-slot: 42px;
+  }
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --page-px: 3.25rem;
+    --card-collapsed: 188px;
+    --card-expanded: 336px;
+  }
+}
+
+.page-px {
+  padding-left: var(--page-px);
+  padding-right: var(--page-px);
+}
+
+/* Custom subtitle overlay in VideoPlayer — hide native browser captions */
+video.player-video::-webkit-media-text-track-container,
+video.player-video::-webkit-media-text-track-display {
+  display: none !important;
+}
+
+video.player-video::cue {
+  opacity: 0;
+}
