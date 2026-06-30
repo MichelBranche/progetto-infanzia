@@ -287,13 +287,45 @@ fn season_fetch_paths(
     season_number: i32,
     season_id: Option<i64>,
 ) -> Vec<String> {
-    let mut paths = vec![title_path(locale, title_id, slug, Some(season_number))];
+    let mut paths = vec![title_season_path(locale, title_id, slug, season_number)];
     if let Some(sid) = season_id {
         paths.push(format!(
             "/{locale}/titles/{title_id}-{slug}?season_id={sid}"
         ));
     }
+    paths.push(title_path(locale, title_id, slug, Some(season_number)));
     paths
+}
+
+fn episodes_embedded_in_season(
+    cdn: &str,
+    season_entry: &Value,
+    season_number: i32,
+    seen_ids: &mut HashMap<String, i32>,
+) -> Option<Vec<StremioVideo>> {
+    let episodes = season_entry.get("episodes")?.as_array()?;
+    if episodes.is_empty() {
+        return None;
+    }
+    let loaded = serde_json::json!({
+        "number": season_entry
+            .get("number")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(season_number as i64),
+        "episodes": episodes,
+    });
+    let batch = episodes_from_season_deduped(cdn, &loaded, season_number, seen_ids);
+    if batch.is_empty() {
+        None
+    } else {
+        Some(batch)
+    }
+}
+
+fn loaded_season_from_props(props: &Value) -> Option<&Value> {
+    props
+        .get("loadedSeason")
+        .filter(|loaded| !loaded.is_null())
 }
 
 fn episodes_from_season_deduped(
@@ -323,7 +355,7 @@ fn episodes_from_season_deduped(
 }
 
 fn load_season_episodes(
-    session: &ScSession,
+    session: &mut ScSession,
     cdn: &str,
     locale: &str,
     title_id: i64,
@@ -332,18 +364,23 @@ fn load_season_episodes(
     season_entry: Option<&Value>,
     seen_ids: &mut HashMap<String, i32>,
 ) -> Result<Vec<StremioVideo>, String> {
-    let referer = title_path(locale, title_id, slug, None);
+    if let Some(entry) = season_entry {
+        if let Some(batch) = episodes_embedded_in_season(cdn, entry, season_number, seen_ids) {
+            return Ok(batch);
+        }
+    }
+
     let season_id = season_entry
         .and_then(|s| s.get("id"))
         .and_then(|v| v.as_i64());
     let paths = season_fetch_paths(locale, title_id, slug, season_number, season_id);
 
     for path in paths {
-        let season_props = match session.props_from_html_page(&path, Some(&referer)) {
+        let season_props = match session.props_for_season_path(&path) {
             Ok(props) => props,
             Err(_) => continue,
         };
-        if let Some(loaded) = season_props.get("loadedSeason") {
+        if let Some(loaded) = loaded_season_from_props(&season_props) {
             let batch = episodes_from_season_deduped(cdn, loaded, season_number, seen_ids);
             if !batch.is_empty() {
                 return Ok(batch);
@@ -444,8 +481,31 @@ pub fn fetch_season_episodes(
     });
 
     let mut seen_ids = HashMap::new();
+    if season_number > 1 {
+        let first_season = seasons
+            .first()
+            .and_then(|s| s.get("number").and_then(|v| v.as_i64()).map(|n| n as i32))
+            .unwrap_or(1);
+        if first_season != season_number {
+            if let Ok(first_eps) = load_season_episodes(
+                &mut session,
+                cdn,
+                locale,
+                title_id,
+                slug,
+                first_season,
+                seasons.first(),
+                &mut seen_ids,
+            ) {
+                for ep in first_eps {
+                    seen_ids.insert(ep.id, first_season);
+                }
+            }
+        }
+    }
+
     load_season_episodes(
-        &session,
+        &mut session,
         cdn,
         locale,
         title_id,
@@ -558,6 +618,35 @@ impl ScSession {
         resp.json().map_err(|e| format!("Inertia JSON: {e}"))
     }
 
+    /// Carica props per una pagina stagione: HTML + Inertia XHR con versione aggiornata.
+    fn props_for_season_path(&mut self, path: &str) -> Result<Value, String> {
+        let referer = Some(path);
+        if let Ok(html) = self.get_html(path, referer) {
+            if let Some(page) = parse_inertia_from_html(&html) {
+                if let Some(version) = page.get("version").and_then(|v| v.as_str()) {
+                    self.inertia_version = Some(version.to_string());
+                }
+                if let Some(props) = page.get("props").filter(|p| !p.is_null()) {
+                    if loaded_season_from_props(props).is_some() {
+                        return Ok(props.clone());
+                    }
+                }
+            }
+        }
+
+        let html = self.get_html(path, referer)?;
+        if let Some(page) = parse_inertia_from_html(&html) {
+            if let Some(version) = page.get("version").and_then(|v| v.as_str()) {
+                self.inertia_version = Some(version.to_string());
+            }
+        }
+
+        let page = self.inertia_page(path, referer)?;
+        page.get("props")
+            .cloned()
+            .ok_or_else(|| format!("Props non disponibili per {path}"))
+    }
+
     /// Carica props Inertia da HTML completo (necessario per ?season=N: le richieste X-Inertia
     /// possono restituire sempre la stagione predefinita).
     fn props_from_html_page(&self, path: &str, referer: Option<&str>) -> Result<Value, String> {
@@ -576,6 +665,10 @@ fn title_path(locale: &str, title_id: i64, slug: &str, season: Option<i32>) -> S
         path.push_str(&format!("?season={n}"));
     }
     path
+}
+
+fn title_season_path(locale: &str, title_id: i64, slug: &str, season_number: i32) -> String {
+    format!("/{locale}/titles/{title_id}-{slug}/season-{season_number}")
 }
 
 fn watch_path(locale: &str, title_id: i64, slug: &str, episode_id: Option<i64>) -> String {
@@ -766,6 +859,14 @@ fn episode_image(cdn: &str, episode: &Value) -> Option<String> {
 mod tests {
     use super::*;
     use crate::addon_proxy::AddonProxyRegistry;
+
+    #[test]
+    fn title_season_path_uses_sc_route_format() {
+        assert_eq!(
+            title_season_path("it", 3589, "breaking-bad", 2),
+            "/it/titles/3589-breaking-bad/season-2"
+        );
+    }
 
     #[test]
     fn rejects_loaded_season_with_wrong_number() {

@@ -13,7 +13,6 @@ import type {
 } from "../lib/titleDetail";
 import {
   episodesForSeason,
-  inferEpisodeSeason,
   seasonsFromEpisodes,
   sortedEpisodes,
 } from "../lib/titleDetail";
@@ -137,45 +136,34 @@ function SeasonSelector({
 }) {
   if (seasons.length <= 1) return null;
 
-  if (seasons.length > 6) {
-    return (
-      <div className={className}>
-        <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
-          Stagione
-        </label>
-        <select
-          value={activeSeason}
-          onChange={(e) => onChange(Number(e.target.value))}
-          className="w-full max-w-xs rounded-lg border border-white/15 bg-black/40 px-3 py-2.5 text-[14px] text-white outline-none transition-colors focus:border-white/35 sm:w-auto sm:min-w-[180px]"
-        >
-          {seasons.map((season) => (
-            <option key={season} value={season} className="bg-void text-white">
-              Stagione {season}
-            </option>
-          ))}
-        </select>
-      </div>
-    );
-  }
-
   return (
-    <div className={`flex flex-wrap gap-2 ${className}`}>
-      {seasons.map((season) => (
-        <button
-          key={season}
-          type="button"
-          onClick={() => onChange(season)}
-          className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors ${
-            activeSeason === season
-              ? "bg-white text-black"
-              : "border border-white/10 text-text-secondary hover:border-white/20 hover:text-white"
-          }`}
-        >
-          Stagione {season}
-        </button>
-      ))}
+    <div className={className}>
+      <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
+        Stagione
+      </label>
+      <select
+        value={activeSeason}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full max-w-xs rounded-lg border border-white/15 bg-black/40 px-3 py-2.5 text-[14px] text-white outline-none transition-colors focus:border-white/35 sm:w-auto sm:min-w-[180px]"
+      >
+        {seasons.map((season) => (
+          <option key={season} value={season} className="bg-void text-white">
+            Stagione {season}
+          </option>
+        ))}
+      </select>
     </div>
   );
+}
+
+function mergeEpisodesById(
+  episodes: TitleDetailEpisode[],
+): TitleDetailEpisode[] {
+  const byId = new Map<string, TitleDetailEpisode>();
+  for (const ep of episodes) {
+    byId.set(ep.id, ep);
+  }
+  return sortedEpisodes([...byId.values()]);
 }
 
 function useSeasonSelection(
@@ -183,11 +171,11 @@ function useSeasonSelection(
   seasonNumbers?: number[],
   onLoadSeason?: (season: number) => Promise<TitleDetailEpisode[] | void>,
 ) {
-  const [extraEpisodes, setExtraEpisodes] = useState<TitleDetailEpisode[]>([]);
   const [seasonLoading, setSeasonLoading] = useState(false);
+  const [seasonLoadError, setSeasonLoadError] = useState<string | null>(null);
   const allEpisodes = useMemo(
-    () => sortedEpisodes([...detail.episodes, ...extraEpisodes]),
-    [detail.episodes, extraEpisodes],
+    () => mergeEpisodesById(detail.episodes),
+    [detail.episodes],
   );
   const episodesKey = useMemo(
     () =>
@@ -204,7 +192,7 @@ function useSeasonSelection(
   const [activeSeason, setActiveSeason] = useState(seasons[0] ?? 1);
 
   useEffect(() => {
-    setExtraEpisodes([]);
+    setSeasonLoadError(null);
     setActiveSeason(seasons[0] ?? 1);
   }, [detail.id, seasonsKey]);
 
@@ -217,21 +205,26 @@ function useSeasonSelection(
   const handleSeasonChange = useCallback(
     (season: number) => {
       setActiveSeason(season);
+      setSeasonLoadError(null);
       if (!onLoadSeason) return;
-      const loadedSeasons = new Set(
-        allEpisodes.map((ep) => inferEpisodeSeason(ep)),
-      );
-      if (loadedSeasons.has(season)) return;
+      if (episodesForSeason(detail.episodes, season).length > 0) return;
       setSeasonLoading(true);
       void onLoadSeason(season)
         .then((eps) => {
-          if (eps?.length) {
-            setExtraEpisodes((prev) => sortedEpisodes([...prev, ...eps]));
+          if (!eps?.length) {
+            setSeasonLoadError(
+              `Nessun episodio trovato per la stagione ${season}. Riprova tra poco.`,
+            );
           }
+        })
+        .catch(() => {
+          setSeasonLoadError(
+            `Impossibile caricare la stagione ${season}. Controlla la connessione e riprova.`,
+          );
         })
         .finally(() => setSeasonLoading(false));
     },
-    [onLoadSeason, allEpisodes],
+    [onLoadSeason, detail.episodes],
   );
 
   const filteredEpisodes = useMemo(() => {
@@ -261,6 +254,7 @@ function useSeasonSelection(
     primaryEpisodeInSeason,
     showSeasonPicker: detail.isSeries && seasons.length > 1,
     seasonLoading,
+    seasonLoadError,
   };
 }
 
@@ -275,6 +269,7 @@ function EpisodeList({
   showSeasonPicker,
   resolveEpisodeStream,
   seasonLoading = false,
+  seasonLoadError = null,
 }: {
   loading: boolean;
   onPlay: (episodeId: string, episodeTitle: string) => void;
@@ -288,6 +283,7 @@ function EpisodeList({
     episodeId: string,
   ) => Promise<{ url: string; isHls: boolean } | null>;
   seasonLoading?: boolean;
+  seasonLoadError?: string | null;
 }) {
   return (
     <div>
@@ -304,6 +300,10 @@ function EpisodeList({
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
         </div>
+      ) : seasonLoadError && filteredEpisodes.length === 0 ? (
+        <p className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-6 text-center text-[14px] text-text-secondary">
+          {seasonLoadError}
+        </p>
       ) : (
       <div className="grid gap-3">
         {filteredEpisodes.map((episode, index) => (          <motion.article
@@ -411,6 +411,7 @@ export function TitleDetailPage({
     primaryEpisodeInSeason,
     showSeasonPicker,
     seasonLoading,
+    seasonLoadError,
   } = useSeasonSelection(detail, seasonNumbers, onLoadSeason);
 
   const primaryEpisodeId =
@@ -664,6 +665,7 @@ export function TitleDetailPage({
                   showSeasonPicker={showSeasonPicker}
                   resolveEpisodeStream={resolveEpisodeStream}
                   seasonLoading={seasonLoading}
+                  seasonLoadError={seasonLoadError}
                 />
               </>
             ) : showNoEpisodes ? (

@@ -354,6 +354,22 @@ export function AddonWatchPage({
     async (season: number) => {
       if (!isSc || !slug || !meta) return;
       const videos = await fetchScSeasonEpisodes(metaId, slug, season);
+      if (videos.length > 0) {
+        setMeta((prev) => {
+          if (!prev) return prev;
+          const byId = new Map(prev.videos.map((video) => [video.id, video]));
+          for (const video of videos) {
+            byId.set(video.id, video);
+          }
+          const merged = [...byId.values()].sort((a, b) => {
+            const seasonA = a.season ?? 0;
+            const seasonB = b.season ?? 0;
+            if (seasonA !== seasonB) return seasonA - seasonB;
+            return (a.episode ?? 0) - (b.episode ?? 0);
+          });
+          return { ...prev, videos: merged };
+        });
+      }
       return stremioVideosToDetailEpisodes(meta, videos, episodeProgress);
     },
     [isSc, slug, meta, metaId, episodeProgress],
