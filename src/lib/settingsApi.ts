@@ -77,29 +77,24 @@ export async function fetchSettings(): Promise<AppSettings> {
 
 
 export async function updateSettings(
-
   profileId: string,
-
   input: UpdateSettingsInput,
-
 ): Promise<AppSettings> {
-
   const settings = await invoke<AppSettings>("update_settings_cmd", {
-
     profileId,
-
     input,
-
   });
-
   if (input.introSoundEnabled !== undefined) {
-
     localStorage.setItem(INTRO_SOUND_KEY, String(input.introSoundEnabled));
-
   }
-
   return settings;
+}
 
+export async function setMediaRoot(path: string) {
+  return invoke<{ added: number; updated: number; removed: number; total: number }>(
+    "set_media_root_cmd",
+    { path },
+  );
 }
 
 

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { FolderOpen, Library, Loader2, RefreshCw, Settings, Tv, Volume2 } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { scanLibrary } from "../lib/api";
 import { setProfilePin, removeProfilePin } from "../lib/profilesApi";
-import { fetchSettings, updateSettings } from "../lib/settingsApi";
+import { fetchSettings, setMediaRoot, updateSettings } from "../lib/settingsApi";
 import { STREAMING_SERVICES } from "../data/streaming";
 import { ParentalLimitsPanel } from "./ParentalLimitsPanel";
 import { AppUpdaterSection } from "./AppUpdaterSection";
@@ -73,6 +74,30 @@ export function SettingsPage({ profileId, onRescanComplete, onOpenManage }: Sett
       const result = await scanLibrary();
       setScanMessage(
         `Scansione completata: ${result.added} aggiunti, ${result.updated} aggiornati, ${result.removed} rimossi (${result.total} totali)`,
+      );
+      await load();
+      onRescanComplete?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleChooseMediaFolder = async () => {
+    setScanMessage(null);
+    setError(null);
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Scegli la cartella media",
+      });
+      if (!selected || typeof selected !== "string") return;
+      setScanning(true);
+      const result = await setMediaRoot(selected);
+      setScanMessage(
+        `Cartella collegata: ${result.added} aggiunti, ${result.updated} aggiornati (${result.total} totali)`,
       );
       await load();
       onRescanComplete?.();
@@ -154,15 +179,31 @@ export function SettingsPage({ profileId, onRescanComplete, onOpenManage }: Sett
               Ultima scansione: {new Date(settings.lastScan).toLocaleString("it-IT")}
             </p>
           )}
-          <button
-            type="button"
-            onClick={() => void handleScan()}
-            disabled={scanning || saving}
-            className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-[12px] text-text-primary hover:bg-white/[0.04] disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${scanning ? "animate-spin" : ""}`} />
-            Scansiona cartella media
-          </button>
+          <p className="mt-2 text-[12px] leading-relaxed text-text-muted">
+            Nell&apos;app installata la cartella predefinita è in AppData. Se hai già
+            i file altrove (es. la cartella <code className="text-text-secondary">media</code>{" "}
+            del progetto), collegala qui sotto.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void handleChooseMediaFolder()}
+              disabled={scanning || saving}
+              className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-4 py-2 text-[12px] text-text-primary hover:bg-accent/15 disabled:opacity-50"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+              Scegli cartella media
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleScan()}
+              disabled={scanning || saving}
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-[12px] text-text-primary hover:bg-white/[0.04] disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${scanning ? "animate-spin" : ""}`} />
+              Scansiona cartella media
+            </button>
+          </div>
           {scanMessage && (
             <p className="mt-3 text-[12px] text-mint">{scanMessage}</p>
           )}

@@ -4,24 +4,47 @@ use regex::Regex;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager};
 use walkdir::WalkDir;
+
+pub const META_CUSTOM_MEDIA_ROOT: &str = "custom_media_root";
 
 const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "avi", "mov", "webm", "m4v", "wmv"];
 
-pub fn resolve_media_root() -> PathBuf {
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let candidates = [
-        cwd.join("media"),
-        cwd.parent().map(|p| p.join("media")).unwrap_or_default(),
-    ];
+fn is_dev_project_root(cwd: &Path) -> bool {
+    cwd.join("src-tauri").join("tauri.conf.json").exists()
+        || cwd
+            .parent()
+            .is_some_and(|p| p.join("src-tauri").join("tauri.conf.json").exists())
+}
 
-    for path in candidates {
-        if path.exists() {
-            return path;
+pub fn resolve_media_root(handle: &AppHandle, db: &Database) -> PathBuf {
+    if let Ok(Some(custom)) = db.get_meta(META_CUSTOM_MEDIA_ROOT) {
+        let trimmed = custom.trim();
+        if !trimmed.is_empty() {
+            let path = PathBuf::from(trimmed);
+            if path.is_dir() {
+                return path;
+            }
         }
     }
 
-    cwd.join("media")
+    if let Ok(cwd) = std::env::current_dir() {
+        if is_dev_project_root(&cwd) {
+            if cwd.join("src-tauri").exists() {
+                return cwd.join("media");
+            }
+            if let Some(parent) = cwd.parent() {
+                return parent.join("media");
+            }
+        }
+    }
+
+    handle
+        .path()
+        .app_data_dir()
+        .map(|dir| dir.join("media"))
+        .unwrap_or_else(|_| PathBuf::from("media"))
 }
 
 pub fn scan_library(db: &Database, media_root: &Path) -> Result<ScanResult, String> {

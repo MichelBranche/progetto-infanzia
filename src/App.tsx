@@ -89,6 +89,7 @@ function AppContent() {
   const {
     rows: streamingRows,
     previews: streamingPreviews,
+    catalogIndex,
     continueItems: streamingContinue,
     catalogTotal,
     loading: streamingLoading,
@@ -137,16 +138,37 @@ function AppContent() {
     }
     setScSearchLoading(true);
     const timer = setTimeout(() => {
+      const localMatches =
+        q.length >= 2
+          ? catalogIndex.filter((preview) => {
+              const lower = q.toLowerCase();
+              const slug = preview.slug?.toLowerCase().replace(/-/g, " ") ?? "";
+              return (
+                preview.name.toLowerCase().includes(lower) || slug.includes(lower)
+              );
+            })
+          : [];
+
       void searchScCatalog(q)
-        .then(setScSearchResults)
-        .catch(() => setScSearchResults([]))
+        .then((apiResults) => {
+          const seen = new Set<string>();
+          const merged: StremioMetaPreview[] = [];
+          for (const preview of [...apiResults, ...localMatches]) {
+            const key = `${preview.type}:${preview.id}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            merged.push(preview);
+          }
+          setScSearchResults(merged);
+        })
+        .catch(() => setScSearchResults(localMatches))
         .finally(() => setScSearchLoading(false));
     }, 300);
     return () => {
       clearTimeout(timer);
       setScSearchLoading(false);
     };
-  }, [searchQuery]);
+  }, [searchQuery, catalogIndex]);
 
   useEffect(() => {
     if (!isParent && (activeNav === "add" || activeNav === "manage" || activeNav === "settings" || activeNav === "activity")) {
@@ -300,13 +322,6 @@ function AppContent() {
   const { top10Row, otherRows: streamingRowsWithoutTop10 } = useMemo(
     () => splitTop10Row(streamingRows),
     [streamingRows],
-  );
-
-  const hasSaturnCatalog = useMemo(
-    () =>
-      streamingPreviews.some((p) => p.catalogPrefix === "saturn") ||
-      streamingRows.some((row) => row.key.startsWith("saturn")),
-    [streamingPreviews, streamingRows],
   );
 
   const searchSuggestions = useMemo(() => {
@@ -497,12 +512,20 @@ function AppContent() {
   }
 
   const isEmpty = library && library.totalCount === 0;
+  const streamingBrowseNav = new Set([
+    "home",
+    "film",
+    "serie",
+    "cartoni",
+    "capsula",
+    "search",
+  ]);
   const showEmptyLibraryOnly =
     isEmpty &&
-    activeNav !== "add" &&
-    activeNav !== "streaming" &&
-    activeNav !== "settings" &&
-    !(activeNav === "home" && hasStreaming);
+    !["add", "settings", "manage", "activity", "profile", "anime", "streaming"].includes(
+      activeNav,
+    ) &&
+    !(hasStreaming && streamingBrowseNav.has(activeNav));
   const sectionInfo = sectionMeta[activeNav];
   const sectionSubtitle =
     catalogTotal > 0 &&
@@ -523,7 +546,6 @@ function AppContent() {
         profile={activeProfile}
         onNavigate={handleNav}
         badgeCounts={sidebarBadges}
-        hasAnime={hasSaturnCatalog}
       />
 
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

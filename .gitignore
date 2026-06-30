@@ -31,5 +31,5 @@ src-tauri/.updater-keys/
 media/**/*
 !media/**/.gitkeep
 
-# Generated icons source
-app-icon*.png
+# Optional raster source (SVG app-icon.svg is the canonical source)
+app-icon.png

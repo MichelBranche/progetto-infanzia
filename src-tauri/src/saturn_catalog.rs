@@ -85,8 +85,15 @@ pub fn app_url(db: &Database) -> String {
 pub fn enabled(db: &Database) -> bool {
     match db.get_meta(META_SATURN_ENABLED) {
         Ok(Some(v)) => v != "0" && v != "false",
-        _ => site_root_path(db).join("index.html").exists(),
+        _ => true,
     }
+}
+
+pub fn ensure_defaults(db: &Database) -> Result<(), String> {
+    if db.get_meta(META_SATURN_ENABLED)?.is_none() {
+        db.set_meta(META_SATURN_ENABLED, "true")?;
+    }
+    Ok(())
 }
 
 pub fn resolve_poster_url(db: &Database, poster_src: &str) -> Option<String> {
@@ -1049,7 +1056,6 @@ pub fn search_titles(db: &Database, query: &str) -> Vec<StremioMetaPreview> {
                 .unwrap_or_default();
             name.to_lowercase().contains(&q) || slug.to_lowercase().contains(&q)
         })
-        .take(80)
         .collect()
 }
 

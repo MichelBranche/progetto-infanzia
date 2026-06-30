@@ -50,7 +50,6 @@ interface SidebarProps {
   profile: Profile;
   onNavigate: (id: string) => void;
   badgeCounts?: Record<string, number>;
-  hasAnime?: boolean;
 }
 
 function NavButton({
@@ -149,10 +148,9 @@ export function Sidebar({
   profile,
   onNavigate,
   badgeCounts,
-  hasAnime = false,
 }: SidebarProps) {
   const { hasStreaming } = useAddons();
-  const sections = getNavSections(profile, hasStreaming, hasAnime);
+  const sections = getNavSections(profile, hasStreaming);
   const [pinned, setPinned] = useState(() => {
     try {
       return localStorage.getItem(SIDEBAR_PIN_KEY) === "true";

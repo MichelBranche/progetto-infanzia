@@ -814,6 +814,37 @@ pub fn catalog_enabled(db: &crate::db::Database) -> bool {
         .unwrap_or(true)
 }
 
+fn preview_matches_query(preview: &StremioMetaPreview, query: &str) -> bool {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return false;
+    }
+    let name = preview.name.to_lowercase();
+    let slug = preview
+        .slug
+        .as_deref()
+        .unwrap_or("")
+        .to_lowercase()
+        .replace('-', " ");
+    name.contains(&q) || slug.contains(&q)
+}
+
+/// Ricerca su tutto l'indice locale SC (nessun limite artificiale).
+pub fn search_index(db: &Database, query: &str) -> Vec<StremioMetaPreview> {
+    let q = query.trim();
+    if q.len() < 2 {
+        return Vec::new();
+    }
+    load_cached_index(db)
+        .map(|(index, _)| {
+            index
+                .into_iter()
+                .filter(|preview| preview_matches_query(preview, q))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub fn app_url(db: &crate::db::Database) -> String {
     db.get_meta("sc_app_url")
         .ok()

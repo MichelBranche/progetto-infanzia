@@ -47,8 +47,7 @@ const browseItems: NavItem[] = [
   { id: "search", label: "Cerca", icon: "Search" },
 ];
 
-function browseSectionItems(hasAnime: boolean): NavItem[] {
-  if (!hasAnime) return browseItems;
+function browseSectionItems(): NavItem[] {
   return [{ id: "anime", label: "Anime", icon: "Anime" }, ...browseItems];
 }
 
@@ -71,7 +70,6 @@ function filterItems(items: NavItem[], hasStreaming: boolean) {
 export function getNavSections(
   profile: Profile | null,
   hasStreaming = false,
-  hasAnime = false,
 ): NavSection[] {
   if (!profile) return [];
 
@@ -84,7 +82,7 @@ export function getNavSections(
     {
       id: "browse",
       label: "Esplora",
-      items: browseSectionItems(hasAnime),
+      items: browseSectionItems(),
     },
   ];
 
@@ -108,9 +106,8 @@ export function getNavSections(
 export function getNavItems(
   profile: Profile | null,
   hasStreaming = false,
-  hasAnime = false,
 ) {
-  return getNavSections(profile, hasStreaming, hasAnime).flatMap(
+  return getNavSections(profile, hasStreaming).flatMap(
     (section) => section.items,
   );
 }

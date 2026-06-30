@@ -30,7 +30,7 @@ export function EmptyLibrary({
         </h2>
         <p className="mt-3 text-[14px] leading-relaxed text-text-secondary">
           {onAdd
-            ? "Aggiungi il tuo primo contenuto con il menu Aggiungi, oppure metti i file nelle cartelle film, cartoni o serie."
+            ? "Aggiungi contenuto, collega la cartella media in Impostazioni, oppure metti i file in film, cartoni o serie."
             : "La libreria è ancora vuota. Chiedi a papà o mamma di aggiungere qualcosa!"}
         </p>
 

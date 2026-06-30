@@ -49,7 +49,7 @@ use watch_party::{WatchPartyContent, WatchPartyRegistry, WatchPartyRoomInfo};
 
 struct AppState {
     db: Arc<Database>,
-    media_root: std::path::PathBuf,
+    media_root: parking_lot::RwLock<std::path::PathBuf>,
     addon_proxy: Arc<AddonProxyRegistry>,
     torrent: Arc<TorrentEngine>,
     watch_party: Arc<WatchPartyRegistry>,
@@ -410,7 +410,7 @@ fn remove_profile_pin_cmd(
 
 #[tauri::command]
 fn get_settings_cmd(state: State<'_, AppState>) -> Result<AppSettings, String> {
-    state.db.get_settings(&state.media_root)
+    state.db.get_settings(state.media_root.read().as_path())
 }
 
 #[tauri::command]
@@ -423,7 +423,24 @@ fn update_settings_cmd(
         return Err("Solo il profilo genitore può modificare le impostazioni".into());
     }
     state.db.update_settings(&input)?;
-    state.db.get_settings(&state.media_root)
+    state.db.get_settings(state.media_root.read().as_path())
+}
+
+#[tauri::command]
+fn set_media_root_cmd(state: State<'_, AppState>, path: String) -> Result<ScanResult, String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("Percorso cartella non valido".into());
+    }
+    let root = std::path::PathBuf::from(path);
+    if !root.is_dir() {
+        return Err("La cartella selezionata non esiste".into());
+    }
+    state
+        .db
+        .set_meta(scanner::META_CUSTOM_MEDIA_ROOT, &root.to_string_lossy())?;
+    *state.media_root.write() = root;
+    scan_library(&state.db, state.media_root.read().as_path())
 }
 
 #[tauri::command]
@@ -792,12 +809,28 @@ async fn search_sc_catalog_cmd(
 
     tokio::task::spawn_blocking(move || {
         let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut push_unique = |items: Vec<StremioMetaPreview>| {
+            for item in items {
+                let key = format!("{}:{}", item.r#type, item.id);
+                if seen.insert(key) {
+                    out.push(item);
+                }
+            }
+        };
+
         if sc_enabled {
-            let app = sc_catalog::resolve_app_url(db.as_ref())?;
-            out.extend(sc_playback::search_titles(&app, &cdn, &locale, &query)?);
+            push_unique(sc_catalog::search_index(db.as_ref(), &query));
+            if let Ok(app) = sc_catalog::resolve_app_url(db.as_ref()) {
+                if let Ok(live) =
+                    sc_playback::search_titles(&app, &cdn, &locale, &query)
+                {
+                    push_unique(live);
+                }
+            }
         }
         if saturn_enabled {
-            out.extend(saturn_catalog::search_titles(db.as_ref(), &query));
+            push_unique(saturn_catalog::search_titles(db.as_ref(), &query));
         }
         Ok(out)
     })
@@ -1110,19 +1143,27 @@ fn start_addon_watch_session_cmd(
 
 #[tauri::command]
 fn get_library(state: State<'_, AppState>, profile_id: String) -> Result<Library, String> {
-    build_library(&state.db, &state.media_root, &profile_id)
+    build_library(
+        &state.db,
+        state.media_root.read().as_path(),
+        &profile_id,
+    )
 }
 
 #[tauri::command]
 fn scan_library_cmd(state: State<'_, AppState>) -> Result<ScanResult, String> {
-    let result = scan_library(&state.db, &state.media_root)?;
+    let result = scan_library(&state.db, state.media_root.read().as_path())?;
     let enrich = state
         .db
         .get_meta(tmdb::META_ENRICH_ON_SCAN)?
         .map(|v| v != "false")
         .unwrap_or(false);
     if enrich {
-        let _ = tmdb::enrich_pending_media(&state.db, &state.media_root, 25);
+        let _ = tmdb::enrich_pending_media(
+            &state.db,
+            state.media_root.read().as_path(),
+            25,
+        );
     }
     Ok(result)
 }
@@ -1150,7 +1191,7 @@ fn enrich_metadata_cmd(
     let search_title = media.series_title.as_deref().unwrap_or(&media.title);
     tmdb::enrich_media(
         &api_key,
-        &state.media_root,
+        state.media_root.read().as_path(),
         &media.id,
         search_title,
         &media.media_type,
@@ -1492,7 +1533,11 @@ fn close_watch_party_cmd(
 
 #[tauri::command]
 fn get_media_root(state: State<'_, AppState>) -> Result<String, String> {
-    Ok(state.media_root.to_string_lossy().to_string())
+    Ok(state
+        .media_root
+        .read()
+        .to_string_lossy()
+        .to_string())
 }
 
 #[tauri::command]
@@ -1504,7 +1549,12 @@ fn add_media_cmd(
     if !state.db.is_parent_profile(&profile_id)? {
         return Err("Solo il profilo genitore può aggiungere contenuti".into());
     }
-    add_media(&state.db, &state.media_root, &profile_id, input)
+    add_media(
+        &state.db,
+        state.media_root.read().as_path(),
+        &profile_id,
+        input,
+    )
 }
 
 #[tauri::command]
@@ -1529,7 +1579,7 @@ fn delete_media_cmd(
     if !state.db.is_parent_profile(&profile_id)? {
         return Err("Solo il profilo genitore può eliminare contenuti".into());
     }
-    delete_media(&state.db, &state.media_root, &id)
+    delete_media(&state.db, state.media_root.read().as_path(), &id)
 }
 
 #[tauri::command]
@@ -1539,11 +1589,12 @@ fn list_series_cmd(state: State<'_, AppState>, media_type: String) -> Result<Vec
 
 #[tauri::command]
 fn list_posters_cmd(state: State<'_, AppState>) -> Result<Vec<PosterAsset>, String> {
-    state.db.list_poster_assets(&state.media_root)
+    state
+        .db
+        .list_poster_assets(state.media_root.read().as_path())
 }
 
 fn init_app(handle: &AppHandle) -> Result<AppState, String> {
-    let media_root = resolve_media_root();
     let db_path = handle
         .path()
         .app_data_dir()
@@ -1552,10 +1603,12 @@ fn init_app(handle: &AppHandle) -> Result<AppState, String> {
 
     let db = Arc::new(Database::open(&db_path)?);
     let _ = db.ensure_catalog_addon();
+    let _ = saturn_catalog::ensure_defaults(&db);
     let _ = db.sync_empty_child_allowlists();
-    scan_library(&db, &media_root)?;
+    let media_root = parking_lot::RwLock::new(resolve_media_root(handle, &db));
+    scan_library(&db, media_root.read().as_path())?;
 
-    watcher::start_media_watcher(media_root.clone(), db.clone());
+    watcher::start_media_watcher(media_root.read().clone(), db.clone());
 
     let addon_proxy = Arc::new(AddonProxyRegistry::new());
 
@@ -1613,6 +1666,7 @@ pub fn run() {
             update_settings_cmd,
             get_library,
             scan_library_cmd,
+            set_media_root_cmd,
             enrich_metadata_cmd,
             can_play_media_cmd,
             get_profile_limits_cmd,
