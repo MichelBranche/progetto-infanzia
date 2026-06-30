@@ -6,18 +6,69 @@ on:
       - "v*"
 
 jobs:
-  release:
+  # macOS first: tauri-action merges latest.json non-atomically — Windows runs after.
+  publish-macos:
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: windows-latest
-            args: ""
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    runs-on: ${{ matrix.platform }}
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build and release (macOS)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          # No Apple Developer account: skip codesign/notarization on CI.
+          APPLE_SIGNING_IDENTITY: "-"
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Branchefy ${{ github.ref_name }}
+          releaseBody: |
+            ## Branchefy ${{ github.ref_name }}
+
+            ### Windows
+            Installer `.exe` — aggiornamento automatico in-app (come prima).
+
+            ### macOS (Intel e Apple Silicon, M1+)
+            File `.dmg` universale — **non firmato** (nessun account Apple Developer).
+            All'apertura: tasto destro sull'app → **Apri** → conferma, oppure
+            Impostazioni di Sistema → Privacy e sicurezza → **Apri comunque**.
+
+            L'auto-update in-app su Mac non è supportato in questa release.
+          releaseDraft: false
+          prerelease: false
+          args: --target universal-apple-darwin
+
+  publish-windows:
+    permissions:
+      contents: write
+    needs: publish-macos
+    if: ${{ always() && !cancelled() }}
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,7 +90,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build and release
+      - name: Build and release (Windows)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -51,9 +102,16 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: Branchefy ${{ github.ref_name }}
           releaseBody: |
-            Aggiornamento automatico per Branchefy.
+            ## Branchefy ${{ github.ref_name }}
 
-            L'app installata rileverà questa versione tramite `latest.json` su GitHub Releases.
+            ### Windows
+            Installer `.exe` — aggiornamento automatico in-app (come prima).
+
+            ### macOS (Intel e Apple Silicon, M1+)
+            File `.dmg` universale — **non firmato** (nessun account Apple Developer).
+            All'apertura: tasto destro sull'app → **Apri** → conferma, oppure
+            Impostazioni di Sistema → Privacy e sicurezza → **Apri comunque**.
+
+            L'auto-update in-app su Mac non è supportato in questa release.
           releaseDraft: false
           prerelease: false
-          args: ${{ matrix.args }}
