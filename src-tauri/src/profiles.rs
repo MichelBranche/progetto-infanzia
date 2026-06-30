@@ -31,17 +31,12 @@ pub struct CreateProfileInput {
 }
 
 pub const PROFILE_COLORS: &[&str] = &[
-    "#6b7fff",
-    "#3ddbd9",
-    "#ff8a6b",
-    "#b8a4ff",
-    "#ffc947",
-    "#ff6b9d",
-    "#4ade80",
-    "#f472b6",
+    "#6b7fff", "#3ddbd9", "#ff8a6b", "#b8a4ff", "#ffc947", "#ff6b9d", "#4ade80", "#f472b6",
 ];
 
-pub const PROFILE_EMOJIS: &[&str] = &["👨", "👩", "👦", "👧", "🧒", "👶", "🦸", "🧙", "🐻", "⭐", "🎬", "🎨"];
+pub const PROFILE_EMOJIS: &[&str] = &[
+    "👨", "👩", "👦", "👧", "🧒", "👶", "🦸", "🧙", "🐻", "⭐", "🎬", "🎨",
+];
 
 pub fn role_label(role: &str) -> &str {
     match role {

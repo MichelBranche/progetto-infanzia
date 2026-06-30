@@ -1,5 +1,4 @@
 mod addon_proxy;
-mod stremio;
 mod cast;
 mod db;
 mod debrid;
@@ -9,45 +8,44 @@ mod models;
 mod network;
 mod parental;
 mod profiles;
-mod scanner;
-mod settings;
-mod sc_catalog;
-mod sc_playback;
 mod saturn_catalog;
 mod saturn_playback;
+mod sc_catalog;
+mod sc_playback;
+mod scanner;
+mod settings;
 mod stream;
+mod stremio;
 mod tmdb;
 mod torrent;
 mod transcode;
-mod watcher;
 mod watch_party;
+mod watcher;
 
-use serde::Deserialize;
-use watch_party::{WatchPartyContent, WatchPartyRegistry, WatchPartyRoomInfo};
 use addon_proxy::AddonProxyRegistry;
 use db::Database;
+use debrid::DebridConfig;
 use import_media::{add_media, AddMediaInput};
 use media_ops::{delete_media, update_media, UpdateMediaInput};
 use models::{
-    CastDevice, CastPosition, FriendRecord, MediaCollection, MediaItem, Library, PosterAsset,
+    CastDevice, CastPosition, FriendRecord, Library, MediaCollection, MediaItem, PosterAsset,
     ScanResult, StreamInfo,
 };
+use parental::{CanPlayResult, ProfileLimits, UpdateProfileLimitsInput, WatchSession};
 use profiles::{CreateProfileInput, Profile, UpdateProfileInput};
-use parental::{
-    CanPlayResult, ProfileLimits, UpdateProfileLimitsInput, WatchSession,
-};
 use scanner::{resolve_media_root, scan_library};
+use serde::Deserialize;
 use settings::{AppSettings, UpdateSettingsInput};
-use stremio::{
-    fetch_catalog, fetch_manifest, fetch_meta, fetch_streams, has_resource, raw_to_playable,
-    InstalledAddon, PlayableStream, StremioMeta, StremioMetaPreview,
-    StreamingContinueItem, StreamingWatchProgressInput,
-};
-use debrid::DebridConfig;
-use torrent::TorrentEngine;
 use std::collections::HashMap;
 use std::sync::Arc;
+use stremio::{
+    fetch_catalog, fetch_manifest, fetch_meta, fetch_streams, has_resource, raw_to_playable,
+    InstalledAddon, PlayableStream, StreamingContinueItem, StreamingWatchProgressInput,
+    StremioMeta, StremioMetaPreview,
+};
 use tauri::{AppHandle, Manager, State};
+use torrent::TorrentEngine;
+use watch_party::{WatchPartyContent, WatchPartyRegistry, WatchPartyRoomInfo};
 
 struct AppState {
     db: Arc<Database>,
@@ -192,7 +190,9 @@ fn build_collections(items: &[MediaItem]) -> Vec<MediaCollection> {
                 .iter()
                 .filter(|i| {
                     (i.media_type == "cartone" || i.media_type == "serie")
-                        && i.series_title.as_ref().is_some_and(|s| !s.trim().is_empty())
+                        && i.series_title
+                            .as_ref()
+                            .is_some_and(|s| !s.trim().is_empty())
                 })
                 .cloned()
                 .collect(),
@@ -466,7 +466,9 @@ fn get_watch_history_cmd(
     if !state.db.is_parent_profile(&parent_profile_id)? {
         return Err("Solo il profilo genitore può vedere la cronologia".into());
     }
-    state.db.get_watch_history(&child_profile_id, limit.unwrap_or(50))
+    state
+        .db
+        .get_watch_history(&child_profile_id, limit.unwrap_or(50))
 }
 
 #[tauri::command]
@@ -564,7 +566,9 @@ fn fetch_addon_catalog_cmd(
 ) -> Result<Vec<StremioMetaPreview>, String> {
     let check = state.db.can_play_addon(&profile_id, &addon_row_id)?;
     if !check.allowed {
-        return Err(check.reason.unwrap_or_else(|| "Addon non autorizzato".into()));
+        return Err(check
+            .reason
+            .unwrap_or_else(|| "Addon non autorizzato".into()));
     }
     let addon = state
         .db
@@ -614,12 +618,8 @@ fn resolve_addon_streams_cmd(
             continue;
         }
         if let Ok(raw) = fetch_streams(&addon.transport_url, &content_type, &video_id) {
-            let playable = raw_to_playable(
-                raw,
-                &addon.addon_id,
-                &addon.name,
-                Some(&state.addon_proxy),
-            );
+            let playable =
+                raw_to_playable(raw, &addon.addon_id, &addon.name, Some(&state.addon_proxy));
             // Torrent streams are always playable: via debrid if configured,
             // otherwise through the built-in torrent engine.
             all.extend(playable);
@@ -629,7 +629,9 @@ fn resolve_addon_streams_cmd(
 }
 
 #[tauri::command]
-async fn fetch_sc_catalog_cmd(state: State<'_, AppState>) -> Result<sc_catalog::ScCatalogResponse, String> {
+async fn fetch_sc_catalog_cmd(
+    state: State<'_, AppState>,
+) -> Result<sc_catalog::ScCatalogResponse, String> {
     let sc_enabled = sc_catalog::catalog_enabled(&state.db);
     let saturn_enabled = saturn_catalog::enabled(&state.db);
     if !sc_enabled && !saturn_enabled {
@@ -680,7 +682,9 @@ async fn fetch_sc_catalog_cmd(state: State<'_, AppState>) -> Result<sc_catalog::
 }
 
 #[tauri::command]
-async fn refresh_sc_catalog_cmd(state: State<'_, AppState>) -> Result<sc_catalog::ScCatalogResponse, String> {
+async fn refresh_sc_catalog_cmd(
+    state: State<'_, AppState>,
+) -> Result<sc_catalog::ScCatalogResponse, String> {
     let sc_enabled = sc_catalog::catalog_enabled(&state.db);
     let saturn_enabled = saturn_catalog::enabled(&state.db);
     if !sc_enabled && !saturn_enabled {
@@ -860,7 +864,9 @@ fn update_streaming_watch_progress_cmd(
     profile_id: String,
     input: StreamingWatchProgressInput,
 ) -> Result<(), String> {
-    state.db.upsert_streaming_watch_progress(&profile_id, &input)
+    state
+        .db
+        .upsert_streaming_watch_progress(&profile_id, &input)
 }
 
 #[tauri::command]
@@ -947,7 +953,9 @@ fn resolve_debrid_stream_cmd(
 ) -> Result<PlayableStream, String> {
     let check = state.db.can_play_streaming(&profile_id)?;
     if !check.allowed {
-        return Err(check.reason.unwrap_or_else(|| "Riproduzione non consentita".into()));
+        return Err(check
+            .reason
+            .unwrap_or_else(|| "Riproduzione non consentita".into()));
     }
     let config = state.db.get_debrid_config()?;
     if !config.is_enabled() {
@@ -984,7 +992,9 @@ async fn resolve_torrent_source_cmd(
 ) -> Result<PlayableStream, String> {
     let check = state.db.can_play_streaming(&profile_id)?;
     if !check.allowed {
-        return Err(check.reason.unwrap_or_else(|| "Riproduzione non consentita".into()));
+        return Err(check
+            .reason
+            .unwrap_or_else(|| "Riproduzione non consentita".into()));
     }
 
     let config = state.db.get_debrid_config().unwrap_or_default();
@@ -1016,7 +1026,10 @@ async fn resolve_torrent_source_cmd(
         }
     }
 
-    let url = state.torrent.resolve(&info_hash, file_idx, &sources).await?;
+    let url = state
+        .torrent
+        .resolve(&info_hash, file_idx, &sources)
+        .await?;
     Ok(PlayableStream {
         url,
         name: Some("Torrent".to_string()),
@@ -1063,7 +1076,9 @@ fn set_addon_allowlist_cmd(
     if !state.db.is_parent_profile(&parent_profile_id)? {
         return Err("Solo il profilo genitore può modificare l'allowlist".into());
     }
-    state.db.set_addon_allowlist(&child_profile_id, &addon_row_ids)
+    state
+        .db
+        .set_addon_allowlist(&child_profile_id, &addon_row_ids)
 }
 
 #[tauri::command]
@@ -1084,9 +1099,13 @@ fn start_addon_watch_session_cmd(
 ) -> Result<String, String> {
     let check = state.db.can_play_streaming(&profile_id)?;
     if !check.allowed {
-        return Err(check.reason.unwrap_or_else(|| "Visione non consentita".into()));
+        return Err(check
+            .reason
+            .unwrap_or_else(|| "Visione non consentita".into()));
     }
-    state.db.start_addon_watch_session(&profile_id, &content_type, &video_id, &title)
+    state
+        .db
+        .start_addon_watch_session(&profile_id, &content_type, &video_id, &title)
 }
 
 #[tauri::command]
@@ -1252,12 +1271,9 @@ async fn cast_remote_cmd(
     start_secs: f64,
     is_hls: bool,
 ) -> Result<(), String> {
-    let entry = state
-        .addon_proxy
-        .get(&proxy_id)
-        .ok_or_else(|| {
-            "Sessione stream scaduta. Riavvia la riproduzione e riprova la trasmissione.".to_string()
-        })?;
+    let entry = state.addon_proxy.get(&proxy_id).ok_or_else(|| {
+        "Sessione stream scaduta. Riavvia la riproduzione e riprova la trasmissione.".to_string()
+    })?;
 
     let needs_transcode = is_hls || entry.rewrite_manifest;
     let (lan_url, start) = if needs_transcode {
@@ -1570,7 +1586,14 @@ fn init_app(handle: &AppHandle) -> Result<AppState, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    {
+        builder = builder
+            .plugin(tauri_plugin_process::init())
+            .plugin(tauri_plugin_updater::Builder::new().build());
+    }
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {

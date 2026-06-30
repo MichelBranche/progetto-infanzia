@@ -27,11 +27,5 @@ pub struct UpdateSettingsInput {
     pub cast_transcode_enabled: Option<bool>,
 }
 
-pub const STREAMING_SERVICE_IDS: &[&str] = &[
-    "netflix",
-    "prime",
-    "disney",
-    "apple",
-    "paramount",
-    "now",
-];
+pub const STREAMING_SERVICE_IDS: &[&str] =
+    &["netflix", "prime", "disney", "apple", "paramount", "now"];

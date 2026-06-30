@@ -82,7 +82,10 @@ pub async fn discover_devices(wait_ms: u64) -> Result<Vec<CastDevice>, String> {
 }
 
 pub async fn probe_device_at(host: &str) -> Option<CastDevice> {
-    let host = host.trim().trim_start_matches("http://").trim_start_matches("https://");
+    let host = host
+        .trim()
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
     let host = host.split('/').next()?.split(':').next()?.trim();
     if host.is_empty() {
         return None;
@@ -474,7 +477,11 @@ fn resolve_url(base: &str, path: &str) -> Option<String> {
     if path.starts_with("http://") || path.starts_with("https://") {
         return Some(path.to_string());
     }
-    Url::parse(base).ok()?.join(path).ok().map(|u| u.to_string())
+    Url::parse(base)
+        .ok()?
+        .join(path)
+        .ok()
+        .map(|u| u.to_string())
 }
 
 fn header_value(packet: &str, name: &str) -> Option<String> {

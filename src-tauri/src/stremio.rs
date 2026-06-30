@@ -397,8 +397,7 @@ pub fn raw_to_playable(
 
             let url = s.url?;
             let lower = url.to_lowercase();
-            let is_hls = lower.contains(".m3u8")
-                || lower.contains("application/vnd.apple.mpegurl");
+            let is_hls = lower.contains(".m3u8") || lower.contains("application/vnd.apple.mpegurl");
             let request_headers = s
                 .behavior_hints
                 .proxy_headers

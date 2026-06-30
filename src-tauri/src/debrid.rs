@@ -119,7 +119,10 @@ fn rd_validate(key: &str) -> Result<String, String> {
         .send()
         .map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
-        return Err(format!("Real-Debrid: chiave non valida (HTTP {})", resp.status()));
+        return Err(format!(
+            "Real-Debrid: chiave non valida (HTTP {})",
+            resp.status()
+        ));
     }
     let user: RdUser = resp.json().map_err(|e| e.to_string())?;
     Ok(user.username)
@@ -127,9 +130,11 @@ fn rd_validate(key: &str) -> Result<String, String> {
 
 fn is_video_path(path: &str) -> bool {
     let p = path.to_lowercase();
-    [".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm", ".ts", ".flv", ".wmv"]
-        .iter()
-        .any(|ext| p.ends_with(ext))
+    [
+        ".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm", ".ts", ".flv", ".wmv",
+    ]
+    .iter()
+    .any(|ext| p.ends_with(ext))
 }
 
 fn rd_resolve(
@@ -198,8 +203,14 @@ fn rd_resolve(
             links = info.links;
             break;
         }
-        if matches!(info.status.as_str(), "error" | "magnet_error" | "virus" | "dead") {
-            return Err(format!("Real-Debrid: torrent non utilizzabile ({})", info.status));
+        if matches!(
+            info.status.as_str(),
+            "error" | "magnet_error" | "virus" | "dead"
+        ) {
+            return Err(format!(
+                "Real-Debrid: torrent non utilizzabile ({})",
+                info.status
+            ));
         }
         if attempt >= 6 && info.status != "downloaded" {
             // Not cached: avoid waiting for a real download.
@@ -304,7 +315,8 @@ struct AdUnlockData {
 
 fn ad_check<T>(env: AdEnvelope<T>, what: &str) -> Result<T, String> {
     if env.status == "success" {
-        env.data.ok_or_else(|| format!("AllDebrid {what}: risposta vuota"))
+        env.data
+            .ok_or_else(|| format!("AllDebrid {what}: risposta vuota"))
     } else {
         let msg = env.error.map(|e| e.message).unwrap_or_default();
         Err(format!("AllDebrid {what}: {msg}"))
@@ -334,7 +346,11 @@ fn ad_resolve(
 
     let upload: AdEnvelope<AdUploadData> = c
         .get(format!("{AD_BASE}/magnet/upload"))
-        .query(&[("agent", AD_AGENT), ("apikey", key), ("magnets[]", info_hash)])
+        .query(&[
+            ("agent", AD_AGENT),
+            ("apikey", key),
+            ("magnets[]", info_hash),
+        ])
         .send()
         .map_err(|e| e.to_string())?
         .json()
@@ -393,7 +409,11 @@ fn ad_resolve(
 
     let unlock: AdEnvelope<AdUnlockData> = c
         .get(format!("{AD_BASE}/link/unlock"))
-        .query(&[("agent", AD_AGENT), ("apikey", key), ("link", chosen.link.as_str())])
+        .query(&[
+            ("agent", AD_AGENT),
+            ("apikey", key),
+            ("link", chosen.link.as_str()),
+        ])
         .send()
         .map_err(|e| e.to_string())?
         .json()

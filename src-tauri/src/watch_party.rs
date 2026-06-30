@@ -17,8 +17,8 @@ fn now_millis() -> u64 {
 }
 
 fn random_code(len: usize) -> String {
-    let seed = now_millis() as u128
-        ^ (std::process::id() as u128).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    let seed =
+        now_millis() as u128 ^ (std::process::id() as u128).wrapping_mul(0x9E37_79B9_7F4A_7C15);
     (0..len)
         .map(|i| {
             let idx = ((seed >> (i * 5)) as usize) % CODE_CHARS.len();
@@ -180,10 +180,7 @@ impl WatchPartyRegistry {
     }
 
     fn publish_members(&self, code: &str) {
-        let members = self
-            .get_room(code)
-            .map(|r| r.members)
-            .unwrap_or_default();
+        let members = self.get_room(code).map(|r| r.members).unwrap_or_default();
         if let Ok(payload) = serde_json::to_string(&WsOutbound::Members { members }) {
             self.broadcast(code, &payload);
         }
@@ -229,7 +226,11 @@ enum WsOutbound {
     Error { message: String },
 }
 
-pub async fn handle_socket(socket: WebSocket, registry: Arc<WatchPartyRegistry>, params: WsConnectParams) {
+pub async fn handle_socket(
+    socket: WebSocket,
+    registry: Arc<WatchPartyRegistry>,
+    params: WsConnectParams,
+) {
     let code = params.code.to_uppercase();
     let Some((room_info, mut rx)) = registry.subscribe(&code) else {
         return;

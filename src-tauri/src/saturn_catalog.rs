@@ -101,7 +101,10 @@ pub fn resolve_poster_url(db: &Database, poster_src: &str) -> Option<String> {
             encoded
         ));
     }
-    Some(format!("https://img.saturncdn.net/{}", rel.trim_start_matches('/')))
+    Some(format!(
+        "https://img.saturncdn.net/{}",
+        rel.trim_start_matches('/')
+    ))
 }
 
 fn normalize_poster_ref(src: &str) -> Option<String> {
@@ -289,8 +292,7 @@ fn dedupe_cards(cards: Vec<SaturnCard>) -> Vec<SaturnCard> {
     let mut best: HashMap<String, SaturnCard> = HashMap::new();
     for card in cards {
         let key = canonical_series_key(&card.name, &card.slug);
-        best
-            .entry(key)
+        best.entry(key)
             .and_modify(|existing| {
                 if card_rank(&card) > card_rank(existing) {
                     *existing = card.clone();
@@ -360,12 +362,10 @@ fn parse_anime_cards(html: &str) -> Vec<SaturnCard> {
     )
     .expect("saturn anime link regex");
 
-    let img_alt_re =
-        Regex::new(r#"(?is)<img[^>]*\salt="([^"]*)""#).expect("saturn img alt regex");
+    let img_alt_re = Regex::new(r#"(?is)<img[^>]*\salt="([^"]*)""#).expect("saturn img alt regex");
     let title_re =
         Regex::new(r#"(?is)<h3 class="ac__title">([^<]*)</h3>"#).expect("saturn title regex");
-    let sub_re =
-        Regex::new(r#"(?is)<p class="ac__sub">([^<]*)</p>"#).expect("saturn sub regex");
+    let sub_re = Regex::new(r#"(?is)<p class="ac__sub">([^<]*)</p>"#).expect("saturn sub regex");
 
     let mut out = Vec::new();
     let mut seen = HashSet::new();
@@ -411,7 +411,10 @@ fn parse_episode_cards(html: &str) -> Vec<SaturnCard> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for cap in link_re.captures_iter(html) {
-        let slug = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+        let slug = cap
+            .get(2)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
         let block = cap.get(3).map(|m| m.as_str()).unwrap_or_default();
         if slug.is_empty() || !seen.insert(slug.clone()) {
             continue;
@@ -518,8 +521,7 @@ fn ingest_sitemap_anime(cards: &mut HashMap<String, SaturnCard>, xml: &str) {
 }
 
 fn ingest_sitemap_episodes(cards: &mut HashMap<String, SaturnCard>, xml: &str) {
-    let re =
-        Regex::new(r#"(?i)/anime/([^/]+)/ep-(\d+)</loc>"#).expect("sitemap episode counts");
+    let re = Regex::new(r#"(?i)/anime/([^/]+)/ep-(\d+)</loc>"#).expect("sitemap episode counts");
     for cap in re.captures_iter(xml) {
         let slug = cap
             .get(1)
@@ -914,10 +916,7 @@ fn enrich_index_from_local_site(db: &Database, index: &mut [StremioMetaPreview])
     }
 }
 
-fn merge_index(
-    index: &mut Vec<StremioMetaPreview>,
-    rows: &[ScCatalogRow],
-) {
+fn merge_index(index: &mut Vec<StremioMetaPreview>, rows: &[ScCatalogRow]) {
     let mut seen: HashSet<String> = index
         .iter()
         .map(|p| format!("{}:{}", p.r#type, p.id))
@@ -1100,15 +1099,24 @@ mod tests {
         "#;
         let mut cards = HashMap::new();
         ingest_sitemap_episodes(&mut cards, xml);
-        assert_eq!(cards.get("one-piece-PmTvj").and_then(|c| c.episode_count), Some(12));
+        assert_eq!(
+            cards.get("one-piece-PmTvj").and_then(|c| c.episode_count),
+            Some(12)
+        );
     }
 
     #[test]
     fn decodes_html_entities_in_titles() {
         assert_eq!(decode_html_entities("Tom &amp; Jerry"), "Tom & Jerry");
-        assert_eq!(decode_html_entities("&amp;quot;Hello&amp;quot;"), "\"Hello\"");
+        assert_eq!(
+            decode_html_entities("&amp;quot;Hello&amp;quot;"),
+            "\"Hello\""
+        );
         assert_eq!(decode_html_entities("Demon&#39;s Slayer"), "Demon's Slayer");
-        assert_eq!(decode_html_entities("A&amp;B &quot;Test&quot;"), "A&B \"Test\"");
+        assert_eq!(
+            decode_html_entities("A&amp;B &quot;Test&quot;"),
+            "A&B \"Test\""
+        );
         assert_eq!(decode_html_entities("&#8217;"), "'");
     }
 }

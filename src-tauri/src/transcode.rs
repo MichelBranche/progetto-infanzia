@@ -43,7 +43,10 @@ pub fn needs_transcode(path: &str) -> bool {
         .map(|e| e.to_ascii_lowercase())
         .unwrap_or_default();
 
-    matches!(ext.as_str(), "mkv" | "avi" | "webm" | "wmv" | "mov" | "m2ts" | "ts")
+    matches!(
+        ext.as_str(),
+        "mkv" | "avi" | "webm" | "wmv" | "mov" | "m2ts" | "ts"
+    )
 }
 
 pub fn ffmpeg_executable() -> &'static str {
@@ -83,9 +86,7 @@ pub async fn spawn_transcode(
     cmd.kill_on_drop(true);
 
     cmd.spawn().map_err(|e| {
-        format!(
-            "FFmpeg non trovato o non avviabile. Installa FFmpeg e aggiungilo al PATH: {e}"
-        )
+        format!("FFmpeg non trovato o non avviabile. Installa FFmpeg e aggiungilo al PATH: {e}")
     })
 }
 
@@ -124,9 +125,7 @@ pub async fn spawn_remote_transcode(
     cmd.kill_on_drop(true);
 
     cmd.spawn().map_err(|e| {
-        format!(
-            "FFmpeg non trovato o non avviabile. Installa FFmpeg e aggiungilo al PATH: {e}"
-        )
+        format!("FFmpeg non trovato o non avviabile. Installa FFmpeg e aggiungilo al PATH: {e}")
     })
 }
 

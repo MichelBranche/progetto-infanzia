@@ -81,7 +81,10 @@ fn parse_episodes_detailed(
     let mut out = Vec::new();
 
     for cap in link_re.captures_iter(html) {
-        let ep_slug = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+        let ep_slug = cap
+            .get(1)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
         let ep_num = cap
             .get(2)
             .and_then(|m| m.as_str().parse::<i64>().ok())
@@ -386,12 +389,11 @@ fn resolve_saturncdn_stream(
         .ok_or_else(|| "Impossibile decodificare lo stream".to_string())
 }
 
-pub fn fetch_title_meta(
-    db: &crate::db::Database,
-    slug: &str,
-) -> Result<StremioMeta, String> {
+pub fn fetch_title_meta(db: &crate::db::Database, slug: &str) -> Result<StremioMeta, String> {
     let client = http_client()?;
-    let base = saturn_catalog::app_url(db).trim_end_matches('/').to_string();
+    let base = saturn_catalog::app_url(db)
+        .trim_end_matches('/')
+        .to_string();
     let url = format!("{base}/anime/{slug}");
     let html = fetch_html(&client, &url, Some(&base))?;
 
@@ -498,13 +500,11 @@ pub fn resolve_playback(
     proxy: &AddonProxyRegistry,
 ) -> Result<PlayableStream, String> {
     let client = http_client()?;
-    let base = saturn_catalog::app_url(db).trim_end_matches('/').to_string();
+    let base = saturn_catalog::app_url(db)
+        .trim_end_matches('/')
+        .to_string();
     let page_url = resolve_episode_page_url(&client, &base, slug, episode_id)?;
-    let html = fetch_html(
-        &client,
-        &page_url,
-        Some(&format!("{base}/anime/{slug}")),
-    )?;
+    let html = fetch_html(&client, &page_url, Some(&format!("{base}/anime/{slug}")))?;
 
     let embed_url = extract_embed_url(&html, &base)
         .ok_or_else(|| "Player non trovato per questo episodio".to_string())?;

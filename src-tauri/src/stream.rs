@@ -51,7 +51,10 @@ pub async fn start_server(
         .route("/poster/{id}", get(poster_handler))
         .route("/series-poster/{id}", get(series_poster_handler))
         .route("/saturn-poster/{*path}", get(saturn_poster_handler))
-        .route("/remote/{id}", get(remote_handler).head(remote_head_handler))
+        .route(
+            "/remote/{id}",
+            get(remote_handler).head(remote_head_handler),
+        )
         .route("/remote-cast/{id}", get(remote_cast_handler))
         .route(
             "/torrent/{id}",
@@ -80,10 +83,7 @@ struct StreamFile {
     mime: String,
 }
 
-async fn resolve_stream_file(
-    state: &StreamState,
-    id: &str,
-) -> Result<StreamFile, StatusCode> {
+async fn resolve_stream_file(state: &StreamState, id: &str) -> Result<StreamFile, StatusCode> {
     let file_path = state
         .db
         .get_file_path(id)
@@ -335,10 +335,7 @@ async fn remote_cast_handler(
     Path(id): Path<String>,
     Query(query): Query<CastQuery>,
 ) -> Result<Response<Body>, StatusCode> {
-    let entry = state
-        .addon_proxy
-        .get(&id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let entry = state.addon_proxy.get(&id).ok_or(StatusCode::NOT_FOUND)?;
     let start_secs = query.start.unwrap_or(0.0);
 
     let mut child = crate::transcode::spawn_remote_transcode(
@@ -382,10 +379,7 @@ async fn remote_proxy_response(
     headers: &HeaderMap,
     head_only: bool,
 ) -> Result<Response<Body>, StatusCode> {
-    let entry = state
-        .addon_proxy
-        .get(id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let entry = state.addon_proxy.get(id).ok_or(StatusCode::NOT_FOUND)?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
@@ -400,19 +394,13 @@ async fn remote_proxy_response(
         req = req.header(header::RANGE, range);
     }
 
-    let resp = req
-        .send()
-        .await
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let resp = req.send().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
 
     if entry.rewrite_manifest {
         if !resp.status().is_success() {
             return Err(StatusCode::BAD_GATEWAY);
         }
-        let body = resp
-            .text()
-            .await
-            .map_err(|_| StatusCode::BAD_GATEWAY)?;
+        let body = resp.text().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
         let rewritten = state.addon_proxy.rewrite_hls_manifest(
             &body,
             &entry.upstream_url,
@@ -420,17 +408,13 @@ async fn remote_proxy_response(
         );
         return Response::builder()
             .status(StatusCode::OK)
-            .header(
-                header::CONTENT_TYPE,
-                "application/vnd.apple.mpegurl",
-            )
+            .header(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")
             .header(header::CACHE_CONTROL, "no-cache")
             .body(Body::from(rewritten))
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
     }
 
-    let status = StatusCode::from_u16(resp.status().as_u16())
-        .unwrap_or(StatusCode::BAD_GATEWAY);
+    let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let mut builder = Response::builder().status(status);
 
     for (key, value) in resp.headers().iter() {
@@ -513,4 +497,3 @@ async fn watch_party_ws_handler(
     let registry = state.watch_party.clone();
     ws.on_upgrade(move |socket| watch_party::handle_socket(socket, registry, params))
 }
-

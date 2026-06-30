@@ -5,6 +5,7 @@ import { setProfilePin, removeProfilePin } from "../lib/profilesApi";
 import { fetchSettings, updateSettings } from "../lib/settingsApi";
 import { STREAMING_SERVICES } from "../data/streaming";
 import { ParentalLimitsPanel } from "./ParentalLimitsPanel";
+import { AppUpdaterSection } from "./AppUpdaterSection";
 import { AddonManagerPanel } from "./AddonManagerPanel";
 import { DebridPanel } from "./DebridPanel";
 import { STREMIO_ADDONS_ENABLED } from "../lib/features";
@@ -349,6 +350,8 @@ export function SettingsPage({ profileId, onRescanComplete, onOpenManage }: Sett
           </p>
           <ParentalLimitsPanel parentProfileId={profileId} />
         </section>
+
+        <AppUpdaterSection />
 
         <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
           <h3 className="text-[15px] font-medium text-text-primary">PIN profilo genitore</h3>

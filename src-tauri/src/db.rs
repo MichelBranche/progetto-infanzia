@@ -2,8 +2,8 @@ use crate::models::{gradient_for_type, MediaItem, PosterAsset, STREAM_PORT};
 use crate::profiles::{CreateProfileInput, Profile, UpdateProfileInput};
 use chrono::{Local, Utc};
 use rusqlite::{params, Connection};
-use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::Mutex;
@@ -163,7 +163,9 @@ impl Database {
             .prepare("SELECT id, file_path FROM media")
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
             .map_err(|e| e.to_string())?;
 
         let mut removed = 0;
@@ -452,11 +454,7 @@ impl Database {
             insert_poster_asset(&mut by_path, &path, label, "series".to_string());
         }
 
-        collect_posters_from_dir(
-            &mut by_path,
-            &media_root.join(".posters"),
-            "episode",
-        );
+        collect_posters_from_dir(&mut by_path, &media_root.join(".posters"), "episode");
         collect_posters_from_dir(
             &mut by_path,
             &media_root.join(".posters").join("series"),
@@ -572,10 +570,7 @@ impl Database {
                         .series_title
                         .as_ref()
                         .is_some_and(|s| s.to_lowercase().contains(&q))
-                    || item
-                        .file_name
-                        .to_lowercase()
-                        .contains(&q)
+                    || item.file_name.to_lowercase().contains(&q)
             })
             .collect())
     }
@@ -660,9 +655,7 @@ impl Database {
         video_id: &str,
     ) -> Result<Option<(f64, Option<f64>)>, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
-        let progress_key = format!(
-            "{catalog_prefix}:{content_type}:{title_id}:{slug}:{video_id}"
-        );
+        let progress_key = format!("{catalog_prefix}:{content_type}:{title_id}:{slug}:{video_id}");
         let row = conn.query_row(
             "SELECT position_secs, duration_secs FROM streaming_watch_progress
              WHERE profile_id = ?1 AND progress_key = ?2",
@@ -926,7 +919,10 @@ impl Database {
         Ok(code)
     }
 
-    pub fn list_friends(&self, owner_profile_id: &str) -> Result<Vec<crate::models::FriendRecord>, String> {
+    pub fn list_friends(
+        &self,
+        owner_profile_id: &str,
+    ) -> Result<Vec<crate::models::FriendRecord>, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare(
@@ -1049,16 +1045,11 @@ impl Database {
     }
 
     pub fn get_profile(&self, id: &str) -> Result<Option<Profile>, String> {
-        Ok(self
-            .get_profiles()?
-            .into_iter()
-            .find(|p| p.id == id))
+        Ok(self.get_profiles()?.into_iter().find(|p| p.id == id))
     }
 
     pub fn is_parent_profile(&self, id: &str) -> Result<bool, String> {
-        Ok(self
-            .get_profile(id)?
-            .is_some_and(|p| p.role == "parent"))
+        Ok(self.get_profile(id)?.is_some_and(|p| p.role == "parent"))
     }
 
     pub fn create_profile(&self, input: &CreateProfileInput) -> Result<Profile, String> {
@@ -1133,7 +1124,10 @@ impl Database {
             _ => return Err("Ruolo profilo non valido".into()),
         }
 
-        let avatar_color = input.avatar_color.as_deref().unwrap_or(&existing.avatar_color);
+        let avatar_color = input
+            .avatar_color
+            .as_deref()
+            .unwrap_or(&existing.avatar_color);
         let avatar_emoji = input
             .avatar_emoji
             .as_deref()
@@ -1267,7 +1261,10 @@ impl Database {
         })
     }
 
-    pub fn update_settings(&self, input: &crate::settings::UpdateSettingsInput) -> Result<(), String> {
+    pub fn update_settings(
+        &self,
+        input: &crate::settings::UpdateSettingsInput,
+    ) -> Result<(), String> {
         if let Some(enabled) = input.intro_sound_enabled {
             self.set_meta(
                 crate::settings::META_INTRO_SOUND,
@@ -1399,7 +1396,10 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_profile_limits(&self, profile_id: &str) -> Result<crate::parental::ProfileLimits, String> {
+    pub fn get_profile_limits(
+        &self,
+        profile_id: &str,
+    ) -> Result<crate::parental::ProfileLimits, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let result = conn.query_row(
             "SELECT profile_id, daily_limit_mins, bedtime_start, bedtime_end
@@ -1434,10 +1434,7 @@ impl Database {
     ) -> Result<crate::parental::ProfileLimits, String> {
         let current = self.get_profile_limits(profile_id)?;
         let daily = input.daily_limit_mins.unwrap_or(current.daily_limit_mins);
-        let bedtime_start = input
-            .bedtime_start
-            .clone()
-            .or(current.bedtime_start);
+        let bedtime_start = input.bedtime_start.clone().or(current.bedtime_start);
         let bedtime_end = input.bedtime_end.clone().or(current.bedtime_end);
 
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
@@ -1464,18 +1461,15 @@ impl Database {
                 |row| row.get(0),
             )
             .unwrap_or_default();
-        let id = format!(
-            "{:016x}",
-            {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-                let mut h = DefaultHasher::new();
-                profile_id.hash(&mut h);
-                media_id.hash(&mut h);
-                Utc::now().to_rfc3339().hash(&mut h);
-                h.finish()
-            }
-        );
+        let id = format!("{:016x}", {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut h = DefaultHasher::new();
+            profile_id.hash(&mut h);
+            media_id.hash(&mut h);
+            Utc::now().to_rfc3339().hash(&mut h);
+            h.finish()
+        });
         let now = Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO watch_sessions (
@@ -1497,18 +1491,15 @@ impl Database {
     ) -> Result<String, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let synthetic_id = format!("{content_type}:{video_id}");
-        let id = format!(
-            "{:016x}",
-            {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-                let mut h = DefaultHasher::new();
-                profile_id.hash(&mut h);
-                synthetic_id.hash(&mut h);
-                Utc::now().to_rfc3339().hash(&mut h);
-                h.finish()
-            }
-        );
+        let id = format!("{:016x}", {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut h = DefaultHasher::new();
+            profile_id.hash(&mut h);
+            synthetic_id.hash(&mut h);
+            Utc::now().to_rfc3339().hash(&mut h);
+            h.finish()
+        });
         let now = Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO watch_sessions (
@@ -1521,7 +1512,11 @@ impl Database {
         Ok(id)
     }
 
-    pub fn update_watch_session(&self, session_id: &str, seconds_watched: i32) -> Result<(), String> {
+    pub fn update_watch_session(
+        &self,
+        session_id: &str,
+        seconds_watched: i32,
+    ) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         conn.execute(
             "UPDATE watch_sessions SET seconds_watched = ?2 WHERE id = ?1",
@@ -1754,7 +1749,9 @@ impl Database {
         self.streaming_time_limits(profile_id)
     }
 
-    fn row_to_installed_addon(row: &rusqlite::Row<'_>) -> rusqlite::Result<crate::stremio::InstalledAddon> {
+    fn row_to_installed_addon(
+        row: &rusqlite::Row<'_>,
+    ) -> rusqlite::Result<crate::stremio::InstalledAddon> {
         let resources_json: String = row.get(6)?;
         let types_json: String = row.get(7)?;
         let catalogs_json: String = row.get(8)?;
@@ -1953,9 +1950,7 @@ impl Database {
     pub fn ensure_catalog_addon(&self) -> Result<(), String> {
         const CINEMETA: &str = "https://v3-cinemeta.strem.io/manifest.json";
         let has_catalog = self.list_installed_addons()?.iter().any(|a| {
-            a.enabled
-                && a.resources.iter().any(|r| r == "catalog")
-                && !a.catalogs.is_empty()
+            a.enabled && a.resources.iter().any(|r| r == "catalog") && !a.catalogs.is_empty()
         });
         if has_catalog {
             return Ok(());
@@ -1988,9 +1983,7 @@ impl Database {
     pub fn get_addon_allowlist(&self, child_profile_id: &str) -> Result<Vec<String>, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn
-            .prepare(
-                "SELECT addon_row_id FROM profile_addon_allowlist WHERE profile_id = ?1",
-            )
+            .prepare("SELECT addon_row_id FROM profile_addon_allowlist WHERE profile_id = ?1")
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(params![child_profile_id], |row| row.get(0))
@@ -2027,9 +2020,7 @@ impl Database {
         Ok(self
             .list_addons_for_profile(profile_id)?
             .iter()
-            .any(|a| {
-                a.resources.iter().any(|r| r == "catalog") && !a.catalogs.is_empty()
-            }))
+            .any(|a| a.resources.iter().any(|r| r == "catalog") && !a.catalogs.is_empty()))
     }
 }
 
@@ -2088,7 +2079,10 @@ fn migrate_schema(conn: &Connection) -> Result<(), String> {
     let wp_has_profile = table_has_column(conn, "watch_progress", "profile_id").unwrap_or(false);
 
     if !wp_has_profile {
-        let _ = conn.execute("ALTER TABLE watch_progress RENAME TO watch_progress_legacy", []);
+        let _ = conn.execute(
+            "ALTER TABLE watch_progress RENAME TO watch_progress_legacy",
+            [],
+        );
         let _ = conn.execute("ALTER TABLE favorites RENAME TO favorites_legacy", []);
 
         conn.execute_batch(

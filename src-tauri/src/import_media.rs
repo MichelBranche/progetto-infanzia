@@ -73,7 +73,11 @@ pub fn add_media(
         &file_path,
         &file_name,
         input.description.as_deref(),
-        input.tag.as_deref().map(str::trim).filter(|t| !t.is_empty()),
+        input
+            .tag
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty()),
         input.series_title.as_deref(),
         input.season,
         input.episode,
@@ -132,19 +136,13 @@ fn build_video_destination(
 
     let dest = match input.media_type.as_str() {
         "film" => media_root.join("film").join(format!("{safe_title}.{ext}")),
-        "cartone" if episodic_content(input) => build_episodic_path(
-            media_root.join("cartoni"),
-            input,
-            &safe_title,
-            ext,
-        )?,
-        "cartone" => media_root.join("cartoni").join(format!("{safe_title}.{ext}")),
-        "serie" => build_episodic_path(
-            media_root.join("serie"),
-            input,
-            &safe_title,
-            ext,
-        )?,
+        "cartone" if episodic_content(input) => {
+            build_episodic_path(media_root.join("cartoni"), input, &safe_title, ext)?
+        }
+        "cartone" => media_root
+            .join("cartoni")
+            .join(format!("{safe_title}.{ext}")),
+        "serie" => build_episodic_path(media_root.join("serie"), input, &safe_title, ext)?,
         _ => unreachable!(),
     };
 
@@ -271,11 +269,7 @@ fn copy_series_poster(
     let dest = posters_dir.join(format!("{sp_id}.{ext}"));
     std::fs::copy(&poster_src, &dest).map_err(|e| format!("Copia copertina serie fallita: {e}"))?;
 
-    db.upsert_series_poster(
-        &input.media_type,
-        series_title,
-        &dest.to_string_lossy(),
-    )?;
+    db.upsert_series_poster(&input.media_type, series_title, &dest.to_string_lossy())?;
 
     Ok(())
 }

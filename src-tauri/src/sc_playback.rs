@@ -65,9 +65,11 @@ pub fn fetch_title_meta(
             .and_then(|v| v.as_i64())
             .map(|m| format!("{m} min")),
         logo: logo_from_images(cdn, title.get("images")),
-        rating: title
-            .get("score")
-            .and_then(|v| v.as_str().map(str::to_string).or_else(|| v.as_f64().map(|n| format!("{n:.1}")))),
+        rating: title.get("score").and_then(|v| {
+            v.as_str()
+                .map(str::to_string)
+                .or_else(|| v.as_f64().map(|n| format!("{n:.1}")))
+        }),
         cast: credits_from_title(title, "main_actors"),
         directors: credits_from_title(title, "main_directors"),
         view_count: title.get("views").and_then(|v| v.as_i64()),
@@ -98,8 +100,8 @@ pub fn resolve_playback(
         .ok_or_else(|| "Player non disponibile per questo titolo".to_string())?;
 
     let iframe_html = session.get_html(embed_url, Some(&referer))?;
-    let vix_embed = extract_iframe_src(&iframe_html)
-        .ok_or_else(|| "Embed vixcloud non trovato".to_string())?;
+    let vix_embed =
+        extract_iframe_src(&iframe_html).ok_or_else(|| "Embed vixcloud non trovato".to_string())?;
     let vix_html = session.get_html(&vix_embed, Some(app))?;
     Ok(stream_from_playlist(
         build_playlist_url(&vix_embed, &vix_html, locale)?,
@@ -144,10 +146,7 @@ pub fn search_titles(
         return Ok(Vec::new());
     }
     let session = ScSession::open(app, locale)?;
-    let path = format!(
-        "/{locale}/search?q={}",
-        urlencoding::encode(trimmed)
-    );
+    let path = format!("/{locale}/search?q={}", urlencoding::encode(trimmed));
     let html = session.get_html(&path, None)?;
     let page =
         parse_inertia_from_html(&html).ok_or_else(|| "Ricerca non disponibile".to_string())?;
@@ -165,10 +164,7 @@ pub fn search_titles(
         .unwrap_or_default())
 }
 
-fn stream_from_playlist(
-    playlist_url: String,
-    proxy: &AddonProxyRegistry,
-) -> PlayableStream {
+fn stream_from_playlist(playlist_url: String, proxy: &AddonProxyRegistry) -> PlayableStream {
     let headers = vixcloud_headers();
     let proxy_id = proxy.register(playlist_url, headers, true);
     PlayableStream {
@@ -227,7 +223,12 @@ fn genres_from_title(title: &Value) -> Vec<String> {
         .map(|genres| {
             genres
                 .iter()
-                .filter_map(|genre| genre.get("name").and_then(|v| v.as_str()).map(str::to_string))
+                .filter_map(|genre| {
+                    genre
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -240,7 +241,12 @@ fn credits_from_title(title: &Value, key: &str) -> Vec<String> {
         .map(|people| {
             people
                 .iter()
-                .filter_map(|person| person.get("name").and_then(|v| v.as_str()).map(str::to_string))
+                .filter_map(|person| {
+                    person
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -275,11 +281,7 @@ fn collect_series_videos(
         let page = session.inertia_page(&path, None)?;
         let props = page_props(&page)?;
         if let Some(loaded) = props.get("loadedSeason") {
-            videos.extend(episodes_from_season(
-                cdn,
-                loaded,
-                Some(season_number),
-            ));
+            videos.extend(episodes_from_season(cdn, loaded, Some(season_number)));
         }
     }
 
@@ -429,15 +431,15 @@ fn extract_iframe_src(html: &str) -> Option<String> {
     let start = html[iframe_pos..].find(marker)? + iframe_pos + marker.len();
     let rest = &html[start..];
     let end = rest.find('"')?;
-    Some(
-        rest[..end]
-            .replace("&amp;", "&")
-            .replace("&#39;", "'"),
-    )
+    Some(rest[..end].replace("&amp;", "&").replace("&#39;", "'"))
 }
 
 fn extract_js_string(html: &str, key: &str) -> Option<String> {
-    let patterns = [format!("{key}: '"), format!("'{key}': '"), format!("\"{key}\": \"")];
+    let patterns = [
+        format!("{key}: '"),
+        format!("'{key}': '"),
+        format!("\"{key}\": \""),
+    ];
     for pat in patterns {
         if let Some(pos) = html.find(&pat) {
             let start = pos + pat.len();
@@ -455,8 +457,8 @@ fn build_playlist_url(vix_embed: &str, vix_html: &str, locale: &str) -> Result<S
         .find("window.masterPlaylist")
         .ok_or_else(|| "Playlist HLS non trovata".to_string())?;
     let block = &vix_html[block_start..block_start.saturating_add(2500)];
-    let master_url = extract_js_string(block, "url")
-        .ok_or_else(|| "URL playlist non trovata".to_string())?;
+    let master_url =
+        extract_js_string(block, "url").ok_or_else(|| "URL playlist non trovata".to_string())?;
     let token = extract_js_string(block, "token").unwrap_or_default();
     let expires = extract_js_string(block, "expires").unwrap_or_default();
     let can_fhd = vix_html.contains("canPlayFHD = true") || vix_embed.contains("canPlayFHD=1");
@@ -498,10 +500,7 @@ fn title_name(title: &Value) -> String {
 }
 
 fn plot_from_title(title: &Value) -> Option<String> {
-    title
-        .get("plot")
-        .and_then(|v| v.as_str())
-        .map(decode_html)
+    title.get("plot").and_then(|v| v.as_str()).map(decode_html)
 }
 
 fn decode_html(input: &str) -> String {
@@ -544,7 +543,10 @@ fn episodes_from_season(
         .into_iter()
         .filter_map(|episode| {
             let id = episode.get("id")?.as_i64()?;
-            let number = episode.get("number").and_then(|v| v.as_i64()).map(|n| n as i32);
+            let number = episode
+                .get("number")
+                .and_then(|v| v.as_i64())
+                .map(|n| n as i32);
             let name = episode
                 .get("name")
                 .and_then(|v| v.as_str())

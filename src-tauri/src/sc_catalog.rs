@@ -146,10 +146,7 @@ fn extract_titles(value: &serde_json::Value) -> Option<Vec<serde_json::Value>> {
     if let Some(arr) = value.as_array() {
         return Some(arr.clone());
     }
-    value
-        .get("data")
-        .and_then(|v| v.as_array())
-        .cloned()
+    value.get("data").and_then(|v| v.as_array()).cloned()
 }
 
 fn now_ts() -> i64 {
@@ -353,11 +350,7 @@ pub fn fetch_sliders_for_db(
     Err(last_err.unwrap_or_else(|| "Catalogo non disponibile".into()))
 }
 
-pub fn fetch_sliders(
-    app: &str,
-    cdn: &str,
-    locale: &str,
-) -> Result<Vec<ScCatalogRow>, String> {
+pub fn fetch_sliders(app: &str, cdn: &str, locale: &str) -> Result<Vec<ScCatalogRow>, String> {
     let client = http_client()?;
     let mut candidates = vec![app.trim_end_matches('/').to_string()];
     for fallback in FALLBACK_APP_URLS {
@@ -439,9 +432,7 @@ fn fetch_slider_batch(
     let body = SliderFetchRequest {
         sliders: slider_names
             .iter()
-            .map(|name| SliderFetchItem {
-                name: name.clone(),
-            })
+            .map(|name| SliderFetchItem { name: name.clone() })
             .collect(),
     };
 
@@ -653,7 +644,9 @@ pub fn sync_catalog_index(
     let mut index = Vec::new();
 
     if let Some(token) = xsrf.as_ref() {
-        if let Ok(sliders) = fetch_slider_batch(&html_client.client, app_base, token, locale, slider_names) {
+        if let Ok(sliders) =
+            fetch_slider_batch(&html_client.client, app_base, token, locale, slider_names)
+        {
             for slider in sliders {
                 for title in slider.titles {
                     insert_preview(&mut index, &mut seen, map_title(cdn, title));
@@ -691,7 +684,8 @@ pub fn sync_catalog_index(
             .and_then(|r| r.text())
         {
             if let Some(page) = parse_inertia_from_html(&html) {
-                if let Some(sliders_val) = page.get("props").and_then(|props| props.get("sliders")) {
+                if let Some(sliders_val) = page.get("props").and_then(|props| props.get("sliders"))
+                {
                     if let Ok(sliders) =
                         serde_json::from_value::<Vec<ScSlider>>(sliders_val.clone())
                     {
@@ -743,7 +737,12 @@ fn save_cached_index(db: &Database, index: &[StremioMetaPreview]) -> Result<(), 
     Ok(())
 }
 
-pub fn fetch_catalog(db: &Database, _app: &str, cdn: &str, locale: &str) -> Result<ScCatalogResponse, String> {
+pub fn fetch_catalog(
+    db: &Database,
+    _app: &str,
+    cdn: &str,
+    locale: &str,
+) -> Result<ScCatalogResponse, String> {
     let rows = fetch_sliders_for_db(db, cdn, locale)?;
 
     let mut index = load_cached_index(db)
@@ -781,11 +780,7 @@ pub fn refresh_catalog_index(
 ) -> Result<ScCatalogResponse, String> {
     let app = resolve_app_url(db).or_else(|_| discover_app_url(db))?;
     let rows = fetch_sliders_for_db(db, cdn, locale)?;
-    let slider_names = discover_slider_names(
-        &http_client()?,
-        app.trim_end_matches('/'),
-        locale,
-    );
+    let slider_names = discover_slider_names(&http_client()?, app.trim_end_matches('/'), locale);
     let mut index = sync_catalog_index(&app, cdn, locale, &slider_names)?;
     merge_row_items(&mut index, &rows);
     save_cached_index(db, &index)?;
@@ -874,7 +869,11 @@ pub fn preview_from_value(cdn: &str, title: &serde_json::Value) -> Option<Stremi
     let name = title.get("name")?.as_str()?;
     let slug = title.get("slug")?.as_str()?;
     let title_type = title.get("type")?.as_str()?;
-    let stremio_type = if title_type == "tv" { "series" } else { "movie" };
+    let stremio_type = if title_type == "tv" {
+        "series"
+    } else {
+        "movie"
+    };
     let images: Vec<ScImage> = title
         .get("images")
         .and_then(|v| serde_json::from_value(v.clone()).ok())

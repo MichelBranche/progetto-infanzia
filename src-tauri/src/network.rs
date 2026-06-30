@@ -32,9 +32,7 @@ pub fn lan_remote_url(proxy_id: &str) -> Option<String> {
     if ip.is_loopback() {
         return None;
     }
-    Some(format!(
-        "http://{ip}:{STREAM_PORT}/remote/{proxy_id}"
-    ))
+    Some(format!("http://{ip}:{STREAM_PORT}/remote/{proxy_id}"))
 }
 
 pub fn lan_remote_cast_url(proxy_id: &str, start_secs: f64) -> Option<String> {
@@ -47,9 +45,7 @@ pub fn lan_remote_cast_url(proxy_id: &str, start_secs: f64) -> Option<String> {
             "http://{ip}:{STREAM_PORT}/remote-cast/{proxy_id}?start={start_secs:.1}"
         ))
     } else {
-        Some(format!(
-            "http://{ip}:{STREAM_PORT}/remote-cast/{proxy_id}"
-        ))
+        Some(format!("http://{ip}:{STREAM_PORT}/remote-cast/{proxy_id}"))
     }
 }
 
@@ -67,12 +63,7 @@ pub fn localhost_watch_party_ws_url(code: &str, profile_id: &str, name: &str) ->
     )
 }
 
-pub fn lan_watch_party_ws_url(
-    host: &str,
-    code: &str,
-    profile_id: &str,
-    name: &str,
-) -> String {
+pub fn lan_watch_party_ws_url(host: &str, code: &str, profile_id: &str, name: &str) -> String {
     let name = urlencoding::encode(name);
     format!(
         "ws://{host}:{STREAM_PORT}/watch-party/ws?code={}&profileId={}&name={}",

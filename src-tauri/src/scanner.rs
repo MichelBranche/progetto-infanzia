@@ -33,9 +33,34 @@ pub fn scan_library(db: &Database, media_root: &Path) -> Result<ScanResult, Stri
     let mut added = 0;
     let mut updated = 0;
 
-    scan_folder(db, media_root, &media_root.join("film"), "film", None, &mut found_paths, &mut added, &mut updated)?;
-    scan_episodic(db, media_root, &media_root.join("cartoni"), "cartone", &mut found_paths, &mut added, &mut updated)?;
-    scan_episodic(db, media_root, &media_root.join("serie"), "serie", &mut found_paths, &mut added, &mut updated)?;
+    scan_folder(
+        db,
+        media_root,
+        &media_root.join("film"),
+        "film",
+        None,
+        &mut found_paths,
+        &mut added,
+        &mut updated,
+    )?;
+    scan_episodic(
+        db,
+        media_root,
+        &media_root.join("cartoni"),
+        "cartone",
+        &mut found_paths,
+        &mut added,
+        &mut updated,
+    )?;
+    scan_episodic(
+        db,
+        media_root,
+        &media_root.join("serie"),
+        "serie",
+        &mut found_paths,
+        &mut added,
+        &mut updated,
+    )?;
 
     let removed = db.remove_missing(&found_paths)?;
     let total = db.count_media()?;
@@ -118,7 +143,11 @@ fn scan_episodic(
 
     for series_entry in std::fs::read_dir(root).map_err(|e| e.to_string())? {
         let series_entry = series_entry.map_err(|e| e.to_string())?;
-        if !series_entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+        if !series_entry
+            .file_type()
+            .map_err(|e| e.to_string())?
+            .is_dir()
+        {
             if is_video_file(&series_entry.path()) {
                 let item = build_media_item(&series_entry.path(), media_type, None, None, None)?;
                 found_paths.push(item.file_path.clone());
@@ -133,10 +162,7 @@ fn scan_episodic(
             continue;
         }
 
-        let series_name = series_entry
-            .file_name()
-            .to_string_lossy()
-            .to_string();
+        let series_name = series_entry.file_name().to_string_lossy().to_string();
         let series_path = series_entry.path();
 
         for entry in WalkDir::new(&series_path)
@@ -231,9 +257,13 @@ pub fn path_to_id(path: &str) -> String {
 }
 
 fn clean_title(file_name: &str) -> String {
-    let stem = file_name.rsplit_once('.').map(|(s, _)| s).unwrap_or(file_name);
+    let stem = file_name
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(file_name);
 
-    let re = Regex::new(r"(?i)\b(720p|1080p|2160p|4k|bluray|webrip|x264|x265|h264|h265)\b").unwrap();
+    let re =
+        Regex::new(r"(?i)\b(720p|1080p|2160p|4k|bluray|webrip|x264|x265|h264|h265)\b").unwrap();
     let cleaned = re.replace_all(stem, "");
 
     let re2 = Regex::new(r"(?i)[._-]+").unwrap();
@@ -245,13 +275,17 @@ fn clean_title(file_name: &str) -> String {
     let re4 = Regex::new(r"(?i)^\s*e(?:p(?:isode)?)?\s*\d{1,3}\s*[-._\s]*").unwrap();
     let cleaned = re4.replace(&cleaned, "");
 
-    cleaned.split_whitespace().collect::<Vec<_>>().join(" ").trim().to_string()
+    cleaned
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string()
 }
 
 fn extract_year(text: &str) -> Option<i32> {
     let re = Regex::new(r"(19|20)\d{2}").ok()?;
-    re.find(text)
-        .and_then(|m| m.as_str().parse().ok())
+    re.find(text).and_then(|m| m.as_str().parse().ok())
 }
 
 fn parse_season_episode(path: &Path, series_root: &Path) -> (Option<i32>, Option<i32>) {

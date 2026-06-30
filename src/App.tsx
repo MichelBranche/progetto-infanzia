@@ -17,6 +17,7 @@ import { ManageLibraryPage } from "./components/ManageLibraryPage";
 import { ProfilePage, type ProfileTab } from "./components/ProfilePage";
 import { VideoPlayer } from "./components/VideoPlayer";
 import { SettingsPage } from "./components/SettingsPage";
+import { AppUpdaterProvider } from "./context/AppUpdaterContext";
 import { ParentalActivityPage } from "./components/ParentalActivityPage";
 import { StreamingPage } from "./components/StreamingPage";
 import { AnimePage } from "./components/AnimePage";
@@ -871,7 +872,9 @@ function AppGate() {
       {bootDone && activeProfile && (
         <LibraryProvider profileId={activeProfile.id}>
           <AddonsProvider profileId={activeProfile.id}>
-            <AppContent />
+            <AppUpdaterProvider>
+              <AppContent />
+            </AppUpdaterProvider>
           </AddonsProvider>
         </LibraryProvider>
       )}

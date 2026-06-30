@@ -101,11 +101,7 @@ fn year_from_date(date: &Option<String>) -> Option<i32> {
 }
 
 fn genres_to_json(genres: &Option<Vec<Genre>>) -> Option<String> {
-    let names: Vec<String> = genres
-        .as_ref()?
-        .iter()
-        .map(|g| g.name.clone())
-        .collect();
+    let names: Vec<String> = genres.as_ref()?.iter().map(|g| g.name.clone()).collect();
     if names.is_empty() {
         return None;
     }
@@ -175,9 +171,17 @@ fn search_and_match_movie(
         url.push_str(&format!("&year={y}"));
     }
 
-    let resp: SearchMovieResponse = client.get(&url).send().map_err(|e| e.to_string())?.json().map_err(|e| e.to_string())?;
+    let resp: SearchMovieResponse = client
+        .get(&url)
+        .send()
+        .map_err(|e| e.to_string())?
+        .json()
+        .map_err(|e| e.to_string())?;
 
-    let matched = resp.results.into_iter().find(|r| titles_match(title, &r.title));
+    let matched = resp
+        .results
+        .into_iter()
+        .find(|r| titles_match(title, &r.title));
     let Some(m) = matched else {
         return Ok(None);
     };
@@ -197,7 +201,9 @@ fn search_and_match_movie(
         tmdb_id: m.id,
         tmdb_type: "movie".into(),
         description: detail.overview.or(m.overview),
-        year: year.or(year_from_date(&detail.release_date)).or(year_from_date(&m.release_date)),
+        year: year
+            .or(year_from_date(&detail.release_date))
+            .or(year_from_date(&m.release_date)),
         genres_json: genres_to_json(&detail.genres.or(m.genres)),
         runtime_mins: detail.runtime.or(m.runtime),
         poster_path: detail.poster_path.or(m.poster_path),
@@ -215,7 +221,12 @@ fn search_and_match_tv(
         urlencoding::encode(title)
     );
 
-    let resp: SearchTvResponse = client.get(&url).send().map_err(|e| e.to_string())?.json().map_err(|e| e.to_string())?;
+    let resp: SearchTvResponse = client
+        .get(&url)
+        .send()
+        .map_err(|e| e.to_string())?
+        .json()
+        .map_err(|e| e.to_string())?;
 
     let matched = resp
         .results
@@ -272,7 +283,11 @@ fn download_poster(
     Ok(dest.to_string_lossy().to_string())
 }
 
-pub fn enrich_pending_media(db: &Database, media_root: &Path, limit: usize) -> Result<usize, String> {
+pub fn enrich_pending_media(
+    db: &Database,
+    media_root: &Path,
+    limit: usize,
+) -> Result<usize, String> {
     let api_key = db.get_meta(META_TMDB_API_KEY)?.unwrap_or_default();
     if api_key.trim().is_empty() {
         return Ok(0);
@@ -302,7 +317,11 @@ pub fn enrich_pending_media(db: &Database, media_root: &Path, limit: usize) -> R
     Ok(enriched)
 }
 
-pub fn try_import_sidecar(video_path: &Path, media_root: &Path, media_id: &str) -> Option<(String, Option<String>)> {
+pub fn try_import_sidecar(
+    video_path: &Path,
+    media_root: &Path,
+    media_id: &str,
+) -> Option<(String, Option<String>)> {
     let dir = video_path.parent()?;
     let stem = video_path.file_stem()?.to_string_lossy();
 
@@ -314,7 +333,10 @@ pub fn try_import_sidecar(video_path: &Path, media_root: &Path, media_id: &str) 
 
     let posters_dir = media_root.join(".posters");
     std::fs::create_dir_all(&posters_dir).ok()?;
-    let ext = poster_src.extension().and_then(|e| e.to_str()).unwrap_or("jpg");
+    let ext = poster_src
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("jpg");
     let dest = posters_dir.join(format!("{media_id}.{ext}"));
     std::fs::copy(&poster_src, &dest).ok()?;
     let poster_path = dest.to_string_lossy().to_string();

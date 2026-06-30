@@ -1,6 +1,6 @@
 use crate::models::STREAM_PORT;
-use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -39,19 +39,16 @@ impl AddonProxyRegistry {
         rewrite_manifest: bool,
     ) -> String {
         self.cleanup_old();
-        let id = format!(
-            "{:016x}",
-            {
-                let mut h = DefaultHasher::new();
-                upstream_url.hash(&mut h);
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos()
-                    .hash(&mut h);
-                h.finish()
-            }
-        );
+        let id = format!("{:016x}", {
+            let mut h = DefaultHasher::new();
+            upstream_url.hash(&mut h);
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+                .hash(&mut h);
+            h.finish()
+        });
         let entry = ProxyEntry {
             upstream_url,
             request_headers,
@@ -158,10 +155,7 @@ fn resolve_url(base: Option<&url::Url>, reference: &str) -> String {
     reference.to_string()
 }
 
-pub fn stream_needs_proxy(
-    not_web_ready: bool,
-    request_headers: &HashMap<String, String>,
-) -> bool {
+pub fn stream_needs_proxy(not_web_ready: bool, request_headers: &HashMap<String, String>) -> bool {
     not_web_ready || !request_headers.is_empty()
 }
 
@@ -178,11 +172,8 @@ mod tests {
 #EXT-X-STREAM-INF:BANDWIDTH=1000
 https://vixcloud.co/playlist/1?type=video&rendition=720p&token=def"#;
 
-        let rewritten = proxy.rewrite_hls_manifest(
-            master,
-            "https://vixcloud.co/playlist/1?b=1",
-            &headers,
-        );
+        let rewritten =
+            proxy.rewrite_hls_manifest(master, "https://vixcloud.co/playlist/1?b=1", &headers);
 
         assert!(!rewritten.contains("vixcloud.co/playlist"), "{rewritten}");
         assert!(rewritten.contains("/remote/"));
