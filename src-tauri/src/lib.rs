@@ -41,7 +41,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use stremio::{
     fetch_catalog, fetch_manifest, fetch_meta, fetch_streams, has_resource, raw_to_playable,
-    InstalledAddon, PlayableStream, StreamingContinueItem, StreamingWatchProgressInput,
+    InstalledAddon, PlayableStream, StreamingContinueItem, StreamingEpisodeProgress,
+    StreamingWatchProgressInput,
     StremioMeta, StremioMetaPreview,
 };
 use tauri::{AppHandle, Manager, State};
@@ -1007,6 +1008,24 @@ fn get_streaming_watch_progress_cmd(
 }
 
 #[tauri::command]
+fn list_streaming_title_progress_cmd(
+    state: State<'_, AppState>,
+    profile_id: String,
+    catalog_prefix: String,
+    content_type: String,
+    title_id: String,
+    slug: String,
+) -> Result<Vec<StreamingEpisodeProgress>, String> {
+    state.db.list_streaming_title_watch_progress(
+        &profile_id,
+        &catalog_prefix,
+        &content_type,
+        &title_id,
+        &slug,
+    )
+}
+
+#[tauri::command]
 fn get_streaming_continue_cmd(
     state: State<'_, AppState>,
     profile_id: String,
@@ -1780,6 +1799,7 @@ pub fn run() {
             resolve_sc_preview_cmd,
             update_streaming_watch_progress_cmd,
             get_streaming_watch_progress_cmd,
+            list_streaming_title_progress_cmd,
             get_streaming_continue_cmd,
             get_streaming_watch_history_cmd,
             can_play_addon_cmd,

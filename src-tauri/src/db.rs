@@ -645,6 +645,50 @@ impl Database {
         Ok(())
     }
 
+    pub fn list_streaming_title_watch_progress(
+        &self,
+        profile_id: &str,
+        catalog_prefix: &str,
+        content_type: &str,
+        title_id: &str,
+        slug: &str,
+    ) -> Result<Vec<crate::stremio::StreamingEpisodeProgress>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT video_id, position_secs, duration_secs
+                 FROM streaming_watch_progress
+                 WHERE profile_id = ?1
+                   AND catalog_prefix = ?2
+                   AND content_type = ?3
+                   AND title_id = ?4
+                   AND slug = ?5
+                   AND position_secs > 0",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map(
+                params![
+                    profile_id,
+                    catalog_prefix,
+                    content_type,
+                    title_id,
+                    slug,
+                ],
+                |row| {
+                    Ok(crate::stremio::StreamingEpisodeProgress {
+                        video_id: row.get(0)?,
+                        position_secs: row.get(1)?,
+                        duration_secs: row.get(2)?,
+                    })
+                },
+            )
+            .map_err(|e| e.to_string())?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
     pub fn get_streaming_watch_progress(
         &self,
         profile_id: &str,

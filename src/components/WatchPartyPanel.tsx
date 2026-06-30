@@ -10,7 +10,9 @@ import {
   X,
 } from "lucide-react";
 import { useCloudAccount } from "../context/CloudAccountContext";
+import { isCloudEnabled } from "../lib/cloudConfig";
 import { createCloudWatchParty, fetchCloudWatchParty } from "../lib/cloudWatchParty";
+import { isPrivateOrLanHost } from "../lib/watchPartyNetwork";
 import {
   createWatchParty,
   watchPartyContentFromPlayer,
@@ -62,6 +64,7 @@ export function WatchPartyPanel({
   onSessionReady,
 }: WatchPartyPanelProps) {
   const { profile: cloudProfile } = useCloudAccount();
+  const cloudConfigured = isCloudEnabled();
   const canCreate = Boolean(mediaId && title && streamUrl);
   const [tab, setTab] = useState<PanelTab>(
     canCreate ? defaultTab : "join",
@@ -180,61 +183,90 @@ export function WatchPartyPanel({
       return;
     }
 
-    if (joinRelay === "cloud") {
-      if (!cloudProfile) {
-        setError("Accedi al tuo account cloud per unirti online");
-        return;
-      }
+    // Con account cloud: prova sempre prima la stanza online (amici lontani).
+    if (cloudProfile) {
       setLoading(true);
       setError(null);
       try {
         const room = await fetchCloudWatchParty(code);
-        if (!room) {
-          setError("Stanza non trovata o scaduta");
+        if (room) {
+          onSessionReady({ role: "guest", room, relay: "cloud" });
+          onClose();
           return;
         }
-        onSessionReady({ role: "guest", room, relay: "cloud" });
-        onClose();
+        if (joinRelay === "cloud") {
+          setError(
+            "Stanza online non trovata. L'host deve creare la stanza con «Stanza online» attiva.",
+          );
+          return;
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        if (joinRelay === "cloud") {
+          setError(err instanceof Error ? err.message : String(err));
+          return;
+        }
       } finally {
+        if (joinRelay === "cloud") {
+          setLoading(false);
+          return;
+        }
         setLoading(false);
       }
+    } else if (joinRelay === "cloud") {
+      setError("Accedi al tuo account Branchefy per unirti online");
       return;
     }
 
     const host = hostIp.trim();
     if (!host) {
-      setError("Inserisci l'IP dell'host (stessa rete Wi‑Fi)");
+      setError(
+        cloudConfigured
+          ? "Per amici lontani: accedi al tuo account e usa modalità Online. In LAN serve l'IP dell'host."
+          : "Inserisci l'IP dell'host (stessa rete Wi‑Fi)",
+      );
       return;
     }
-    onSessionReady({
-      role: "guest",
-      hostIp: host,
-      relay: "lan",
-      room: {
-        code,
-        hostProfileId: "",
-        hostName: "Host",
+    if (!isPrivateOrLanHost(host)) {
+      setError(
+        "IP non locale: la modalità «Stessa rete» funziona solo in casa. Usa Online con account Branchefy.",
+      );
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      onSessionReady({
+        role: "guest",
         hostIp: host,
-        content: {
-          mediaId: `party:${code}`,
-          title: "In attesa dell'host…",
-          streamUrl: "",
-          isHls: false,
-          contentKind: "local",
+        relay: "lan",
+        room: {
+          code,
+          hostProfileId: "",
+          hostName: "Host",
+          hostIp: host,
+          content: {
+            mediaId: `party:${code}`,
+            title: "In attesa dell'host…",
+            streamUrl: "",
+            isHls: false,
+            contentKind: "local",
+          },
+          playing: false,
+          positionSecs: 0,
+          members: [],
         },
-        playing: false,
-        positionSecs: 0,
-        members: [],
-      },
-    });
-    onClose();
+      });
+      onClose();
+    } finally {
+      setLoading(false);
+    }
   }, [
     roomCode,
     hostIp,
     joinRelay,
     cloudProfile,
+    cloudConfigured,
     onSessionReady,
     onClose,
   ]);
@@ -411,7 +443,7 @@ export function WatchPartyPanel({
                       </div>
 
                       {cloudProfile && (
-                        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-3">
+                        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-accent/25 bg-accent/5 px-3 py-3">
                           <input
                             type="checkbox"
                             checked={useCloudRelay}
@@ -419,18 +451,35 @@ export function WatchPartyPanel({
                             className="mt-0.5 h-4 w-4 accent-accent"
                           />
                           <span>
-                            <span className="block text-[13px] text-text-primary">
-                              Stanza online
+                            <span className="block text-[13px] font-medium text-text-primary">
+                              Stanza online (consigliata)
                             </span>
                             <span className="mt-0.5 block text-[12px] text-text-muted">
-                              Amici fuori casa — sync play/pause (streaming
-                              consigliato)
+                              Per amici su reti diverse: entrambi con account
+                              Branchefy. Sync play/pause; ognuno carica il
+                              proprio stream (streaming consigliato).
                             </span>
                           </span>
                         </label>
                       )}
 
-                      {!cloudProfile && (
+                      {cloudProfile && !useCloudRelay && (
+                        <p className="rounded-xl border border-warm/20 bg-warm/10 px-3 py-2 text-[12px] text-warm">
+                          Senza «Stanza online» gli amici lontani non potranno
+                          connettersi — serve la stessa rete Wi‑Fi.
+                        </p>
+                      )}
+
+                      {!cloudProfile && cloudConfigured && (
+                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-3 text-[12px] text-text-muted">
+                          <p>
+                            Per guardare con amici lontani, accedi al tuo account
+                            Branchefy in Profilo → Account online.
+                          </p>
+                        </div>
+                      )}
+
+                      {!cloudConfigured && (
                         <div className="flex items-start gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3 text-[12px] text-text-muted">
                           <Wifi className="mt-0.5 h-4 w-4 shrink-0" />
                           La stanza sarà in LAN: gli ospiti devono essere sulla
@@ -502,7 +551,7 @@ export function WatchPartyPanel({
                       {joinRelay === "lan" && (
                         <label className="block">
                           <span className="mb-1.5 block text-[12px] text-text-muted">
-                            IP dell&apos;host
+                            IP dell&apos;host (solo stessa rete)
                           </span>
                           <input
                             value={hostIp}
@@ -511,6 +560,14 @@ export function WatchPartyPanel({
                             className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-3 text-[14px] outline-none focus:border-accent/30"
                           />
                         </label>
+                      )}
+
+                      {cloudProfile && joinRelay === "cloud" && (
+                        <p className="text-[12px] leading-relaxed text-text-muted">
+                          Non serve l&apos;IP dell&apos;host: inserisci solo il
+                          codice stanza. Assicurati che l&apos;host abbia creato
+                          una stanza con «Stanza online» attiva.
+                        </p>
                       )}
 
                       <button

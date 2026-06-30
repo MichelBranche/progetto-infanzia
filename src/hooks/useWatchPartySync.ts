@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   closeCloudWatchParty,
+  fetchCloudWatchParty,
+  pollCloudWatchParty,
   subscribeCloudWatchParty,
   updateCloudWatchPartySync,
 } from "../lib/cloudWatchParty";
+import {
+  lanWatchPartyErrorMessage,
+} from "../lib/watchPartyNetwork";
 import {
   lanWatchPartyWsUrl,
   localhostWatchPartyWsUrl,
@@ -119,18 +124,9 @@ export function useWatchPartySync({
     }
 
     if (isCloud) {
-      setConnected(true);
       setError(null);
 
-      if (session.role === "guest") {
-        const content = session.room.content;
-        if (content.streamUrl && content.contentKind !== "streaming") {
-          onGuestContentRef.current?.(content.streamUrl, content.isHls);
-        }
-        onRemoteSyncRef.current(session.room.playing, session.room.positionSecs);
-      }
-
-      const unsubscribe = subscribeCloudWatchParty(session.room.code, (room) => {
+      const applyRoom = (room: WatchPartyRoom) => {
         if (session.role === "guest") {
           if (
             room.content.streamUrl &&
@@ -147,10 +143,65 @@ export function useWatchPartySync({
             applyingRemoteRef.current = false;
           }, 300);
         }
+      };
+
+      if (session.role === "guest") {
+        const content = session.room.content;
+        if (content.streamUrl && content.contentKind !== "streaming") {
+          onGuestContentRef.current?.(content.streamUrl, content.isHls);
+        }
+        onRemoteSyncRef.current(session.room.playing, session.room.positionSecs);
+      }
+
+      let realtimeOk = false;
+      const unsubscribeRealtime = subscribeCloudWatchParty(
+        session.room.code,
+        applyRoom,
+        (status) => {
+          if (status === "SUBSCRIBED") {
+            realtimeOk = true;
+            setConnected(true);
+            setError(null);
+          } else if (
+            status === "CHANNEL_ERROR" ||
+            status === "TIMED_OUT"
+          ) {
+            setError(
+              "Sync live non disponibile — uso aggiornamento periodico",
+            );
+          }
+        },
+      );
+
+      const stopPoll = pollCloudWatchParty(session.room.code, (room) => {
+        setConnected(true);
+        applyRoom(room);
       });
 
+      void fetchCloudWatchParty(session.room.code)
+        .then((room) => {
+          if (room) {
+            setConnected(true);
+            if (!realtimeOk && session.role === "guest") {
+              applyRoom(room);
+            }
+          } else if (session.role === "guest") {
+            setError("Stanza non trovata o chiusa dall'host");
+            setConnected(false);
+          }
+        })
+        .catch(() => {
+          setError("Impossibile raggiungere il server cloud");
+          setConnected(false);
+        });
+
+      if (session.role === "host") {
+        setConnected(true);
+      }
+
       return () => {
-        unsubscribe();
+        unsubscribeRealtime();
+        stopPoll();
         setConnected(false);
       };
     }
@@ -198,7 +249,11 @@ export function useWatchPartySync({
     };
 
     ws.onerror = () => {
-      setError("Connessione alla stanza non riuscita");
+      setError(
+        lanWatchPartyErrorMessage(
+          session.hostIp ?? session.room.hostIp,
+        ),
+      );
       setConnected(false);
     };
 

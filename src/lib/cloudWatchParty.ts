@@ -129,6 +129,7 @@ export async function closeCloudWatchParty(
 export function subscribeCloudWatchParty(
   code: string,
   onUpdate: (room: WatchPartyRoom) => void,
+  onStatus?: (status: string) => void,
 ): () => void {
   const supabase = getSupabase();
   if (!supabase) return () => {};
@@ -155,9 +156,39 @@ export function subscribeCloudWatchParty(
         onUpdate(mapRoom(row));
       },
     )
-    .subscribe();
+    .subscribe((status) => {
+      onStatus?.(status);
+    });
 
   return () => {
     void supabase.removeChannel(channel);
+  };
+}
+
+const CLOUD_POLL_MS = 2000;
+
+/** Polling di riserva se Realtime non è disponibile (rete / dashboard Supabase). */
+export function pollCloudWatchParty(
+  code: string,
+  onUpdate: (room: WatchPartyRoom) => void,
+): () => void {
+  let cancelled = false;
+
+  const tick = async () => {
+    if (cancelled) return;
+    try {
+      const room = await fetchCloudWatchParty(code);
+      if (room) onUpdate(room);
+    } catch {
+      // ignora errori transitori di rete
+    }
+  };
+
+  void tick();
+  const id = window.setInterval(() => void tick(), CLOUD_POLL_MS);
+
+  return () => {
+    cancelled = true;
+    window.clearInterval(id);
   };
 }

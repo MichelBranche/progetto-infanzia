@@ -5,13 +5,18 @@ import {
   fetchScMeta,
   fetchSaturnMeta,
   getStreamingWatchProgress,
+  listStreamingTitleProgress,
   resolveAddonStreams,
   resolveScStream,
   resolveSaturnStream,
   resolveScPreview,
   resolveTorrentSource,
 } from "../lib/addonsApi";
-import { metaToMediaItem } from "../lib/streamingBrowse";
+import {
+  metaVideoToMediaItem,
+  metaVideosToMediaItems,
+} from "../lib/streamingBrowse";
+import type { TitleDetailEpisodeProgress } from "../lib/titleDetail";
 import type { AddonWatchTarget } from "../lib/streamingBrowse";
 import { STREMIO_ADDONS_ENABLED, isBuiltinStreamingCatalog } from "../lib/features";
 import { streamingListKey } from "../lib/myList";
@@ -119,7 +124,36 @@ export function AddonWatchPage({
   const [resolving, setResolving] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [myListLoading, setMyListLoading] = useState(false);
+  const [episodeProgress, setEpisodeProgress] = useState<
+    Record<string, TitleDetailEpisodeProgress>
+  >({});
   const { streamingListKeys, toggleStreaming } = useMyList(profileId);
+
+  const loadEpisodeProgress = useCallback(async () => {
+    if (!isBuiltin || !slug || !meta) {
+      setEpisodeProgress({});
+      return;
+    }
+    try {
+      const rows = await listStreamingTitleProgress(
+        profileId,
+        catalogPrefix ?? "sc",
+        contentType,
+        metaId,
+        slug,
+      );
+      const map: Record<string, TitleDetailEpisodeProgress> = {};
+      for (const row of rows) {
+        map[row.videoId] = {
+          watchPosition: row.positionSecs,
+          watchDuration: row.durationSecs ?? undefined,
+        };
+      }
+      setEpisodeProgress(map);
+    } catch {
+      // ignore
+    }
+  }, [isBuiltin, slug, meta, profileId, catalogPrefix, contentType, metaId]);
 
   const listPreview = useMemo((): StremioMetaPreview | null => {
     if (!meta) return null;
@@ -253,6 +287,16 @@ export function AddonWatchPage({
     };
   }, [profileId, contentType, metaId, isSc, isSaturn, slug]);
 
+  useEffect(() => {
+    if (!meta || playback) return;
+    void loadEpisodeProgress();
+  }, [meta, playback, loadEpisodeProgress]);
+
+  const seriesEpisodes = useMemo(
+    () => (meta ? metaVideosToMediaItems(meta) : []),
+    [meta],
+  );
+
   const startPlayback = useCallback(
     async (videoId: string, videoTitle: string) => {
       if (!meta) return;
@@ -330,7 +374,11 @@ export function AddonWatchPage({
   }
 
   if (playback && meta) {
-    const playbackMedia = metaToMediaItem(meta, playback.videoTitle);
+    const playbackMedia = metaVideoToMediaItem(
+      meta,
+      playback.videoId,
+      playback.videoTitle,
+    );
     if (playback.watchPosition != null) {
       playbackMedia.watchPosition = playback.watchPosition;
     }
@@ -355,6 +403,11 @@ export function AddonWatchPage({
           poster: meta.poster,
         }}
         media={playbackMedia}
+        episodes={seriesEpisodes}
+        onPlayEpisode={(videoId) => {
+          const video = meta.videos.find((v) => v.id === videoId);
+          void startPlayback(videoId, video?.title?.trim() || meta.name);
+        }}
         watchPartySession={watchPartySession}
         onWatchPartySessionChange={onWatchPartySessionChange}
         onBack={() => {
@@ -364,6 +417,7 @@ export function AddonWatchPage({
             return;
           }
           setPlayback(null);
+          void loadEpisodeProgress();
           if (initialVideoId) onBack();
         }}
       />
@@ -399,6 +453,7 @@ export function AddonWatchPage({
     <>
       <StreamingTitlePage
         meta={meta}
+        episodeProgress={episodeProgress}
         loading={streamsLoading || resolving}
         error={error}
         onBack={onBack}

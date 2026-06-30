@@ -1,6 +1,7 @@
 import type { MediaItem } from "../types/media";
 import type { StremioMeta, StremioMetaPreview, StreamingContinueItem, StreamingWatchProgressInput } from "../types/stremio";
 import type { BrowseItem } from "./browse";
+import { compareEpisodes } from "./browse";
 
 const STREAMING_GRADIENT = "from-indigo-950 via-slate-900 to-violet-950";
 
@@ -243,5 +244,47 @@ export function streamingProgressInput(
     poster: item.poster,
     positionSecs,
     durationSecs,
+  };
+}
+
+function streamingSeriesMediaType(meta: StremioMeta): MediaItem["mediaType"] {
+  if (meta.type === "movie") return "film";
+  if (meta.type === "channel") return "serie";
+  return "serie";
+}
+
+/** Episodi ordinati per next/prev nel player (id = video.id). */
+export function metaVideosToMediaItems(meta: StremioMeta): MediaItem[] {
+  if (meta.type === "movie" || meta.videos.length <= 1) return [];
+  return [...meta.videos]
+    .map((video) => metaVideoToMediaItem(meta, video.id, video.title))
+    .sort(compareEpisodes);
+}
+
+export function metaVideoToMediaItem(
+  meta: StremioMeta,
+  videoId: string,
+  videoTitle?: string,
+): MediaItem {
+  const video = meta.videos.find((v) => v.id === videoId);
+  const title = videoTitle?.trim() || video?.title?.trim() || meta.name;
+  const isSeries = meta.type !== "movie";
+  return {
+    id: videoId,
+    title,
+    mediaType: streamingSeriesMediaType(meta),
+    seriesTitle: isSeries ? meta.name : undefined,
+    season: video?.season,
+    episode: video?.episode,
+    filePath: "",
+    fileName: "",
+    description: video?.description ?? meta.description,
+    posterUrl: video?.thumbnail ?? meta.poster,
+    isFavorite: false,
+    kidFriendly: true,
+    streamingServices: [],
+    genres: meta.genres ?? [],
+    gradient: STREAMING_GRADIENT,
+    createdAt: new Date(0).toISOString(),
   };
 }

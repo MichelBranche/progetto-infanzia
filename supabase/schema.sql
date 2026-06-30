@@ -1,5 +1,6 @@
 -- Branchefy cloud: account, amici, watch party relay
 -- Esegui nel SQL Editor di Supabase (Dashboard → SQL → New query)
+-- Sicuro da rieseguire: policy e publication vengono ricreate solo se mancanti.
 
 create extension if not exists "pgcrypto";
 
@@ -41,48 +42,57 @@ alter table public.friend_requests enable row level security;
 alter table public.watch_party_rooms enable row level security;
 
 -- cloud_profiles
+drop policy if exists "profiles read authenticated" on public.cloud_profiles;
 create policy "profiles read authenticated"
   on public.cloud_profiles for select
   to authenticated
   using (true);
 
+drop policy if exists "profiles insert own" on public.cloud_profiles;
 create policy "profiles insert own"
   on public.cloud_profiles for insert
   to authenticated
   with check (auth.uid() = id);
 
+drop policy if exists "profiles update own" on public.cloud_profiles;
 create policy "profiles update own"
   on public.cloud_profiles for update
   to authenticated
   using (auth.uid() = id);
 
 -- friend_requests
+drop policy if exists "friend_requests read involved" on public.friend_requests;
 create policy "friend_requests read involved"
   on public.friend_requests for select
   to authenticated
   using (auth.uid() = requester_id or auth.uid() = addressee_id);
 
+drop policy if exists "friend_requests insert self" on public.friend_requests;
 create policy "friend_requests insert self"
   on public.friend_requests for insert
   to authenticated
   with check (auth.uid() = requester_id);
 
+drop policy if exists "friend_requests update addressee" on public.friend_requests;
 create policy "friend_requests update addressee"
   on public.friend_requests for update
   to authenticated
   using (auth.uid() = addressee_id or auth.uid() = requester_id);
 
 -- watch_party_rooms
+drop policy if exists "rooms read authenticated" on public.watch_party_rooms;
 create policy "rooms read authenticated"
   on public.watch_party_rooms for select
   to authenticated
   using (is_active = true);
 
+drop policy if exists "rooms insert host" on public.watch_party_rooms;
 create policy "rooms insert host"
   on public.watch_party_rooms for insert
   to authenticated
   with check (auth.uid() = host_id);
 
+drop policy if exists "rooms update host" on public.watch_party_rooms;
 create policy "rooms update host"
   on public.watch_party_rooms for update
   to authenticated
@@ -111,5 +121,19 @@ $$;
 revoke all on function public.lookup_friend_by_email(text) from public;
 grant execute on function public.lookup_friend_by_email(text) to authenticated;
 
--- Realtime per watch party (abilita in Dashboard → Database → Replication se necessario)
-alter publication supabase_realtime add table public.watch_party_rooms;
+-- Realtime: replica identity per postgres_changes
+alter table public.watch_party_rooms replica identity full;
+
+-- Aggiungi tabella a Realtime solo se non già presente
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'watch_party_rooms'
+  ) then
+    alter publication supabase_realtime add table public.watch_party_rooms;
+  end if;
+end $$;

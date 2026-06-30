@@ -130,6 +130,7 @@ export function VideoPlayer({
   const sessionStartRef = useRef(0);
   const autoplayCancelledRef = useRef(false);
   const episodeNavTriggeredRef = useRef(false);
+  const autoplayLeadSecs = 20;
 
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(false);
@@ -205,13 +206,17 @@ export function VideoPlayer({
         (remotePlayback?.catalogPrefix === "sc" ||
           remotePlayback?.catalogPrefix === "saturn") &&
         remotePlayback.slug &&
-        remotePlayback.titleId
+        (remotePlayback.titleId || remotePlayback.catalogPrefix === "saturn")
       ) {
         try {
           await saveStreamingWatchProgress(profileId, {
             catalogPrefix: remotePlayback.catalogPrefix,
             contentType: remotePlayback.contentType,
-            titleId: remotePlayback.titleId,
+            titleId:
+              remotePlayback.titleId ||
+              remotePlayback.slug ||
+              remotePlayback.videoId ||
+              media.id,
             slug: remotePlayback.slug,
             videoId:
               remotePlayback.videoId?.trim() ||
@@ -594,14 +599,15 @@ export function VideoPlayer({
       }
       if (
         nextEp &&
+        onPlayEpisode &&
         !autoplayCancelledRef.current &&
         video.duration > 0 &&
-        video.duration - video.currentTime <= 15
+        video.duration - video.currentTime <= autoplayLeadSecs
       ) {
         const secs = Math.max(0, Math.ceil(video.duration - video.currentTime));
         setShowUpNext(true);
         setAutoplaySeconds(secs);
-      } else if (video.duration - video.currentTime > 15) {
+      } else if (video.duration - video.currentTime > autoplayLeadSecs) {
         setShowUpNext(false);
         setAutoplaySeconds(null);
       }
@@ -641,7 +647,7 @@ export function VideoPlayer({
       video.removeEventListener("playing", onPlaying);
       saveProgress(video.currentTime, video.duration);
     };
-  }, [effectiveStreamUrl, resumeAt, saveProgress, nextEp, playNextEpisode, castDevice]);
+  }, [effectiveStreamUrl, resumeAt, saveProgress, nextEp, playNextEpisode, castDevice, onPlayEpisode, autoplayLeadSecs]);
 
   useEffect(() => {
     if (!castDevice) return;
@@ -878,50 +884,47 @@ export function VideoPlayer({
       )}
 
       <AnimatePresence>
-        {showUpNext && nextEp && (
+        {showUpNext && nextEp && onPlayEpisode && (
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="absolute bottom-28 right-8 z-20 w-72 overflow-hidden rounded-lg border border-white/10 bg-black/90 shadow-2xl backdrop-blur-md"
+            exit={{ opacity: 0, y: 24 }}
+            className="pointer-events-auto absolute inset-x-0 bottom-24 z-30 px-6 sm:bottom-28 sm:px-10"
           >
-            <button
-              type="button"
-              onClick={cancelAutoplay}
-              className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white/80 hover:bg-black/80 hover:text-white"
-              title="Annulla autoplay"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-            <div className="relative aspect-video">
-              <PosterImage item={nextEp} variant="episode" />
-              {autoplaySeconds !== null && autoplaySeconds > 0 && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                  <span className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-white text-xl font-semibold tabular-nums text-white">
-                    {autoplaySeconds}
-                  </span>
-                </div>
-              )}
-            </div>
-            <div className="p-4">
-              <p className="text-[10px] uppercase tracking-wider text-white/50">
-                {autoplaySeconds !== null && autoplaySeconds > 0
-                  ? `Prossimo episodio tra ${autoplaySeconds}s`
-                  : "Prossimo episodio"}
-              </p>
-              <p className="mt-1 text-[14px] font-medium text-white">
-                {episodeDisplayTitle(nextEp)}
-              </p>
-              {episodeCode(nextEp) && (
-                <p className="mt-0.5 text-[11px] uppercase tracking-wider text-white/50">
-                  {episodeCode(nextEp)}
+            <div className="mx-auto flex max-w-3xl items-center gap-4 rounded-lg border border-white/10 bg-black/85 p-3 shadow-2xl backdrop-blur-md sm:gap-5 sm:p-4">
+              <div className="relative aspect-video w-28 shrink-0 overflow-hidden rounded-md sm:w-36">
+                <PosterImage item={nextEp} variant="episode" />
+                {autoplaySeconds !== null && autoplaySeconds > 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/45">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-white text-lg font-semibold tabular-nums text-white sm:h-14 sm:w-14 sm:text-xl">
+                      {autoplaySeconds}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">
+                  Continua a guardare
                 </p>
-              )}
-              <div className="mt-3 flex gap-2">
+                <p className="mt-1 truncate text-[15px] font-medium text-white sm:text-[16px]">
+                  {episodeDisplayTitle(nextEp)}
+                </p>
+                {episodeCode(nextEp) && (
+                  <p className="mt-0.5 text-[11px] uppercase tracking-wider text-white/50">
+                    {episodeCode(nextEp)}
+                  </p>
+                )}
+                {autoplaySeconds !== null && autoplaySeconds > 0 && (
+                  <p className="mt-1 text-[12px] text-white/65">
+                    Prossimo episodio tra {autoplaySeconds}s
+                  </p>
+                )}
+              </div>
+              <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
                 <button
                   type="button"
                   onClick={playNextEpisode}
-                  className="flex-1 rounded bg-white py-2 text-[13px] font-medium text-black"
+                  className="rounded bg-white px-4 py-2 text-[13px] font-medium text-black hover:bg-white/90"
                 >
                   Guarda ora
                 </button>

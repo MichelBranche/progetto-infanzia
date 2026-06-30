@@ -9,6 +9,7 @@ import type {
   SaturnBrowsePage,
   SearchCatalogPage,
   StreamingContinueItem,
+  StreamingEpisodeProgress,
   StreamingWatchProgressInput,
 } from "../types/stremio";
 import type { CanPlayResult } from "./parentalApi";
@@ -207,6 +208,22 @@ export async function getStreamingWatchProgress(
       videoId,
     },
   );
+}
+
+export async function listStreamingTitleProgress(
+  profileId: string,
+  catalogPrefix: string,
+  contentType: string,
+  titleId: string,
+  slug: string,
+): Promise<StreamingEpisodeProgress[]> {
+  return invoke<StreamingEpisodeProgress[]>("list_streaming_title_progress_cmd", {
+    profileId,
+    catalogPrefix,
+    contentType,
+    titleId,
+    slug,
+  });
 }
 
 export async function getStreamingWatchHistory(

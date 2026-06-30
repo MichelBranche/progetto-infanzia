@@ -175,15 +175,29 @@ function SeasonSelector({
 }
 
 function useSeasonSelection(detail: TitleDetailModel) {
-  const seasons = useMemo(
-    () => seasonsFromEpisodes(detail.episodes),
+  const episodesKey = useMemo(
+    () =>
+      detail.episodes
+        .map((ep) => `${ep.id}:${ep.season ?? ""}:${ep.episode ?? ""}`)
+        .join("|"),
     [detail.episodes],
   );
+  const seasons = useMemo(
+    () => seasonsFromEpisodes(detail.episodes),
+    [episodesKey, detail.episodes],
+  );
+  const seasonsKey = seasons.join(",");
   const [activeSeason, setActiveSeason] = useState(seasons[0] ?? 1);
 
   useEffect(() => {
     setActiveSeason(seasons[0] ?? 1);
-  }, [detail.id, seasons]);
+  }, [detail.id, seasonsKey]);
+
+  useEffect(() => {
+    if (!seasons.includes(activeSeason)) {
+      setActiveSeason(seasons[0] ?? 1);
+    }
+  }, [seasons, seasonsKey, activeSeason]);
 
   const filteredEpisodes = useMemo(() => {
     if (!detail.isSeries || seasons.length <= 1) {
@@ -276,8 +290,8 @@ function EpisodeList({
                   )}
                 </div>
               </div>
-              {(episode.progressPercent ?? 0) > 2 && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/20">
+              {(episode.progressPercent ?? 0) > 1 && (
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/25">
                   <div
                     className="h-full bg-accent"
                     style={{ width: `${episode.progressPercent}%` }}
@@ -301,6 +315,14 @@ function EpisodeList({
                     {episode.code ?? `Episodio ${index + 1}`}
                     {episode.runtime ? ` · ${episode.runtime}` : ""}
                   </p>
+                  {(episode.progressPercent ?? 0) > 1 && (
+                    <div className="mt-2 h-1 w-full max-w-xs overflow-hidden rounded-full bg-white/15">
+                      <div
+                        className="h-full rounded-full bg-accent transition-[width]"
+                        style={{ width: `${episode.progressPercent}%` }}
+                      />
+                    </div>
+                  )}
                   {episode.description && (
                     <p className="mt-1 line-clamp-2 text-[13px] text-text-secondary">
                       {episode.description}

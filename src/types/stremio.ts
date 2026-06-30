@@ -81,6 +81,12 @@ export interface StreamingContinueItem {
   updatedAt: string;
 }
 
+export interface StreamingEpisodeProgress {
+  videoId: string;
+  positionSecs: number;
+  durationSecs?: number;
+}
+
 export interface StreamingWatchProgressInput {
   catalogPrefix: string;
   contentType: string;

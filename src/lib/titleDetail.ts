@@ -89,18 +89,21 @@ function stremioEpisodeCode(video: StremioVideo) {
   return undefined;
 }
 
-/** Ricava la stagione da campi espliciti o da etichette tipo S2 · E5 / Stagione 2. */
-export function inferEpisodeSeason(episode: TitleDetailEpisode): number {
-  if (episode.season != null) return episode.season;
-  const sources = [episode.code, episode.title];
-  for (const src of sources) {
+function inferSeasonFromLabel(code?: string, title?: string): number | null {
+  for (const src of [code, title]) {
     if (!src) continue;
     const seasonWord = src.match(/\bstagione\s*0*(\d{1,3})\b/i);
     if (seasonWord) return Number.parseInt(seasonWord[1], 10);
     const sx = src.match(/\bS\s*0*(\d{1,3})\s*(?:[·xE]|$)/i);
     if (sx) return Number.parseInt(sx[1], 10);
   }
-  return 1;
+  return null;
+}
+
+/** Ricava la stagione da campi espliciti o da etichette tipo S2 · E5 / Stagione 2. */
+export function inferEpisodeSeason(episode: TitleDetailEpisode): number {
+  if (episode.season != null) return episode.season;
+  return inferSeasonFromLabel(episode.code, episode.title) ?? 1;
 }
 
 export function seasonsFromEpisodes(episodes: TitleDetailEpisode[]): number[] {
@@ -127,7 +130,23 @@ function mediaRuntimeLabel(item: MediaItem) {
   return undefined;
 }
 
-export function titleDetailFromStremio(meta: StremioMeta): TitleDetailModel {
+export interface TitleDetailEpisodeProgress {
+  watchPosition: number;
+  watchDuration?: number;
+}
+
+function episodeProgressPercent(progress?: TitleDetailEpisodeProgress) {
+  if (!progress || progress.watchPosition <= 0) return undefined;
+  return watchProgressPercent({
+    watchPosition: progress.watchPosition,
+    watchDuration: progress.watchDuration,
+  } as MediaItem);
+}
+
+export function titleDetailFromStremio(
+  meta: StremioMeta,
+  progressByVideoId?: Record<string, TitleDetailEpisodeProgress>,
+): TitleDetailModel {
   const isSeries = meta.type === "series" || meta.type === "channel";
   const primaryVideo = meta.videos[0];
 
@@ -168,6 +187,7 @@ export function titleDetailFromStremio(meta: StremioMeta): TitleDetailModel {
           runtime: video.runtime,
           season: video.season,
           episode: video.episode,
+          progressPercent: episodeProgressPercent(progressByVideoId?.[video.id]),
         };
       }),
     ),

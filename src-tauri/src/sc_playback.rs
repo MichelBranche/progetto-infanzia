@@ -275,12 +275,12 @@ fn collect_series_videos(
         return Ok(videos);
     }
 
+    let referer = title_path(locale, title_id, slug, None);
     for season in seasons {
         let season_number = season.get("number").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
         let path = title_path(locale, title_id, slug, Some(season_number));
-        let page = session.inertia_page(&path, None)?;
-        let props = page_props(&page)?;
-        if let Some(loaded) = props.get("loadedSeason") {
+        let season_props = session.props_from_html_page(&path, Some(&referer))?;
+        if let Some(loaded) = season_props.get("loadedSeason") {
             videos.extend(episodes_from_season(cdn, loaded, Some(season_number)));
         }
     }
@@ -388,6 +388,17 @@ impl ScSession {
             .error_for_status()
             .map_err(|e| format!("Inertia HTTP: {e}"))?;
         resp.json().map_err(|e| format!("Inertia JSON: {e}"))
+    }
+
+    /// Carica props Inertia da HTML completo (necessario per ?season=N: le richieste X-Inertia
+    /// possono restituire sempre la stagione predefinita).
+    fn props_from_html_page(&self, path: &str, referer: Option<&str>) -> Result<Value, String> {
+        let html = self.get_html(path, referer)?;
+        let page = parse_inertia_from_html(&html)
+            .ok_or_else(|| format!("Metadati non disponibili per {path}"))?;
+        page.get("props")
+            .cloned()
+            .ok_or_else(|| "Props pagina non disponibili".to_string())
     }
 }
 

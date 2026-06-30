@@ -79,6 +79,15 @@ pub struct StreamingContinueItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct StreamingEpisodeProgress {
+    pub video_id: String,
+    pub position_secs: f64,
+    #[serde(default)]
+    pub duration_secs: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamingWatchProgressInput {
     pub catalog_prefix: String,
     pub content_type: String,
