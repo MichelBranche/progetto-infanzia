@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, memo } from "react";
 import { motion } from "framer-motion";
 import { Play, Plus, Check, Layers, Pencil, Wifi } from "lucide-react";
 import type { BrowseItem } from "../lib/browse";
@@ -37,9 +37,9 @@ interface MediaCardProps {
   onEdit?: (id: string) => void;
 }
 
-export function MediaCard({
+export const MediaCard = memo(function MediaCard({
   browse,
-  index,
+  index: _index,
   layout = "row",
   onPlay,
   onPlayStreaming,
@@ -154,15 +154,7 @@ export function MediaCard({
 
   if (layout === "grid") {
     return (
-      <motion.article
-        initial={{ opacity: 0, y: 16 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: "-40px" }}
-        transition={{
-          delay: index * 0.03,
-          duration: 0.4,
-          ease: [0.22, 1, 0.36, 1],
-        }}
+      <article
         className="group w-full cursor-pointer"
         onClick={handleClick}
       >
@@ -198,7 +190,7 @@ export function MediaCard({
             </p>
           </div>
         </div>
-      </motion.article>
+      </article>
     );
   }
 
@@ -207,14 +199,7 @@ export function MediaCard({
 
   return (
     <motion.article
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-40px" }}
-      transition={{
-        delay: index * 0.04,
-        duration: 0.45,
-        ease: [0.22, 1, 0.36, 1],
-      }}
+      initial={false}
       className="group relative shrink-0 self-end"
       style={{
         width: cardWidth,
@@ -456,4 +441,4 @@ export function MediaCard({
       )}
     </motion.article>
   );
-}
+});

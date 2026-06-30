@@ -731,6 +731,9 @@ fn load_cached_index(db: &Database) -> Option<(Vec<StremioMetaPreview>, i64)> {
 }
 
 fn save_cached_index(db: &Database, index: &[StremioMetaPreview]) -> Result<(), String> {
+    if index.is_empty() {
+        return Ok(());
+    }
     let json = serde_json::to_string(index).map_err(|e| e.to_string())?;
     db.set_meta(META_SC_INDEX, &json)?;
     db.set_meta(META_SC_INDEX_TS, &now_ts().to_string())?;
@@ -780,8 +783,14 @@ pub fn refresh_catalog_index(
 ) -> Result<ScCatalogResponse, String> {
     let app = resolve_app_url(db).or_else(|_| discover_app_url(db))?;
     let rows = fetch_sliders_for_db(db, cdn, locale)?;
+    let cached = load_cached_index(db)
+        .map(|(cached, _)| cached)
+        .unwrap_or_default();
     let slider_names = discover_slider_names(&http_client()?, app.trim_end_matches('/'), locale);
     let mut index = sync_catalog_index(&app, cdn, locale, &slider_names)?;
+    if index.is_empty() && !cached.is_empty() {
+        index = cached;
+    }
     merge_row_items(&mut index, &rows);
     save_cached_index(db, &index)?;
     let synced_at = now_ts();

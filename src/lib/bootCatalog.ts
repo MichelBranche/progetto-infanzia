@@ -15,6 +15,7 @@ const CATALOG_TTL_MS = 2 * 3600 * 1000;
 
 let cache: BootCatalogPayload | null = null;
 let inflight: Promise<BootCatalogPayload> | null = null;
+let refreshInflight: Promise<BootCatalogPayload | null> | null = null;
 
 function isCacheFresh(payload: BootCatalogPayload): boolean {
   if (payload.error) return false;
@@ -23,41 +24,51 @@ function isCacheFresh(payload: BootCatalogPayload): boolean {
   return Date.now() - payload.syncedAt * 1000 <= CATALOG_TTL_MS;
 }
 
-function isResponseStale(response: {
-  totalCount: number;
-  syncedAt: number;
-}): boolean {
-  return (
-    response.totalCount < MIN_CATALOG_COUNT ||
-    response.syncedAt <= 0 ||
-    Date.now() - response.syncedAt * 1000 > CATALOG_TTL_MS
-  );
+export function hasUsableCatalog(payload: BootCatalogPayload | null): boolean {
+  return Boolean(payload && (payload.rows.length > 0 || payload.index.length > 0));
 }
 
-async function loadCatalog(): Promise<BootCatalogPayload> {
+function payloadFromResponse(response: {
+  rows: StreamingRow[];
+  index: StremioMetaPreview[];
+  syncedAt: number;
+  totalCount: number;
+}): BootCatalogPayload {
+  return {
+    rows: response.rows,
+    index: response.index,
+    syncedAt: response.syncedAt,
+    totalCount: response.totalCount,
+    error: null,
+  };
+}
+
+/** Non sovrascrivere mai righe/indice validi con risposte vuote parziali. */
+export function mergeCatalogPayload(
+  current: BootCatalogPayload | null,
+  incoming: BootCatalogPayload,
+): BootCatalogPayload {
+  if (!current) {
+    return incoming;
+  }
+
+  return {
+    rows: incoming.rows.length > 0 ? incoming.rows : current.rows,
+    index: incoming.index.length > 0 ? incoming.index : current.index,
+    syncedAt: Math.max(current.syncedAt, incoming.syncedAt),
+    totalCount: Math.max(current.totalCount, incoming.totalCount),
+    error: incoming.error ?? current.error,
+  };
+}
+
+function mergeCache(incoming: BootCatalogPayload) {
+  cache = mergeCatalogPayload(cache, incoming);
+}
+
+async function loadCatalogQuick(): Promise<BootCatalogPayload> {
   try {
     const response = await fetchScCatalog();
-
-    let rows = response.rows;
-    let index = response.index;
-    let syncedAt = response.syncedAt;
-    let totalCount = response.totalCount;
-
-    if (isResponseStale(response)) {
-      const refreshed = await refreshScCatalog();
-      rows = refreshed.rows;
-      index = refreshed.index;
-      syncedAt = refreshed.syncedAt;
-      totalCount = refreshed.totalCount;
-    }
-
-    return {
-      rows,
-      index,
-      syncedAt,
-      totalCount,
-      error: null,
-    };
+    return payloadFromResponse(response);
   } catch (err) {
     return {
       rows: [],
@@ -69,22 +80,17 @@ async function loadCatalog(): Promise<BootCatalogPayload> {
   }
 }
 
-/** Precarica il catalogo streaming (SC + Saturn) per la home. Idempotente. */
+/** Precarica slider + indice in cache (veloce, non blocca sull'indice completo). */
 export function prefetchBootCatalog(): Promise<BootCatalogPayload> {
-  if (cache && isCacheFresh(cache)) {
-    return Promise.resolve(cache);
+  if (hasUsableCatalog(cache)) {
+    return Promise.resolve(cache!);
   }
 
   if (!inflight) {
-    inflight = loadCatalog()
+    inflight = loadCatalogQuick()
       .then((payload) => {
-        if (
-          isCacheFresh(payload) ||
-          payload.totalCount > (cache?.totalCount ?? 0)
-        ) {
-          cache = payload;
-        }
-        return payload;
+        mergeCache(payload);
+        return cache ?? payload;
       })
       .finally(() => {
         inflight = null;
@@ -94,6 +100,35 @@ export function prefetchBootCatalog(): Promise<BootCatalogPayload> {
   return inflight;
 }
 
+/** Sincronizza l'indice completo in background (SC + Saturn). */
+export function scheduleCatalogRefresh(): Promise<BootCatalogPayload | null> {
+  if (refreshInflight) return refreshInflight;
+
+  refreshInflight = refreshScCatalog()
+    .then((response) => {
+      const payload = payloadFromResponse(response);
+      mergeCache(payload);
+      return cache;
+    })
+    .catch(() => null)
+    .finally(() => {
+      refreshInflight = null;
+    });
+
+  return refreshInflight;
+}
+
+export function needsCatalogRefresh(payload: BootCatalogPayload | null): boolean {
+  if (!payload) return true;
+  if (payload.error) return true;
+  return !isCacheFresh(payload);
+}
+
+export function ingestCatalogPayload(incoming: BootCatalogPayload): BootCatalogPayload {
+  mergeCache(incoming);
+  return cache ?? incoming;
+}
+
 export function getBootCatalogCache(): BootCatalogPayload | null {
   return cache;
 }
@@ -101,4 +136,5 @@ export function getBootCatalogCache(): BootCatalogPayload | null {
 export function clearBootCatalogCache() {
   cache = null;
   inflight = null;
+  refreshInflight = null;
 }

@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   fetchAddonCatalog,
+  fetchScCatalog,
   getStreamingContinue,
   refreshScCatalog,
 } from "./addonsApi";
-import { prefetchBootCatalog, getBootCatalogCache } from "./bootCatalog";
+import {
+  getBootCatalogCache,
+  hasUsableCatalog,
+  ingestCatalogPayload,
+  prefetchBootCatalog,
+  type BootCatalogPayload,
+} from "./bootCatalog";
 import { STREMIO_ADDONS_ENABLED } from "./features";
 import { useAddons } from "../context/AddonsContext";
 import type { InstalledAddon, StremioCatalog, StremioMetaPreview, StreamingContinueItem } from "../types/stremio";
@@ -86,15 +93,46 @@ async function loadScCatalog(): Promise<{
   needsFullSync: boolean;
   error: string | null;
 }> {
-  const payload = await prefetchBootCatalog();
-  return {
-    rows: payload.rows,
-    index: payload.index,
-    syncedAt: payload.syncedAt,
-    totalCount: payload.totalCount,
+  const toPayload = (source: BootCatalogPayload) => ({
+    rows: source.rows,
+    index: source.index,
+    syncedAt: source.syncedAt,
+    totalCount: source.totalCount,
     needsFullSync: false,
-    error: payload.error,
-  };
+    error: source.error,
+  });
+
+  const cached = getBootCatalogCache();
+  if (hasUsableCatalog(cached)) {
+    return toPayload(cached!);
+  }
+
+  let payload = await prefetchBootCatalog();
+  if (hasUsableCatalog(payload)) {
+    return toPayload(payload);
+  }
+
+  try {
+    const response = await fetchScCatalog();
+    return toPayload(
+      ingestCatalogPayload({
+        rows: response.rows,
+        index: response.index,
+        syncedAt: response.syncedAt,
+        totalCount: response.totalCount,
+        error: null,
+      }),
+    );
+  } catch (err) {
+    return {
+      rows: payload.rows,
+      index: payload.index,
+      syncedAt: payload.syncedAt,
+      totalCount: payload.totalCount,
+      needsFullSync: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 async function loadAddonRows(
@@ -136,6 +174,9 @@ async function loadAddonRows(
 export function useStreamingCatalogs(profileId: string): UseStreamingCatalogsResult {
   const { addons, loading: addonsLoading } = useAddons();
   const bootCached = getBootCatalogCache();
+  const hasBootData =
+    Boolean(bootCached) &&
+    (bootCached!.rows.length > 0 || bootCached!.index.length > 0);
   const [scRows, setScRows] = useState<StreamingRow[]>(bootCached?.rows ?? []);
   const [catalogIndex, setCatalogIndex] = useState<StremioMetaPreview[]>(
     bootCached?.index ?? [],
@@ -144,7 +185,7 @@ export function useStreamingCatalogs(profileId: string): UseStreamingCatalogsRes
   const [catalogTotal, setCatalogTotal] = useState(bootCached?.totalCount ?? 0);
   const [addonRows, setAddonRows] = useState<StreamingRow[]>([]);
   const [continueItems, setContinueItems] = useState<StreamingContinueItem[]>([]);
-  const [scLoading, setScLoading] = useState(!bootCached);
+  const [scLoading, setScLoading] = useState(!hasBootData);
   const [syncingIndex, setSyncingIndex] = useState(false);
   const [addonLoading, setAddonLoading] = useState(false);
   const [error, setError] = useState<string | null>(bootCached?.error ?? null);
@@ -164,10 +205,12 @@ export function useStreamingCatalogs(profileId: string): UseStreamingCatalogsRes
 
   const applyScCatalog = useCallback(
     (payload: Awaited<ReturnType<typeof loadScCatalog>>) => {
-      setScRows(payload.rows);
-      setCatalogIndex(payload.index);
-      setCatalogSyncedAt(payload.syncedAt);
-      setCatalogTotal(payload.totalCount);
+      setScRows((prev) => (payload.rows.length > 0 ? payload.rows : prev));
+      setCatalogIndex((prev) => (payload.index.length > 0 ? payload.index : prev));
+      setCatalogSyncedAt((prev) =>
+        payload.syncedAt > 0 ? payload.syncedAt : prev,
+      );
+      setCatalogTotal((prev) => Math.max(prev, payload.totalCount));
       setError((prev) =>
         payload.error ??
           (payload.rows.length === 0 && payload.index.length === 0 ? prev : null),
@@ -201,25 +244,26 @@ export function useStreamingCatalogs(profileId: string): UseStreamingCatalogsRes
 
   useEffect(() => {
     let cancelled = false;
-    if (!getBootCatalogCache()) {
+    if (!hasBootData) {
       setScLoading(true);
     }
+
+    const timeout = window.setTimeout(() => {
+      if (!cancelled) setScLoading(false);
+    }, 12_000);
 
     void (async () => {
       const payload = await loadScCatalog();
       if (cancelled) return;
       applyScCatalog(payload);
       setScLoading(false);
-
-      if (payload.totalCount < 800 || payload.syncedAt <= 0) {
-        void refreshCatalog();
-      }
     })();
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timeout);
     };
-  }, [applyScCatalog, refreshCatalog]);
+  }, [applyScCatalog, hasBootData]);
 
   useEffect(() => {
     if (!STREMIO_ADDONS_ENABLED || addonsLoading || !profileId) {

@@ -99,7 +99,7 @@ export function dedupeBrowseItems(items: BrowseItem[]): BrowseItem[] {
 }
 
 export const MIN_HOME_ROW_ITEMS = 8;
-export const HOME_ROW_DISPLAY_LIMIT = 32;
+export const HOME_ROW_DISPLAY_LIMIT = 20;
 const ROWS_SKIP_MIN = new Set(["continue", "favorites"]);
 
 export function shuffleArray<T>(items: T[]): T[] {
@@ -109,6 +109,12 @@ export function shuffleArray<T>(items: T[]): T[] {
     [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
+}
+
+function stableBrowseItems(items: BrowseItem[]): BrowseItem[] {
+  return [...items].sort((a, b) =>
+    browseItemId(a).localeCompare(browseItemId(b)),
+  );
 }
 
 export function buildRandomHeroItems(
@@ -163,23 +169,25 @@ function padHomeRowItems(
   catalog: StremioMetaPreview[],
   usedStreamingIds: Set<string>,
 ): BrowseItem[] {
-  const shuffled = shuffleArray(items);
-  if (shuffled.length >= MIN_HOME_ROW_ITEMS) {
-    return shuffled.slice(0, HOME_ROW_DISPLAY_LIMIT);
+  const ordered = stableBrowseItems(items);
+  if (ordered.length >= MIN_HOME_ROW_ITEMS) {
+    return ordered.slice(0, HOME_ROW_DISPLAY_LIMIT);
   }
 
-  const seen = new Set(shuffled.map(browseItemId));
-  const padded = [...shuffled];
-  const pool = shuffleArray(
-    catalog.filter((preview) => {
+  const seen = new Set(ordered.map(browseItemId));
+  const padded = [...ordered];
+  const pool = [...catalog]
+    .filter((preview) => {
       const key = `${preview.type}:${preview.id}`;
       if (usedStreamingIds.has(key)) return false;
       return (
         collectionId === "discover" ||
         previewMatchesCollection(collectionId, preview)
       );
-    }),
-  );
+    })
+    .sort((a, b) =>
+      `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`),
+    );
 
   for (const preview of pool) {
     if (padded.length >= HOME_ROW_DISPLAY_LIMIT) break;
@@ -191,7 +199,7 @@ function padHomeRowItems(
     usedStreamingIds.add(`${preview.type}:${preview.id}`);
   }
 
-  return shuffleArray(padded).slice(0, HOME_ROW_DISPLAY_LIMIT);
+  return stableBrowseItems(padded).slice(0, HOME_ROW_DISPLAY_LIMIT);
 }
 
 function streamingForTypes(
@@ -246,7 +254,10 @@ export function mergeCollectionBrowseItems(
 ): BrowseItem[] {
   const local = localBrowseForCollection(collection);
   const streaming = streamingForCollection(collection.id, streamingPreviews);
-  return shuffleArray(dedupeBrowseItems([...local, ...streaming])).slice(0, limit);
+  return stableBrowseItems(dedupeBrowseItems([...local, ...streaming])).slice(
+    0,
+    limit,
+  );
 }
 
 export function mergeContinueBrowseItems(
@@ -322,6 +333,7 @@ function streamingCatalogHomeRows(
   markUsed: (items: BrowseItem[]) => void,
 ): UnifiedHomeRow[] {
   const rows: UnifiedHomeRow[] = [];
+  const minItems = 4;
 
   for (const streamRow of streamingRows) {
     const items = streamRow.items
@@ -339,7 +351,7 @@ function streamingCatalogHomeRows(
       )
       .slice(0, HOME_ROW_DISPLAY_LIMIT);
 
-    if (items.length < MIN_HOME_ROW_ITEMS) continue;
+    if (items.length < minItems) continue;
 
     markUsed(items);
     rows.push({
@@ -444,7 +456,7 @@ export function buildUnifiedHomeRows(
         usedStreamingIds,
       );
     } else if (items.length > 1) {
-      items = shuffleArray(items);
+      items = stableBrowseItems(items);
     }
 
     if (items.length === 0) continue;

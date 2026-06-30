@@ -32,6 +32,20 @@ export interface ScCatalogResponse {
   totalCount: number;
 }
 
+export interface SaturnBrowsePage {
+  items: StremioMetaPreview[];
+  total: number;
+  offset: number;
+  hasMore: boolean;
+}
+
+export interface SearchCatalogPage {
+  items: StremioMetaPreview[];
+  total: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 export interface StremioMetaPreview {
   id: string;
   type: string;

@@ -1,5 +1,6 @@
 mod addon_proxy;
 mod cast;
+mod catalog_search;
 mod db;
 mod debrid;
 mod import_media;
@@ -645,6 +646,16 @@ fn resolve_addon_streams_cmd(
     Ok(all)
 }
 
+async fn fetch_saturn_catalog_fast(
+    db: Arc<crate::db::Database>,
+) -> Option<saturn_catalog::SaturnCatalogResponse> {
+    let task = tokio::task::spawn_blocking(move || saturn_catalog::fetch_catalog(db.as_ref()));
+    match tokio::time::timeout(std::time::Duration::from_secs(12), task).await {
+        Ok(Ok(Ok(response))) => Some(response),
+        _ => None,
+    }
+}
+
 #[tauri::command]
 async fn fetch_sc_catalog_cmd(
     state: State<'_, AppState>,
@@ -662,40 +673,79 @@ async fn fetch_sc_catalog_cmd(
     let cdn = sc_catalog::cdn_url(&state.db);
     let locale = sc_catalog::lang(&state.db);
     let db = Arc::clone(&state.db);
-    tokio::task::spawn_blocking(move || {
-        let mut response = if sc_enabled {
-            sc_catalog::fetch_catalog(db.as_ref(), "", &cdn, &locale)?
-        } else {
-            sc_catalog::ScCatalogResponse {
-                rows: Vec::new(),
-                index: Vec::new(),
-                synced_at: 0,
-                total_count: 0,
-            }
-        };
 
-        if saturn_enabled {
-            let saturn = saturn_catalog::fetch_catalog(db.as_ref())?;
-            response.rows.extend(saturn.rows);
-            let mut seen: std::collections::HashSet<String> = response
-                .index
-                .iter()
-                .map(|p| format!("{}:{}", p.r#type, p.id))
-                .collect();
-            for item in saturn.index {
-                let key = format!("{}:{}", item.r#type, item.id);
-                if seen.insert(key) {
-                    response.index.push(item);
-                }
+    let sc_future = {
+        let db = Arc::clone(&db);
+        let cdn = cdn.clone();
+        let locale = locale.clone();
+        async move {
+            if !sc_enabled {
+                return Ok(sc_catalog::ScCatalogResponse {
+                    rows: Vec::new(),
+                    index: Vec::new(),
+                    synced_at: 0,
+                    total_count: 0,
+                });
             }
-            response.synced_at = response.synced_at.max(saturn.synced_at);
-            response.total_count = response.index.len();
+            tokio::task::spawn_blocking(move || {
+                sc_catalog::fetch_catalog(db.as_ref(), "", &cdn, &locale)
+            })
+            .await
+            .map_err(|e| format!("Errore catalogo: {e}"))?
         }
+    };
 
-        Ok(response)
-    })
-    .await
-    .map_err(|e| format!("Errore catalogo: {e}"))?
+    let saturn_future = async {
+        if !saturn_enabled {
+            return None;
+        }
+        fetch_saturn_catalog_fast(Arc::clone(&db)).await
+    };
+
+    let (sc_result, saturn) = tokio::join!(sc_future, saturn_future);
+    let mut response = sc_result?;
+
+    if let Some(saturn) = saturn {
+        response.rows.extend(saturn.rows);
+        response.synced_at = response.synced_at.max(saturn.synced_at);
+        response.total_count = response.index.len();
+    }
+
+    Ok(response)
+}
+
+#[tauri::command]
+async fn browse_saturn_anime_cmd(
+    state: State<'_, AppState>,
+    offset: usize,
+    limit: Option<usize>,
+) -> Result<saturn_catalog::SaturnBrowsePage, String> {
+    if !saturn_catalog::enabled(&state.db) {
+        return Ok(saturn_catalog::SaturnBrowsePage {
+            items: Vec::new(),
+            total: 0,
+            offset,
+            has_more: false,
+        });
+    }
+    let db = Arc::clone(&state.db);
+    let page_limit = limit.unwrap_or(48).clamp(1, 96);
+    browse_saturn_anime_with_timeout(db, offset, page_limit).await
+}
+
+async fn browse_saturn_anime_with_timeout(
+    db: Arc<crate::db::Database>,
+    offset: usize,
+    limit: usize,
+) -> Result<saturn_catalog::SaturnBrowsePage, String> {
+    let task = tokio::task::spawn_blocking(move || {
+        saturn_catalog::browse_anime_page(db.as_ref(), offset, limit)
+    });
+    match tokio::time::timeout(std::time::Duration::from_secs(20), task).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => Err(format!("Errore browse anime: {e}")),
+        Err(_) => Err("Timeout caricamento anime".into()),
+    }
 }
 
 #[tauri::command]
@@ -715,7 +765,7 @@ async fn refresh_sc_catalog_cmd(
     let cdn = sc_catalog::cdn_url(&state.db);
     let locale = sc_catalog::lang(&state.db);
     let db = Arc::clone(&state.db);
-    tokio::task::spawn_blocking(move || {
+    let response = tokio::task::spawn_blocking(move || -> Result<sc_catalog::ScCatalogResponse, String> {
         let mut response = if sc_enabled {
             sc_catalog::refresh_catalog_index(db.as_ref(), "", &cdn, &locale)?
         } else {
@@ -748,7 +798,16 @@ async fn refresh_sc_catalog_cmd(
         Ok(response)
     })
     .await
-    .map_err(|e| format!("Errore aggiornamento catalogo: {e}"))?
+    .map_err(|e| format!("Errore aggiornamento catalogo: {e}"))??;
+
+    if saturn_enabled {
+        let db_bg = Arc::clone(&state.db);
+        std::thread::spawn(move || {
+            saturn_catalog::enrich_cached_posters(db_bg.as_ref(), 80);
+        });
+    }
+
+    Ok(response)
 }
 
 #[tauri::command]
@@ -797,45 +856,70 @@ async fn search_sc_catalog_cmd(
     state: State<'_, AppState>,
     query: String,
 ) -> Result<Vec<StremioMetaPreview>, String> {
+    let page = search_sc_catalog_page_inner(&state, query, 0, 500).await?;
+    Ok(page.items)
+}
+
+async fn search_sc_catalog_page_inner(
+    state: &State<'_, AppState>,
+    query: String,
+    offset: usize,
+    limit: usize,
+) -> Result<catalog_search::SearchCatalogPage, String> {
     let db = Arc::clone(&state.db);
     let sc_enabled = sc_catalog::catalog_enabled(&state.db);
     let saturn_enabled = saturn_catalog::enabled(&state.db);
     if !sc_enabled && !saturn_enabled {
-        return Ok(Vec::new());
+        return Ok(catalog_search::SearchCatalogPage {
+            items: Vec::new(),
+            total: 0,
+            offset,
+            has_more: false,
+        });
     }
 
     let cdn = sc_catalog::cdn_url(&state.db);
     let locale = sc_catalog::lang(&state.db);
+    let page_limit = limit.clamp(1, 500);
 
     tokio::task::spawn_blocking(move || {
-        let mut out = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        let mut push_unique = |items: Vec<StremioMetaPreview>| {
-            for item in items {
-                let key = format!("{}:{}", item.r#type, item.id);
-                if seen.insert(key) {
-                    out.push(item);
-                }
-            }
-        };
-
-        if sc_enabled {
-            push_unique(sc_catalog::search_index(db.as_ref(), &query));
-            if let Ok(app) = sc_catalog::resolve_app_url(db.as_ref()) {
-                if let Ok(live) =
-                    sc_playback::search_titles(&app, &cdn, &locale, &query)
-                {
-                    push_unique(live);
-                }
-            }
-        }
-        if saturn_enabled {
-            push_unique(saturn_catalog::search_titles(db.as_ref(), &query));
-        }
-        Ok(out)
+        catalog_search::search_catalog_page(
+            db.as_ref(),
+            &query,
+            offset,
+            page_limit,
+            sc_enabled,
+            saturn_enabled,
+            &cdn,
+            &locale,
+        )
     })
     .await
-    .map_err(|e| format!("Errore ricerca: {e}"))?
+    .map_err(|e| format!("Errore ricerca: {e}"))
+}
+
+#[tauri::command]
+async fn search_sc_catalog_page_cmd(
+    state: State<'_, AppState>,
+    query: String,
+    offset: usize,
+    limit: Option<usize>,
+) -> Result<catalog_search::SearchCatalogPage, String> {
+    search_sc_catalog_page_inner(&state, query, offset, limit.unwrap_or(48)).await
+}
+
+#[tauri::command]
+async fn resolve_saturn_poster_cmd(
+    state: State<'_, AppState>,
+    slug: String,
+) -> Result<Option<String>, String> {
+    if !saturn_catalog::enabled(&state.db) {
+        return Ok(None);
+    }
+    let db = Arc::clone(&state.db);
+    tokio::task::spawn_blocking(move || Ok(saturn_catalog::resolve_poster_for_slug(db.as_ref(), &slug)))
+        .await
+        .map_err(|e| format!("Errore poster Saturn: {e}"))?
 }
 
 #[tauri::command]
@@ -1688,6 +1772,9 @@ pub fn run() {
             fetch_sc_meta_cmd,
             resolve_sc_stream_cmd,
             search_sc_catalog_cmd,
+            search_sc_catalog_page_cmd,
+            resolve_saturn_poster_cmd,
+            browse_saturn_anime_cmd,
             fetch_saturn_meta_cmd,
             resolve_saturn_stream_cmd,
             resolve_sc_preview_cmd,

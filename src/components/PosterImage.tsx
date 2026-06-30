@@ -19,12 +19,14 @@ interface PosterImageProps {
   item: MediaItem;
   variant?: PosterVariant;
   className?: string;
+  priority?: boolean;
 }
 
 export function PosterImage({
   item,
   variant = "browse",
   className = "",
+  priority = false,
 }: PosterImageProps) {
   const posterUrl = posterUrlFor(item, variant);
   const [failed, setFailed] = useState(false);
@@ -41,7 +43,7 @@ export function PosterImage({
     <img
       src={posterUrl}
       alt={item.title}
-      loading="eager"
+      loading={priority ? "eager" : "lazy"}
       decoding="async"
       onError={() => setFailed(true)}
       className={`absolute inset-0 h-full w-full object-cover ${className}`}

@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { MediaCard } from "./MediaCard";
@@ -9,6 +9,7 @@ import type { BrowseItem } from "../lib/browse";
 import { toBrowseItems, browseItemId } from "../lib/browse";
 import { streamingBrowseItem } from "../lib/streamingBrowse";
 import { enrichStreamingPreview } from "../lib/unifiedBrowse";
+import { LoadingSpinner } from "./LoadingSpinner";
 
 interface SearchOverlayProps {
   open: boolean;
@@ -16,8 +17,12 @@ interface SearchOverlayProps {
   onClose: () => void;
   localResults: MediaItem[];
   streamingResults: StremioMetaPreview[];
+  streamingTotal?: number;
   suggestions: StremioMetaPreview[];
   streamingLoading?: boolean;
+  streamingLoadingMore?: boolean;
+  streamingHasMore?: boolean;
+  onLoadMoreStreaming?: () => void;
   onPlay: (id: string) => void;
   onPlayStreaming: (preview: StremioMetaPreview) => void;
   onOpenSeries?: (seriesKey: string) => void;
@@ -33,8 +38,12 @@ export function SearchOverlay({
   onClose,
   localResults,
   streamingResults,
+  streamingTotal = 0,
   suggestions,
   streamingLoading,
+  streamingLoadingMore,
+  streamingHasMore,
+  onLoadMoreStreaming,
   onPlay,
   onPlayStreaming,
   onOpenSeries,
@@ -46,15 +55,26 @@ export function SearchOverlay({
   const enrich = enrichPreview ?? enrichStreamingPreview;
   const trimmed = query.trim();
   const hasQuery = trimmed.length > 0;
-  const loading = hasQuery && streamingLoading;
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const showInitialLoader =
+    hasQuery && streamingLoading && streamingResults.length === 0;
   const localBrowse = toBrowseItems(localResults);
-  const streamingBrowse = streamingResults.map((preview) =>
-    streamingBrowseItem(enrich(preview)),
+  const streamingBrowse = useMemo(
+    () => streamingResults.map((preview) => streamingBrowseItem(enrich(preview))),
+    [streamingResults, enrich],
   );
-  const suggestionBrowse = suggestions.map((preview) =>
-    streamingBrowseItem(enrich(preview)),
+  const suggestionBrowse = useMemo(
+    () =>
+      suggestions
+        .slice(0, 36)
+        .map((preview) => streamingBrowseItem(enrich(preview))),
+    [suggestions, enrich],
   );
-  const totalResults = localBrowse.length + streamingBrowse.length;
+  const totalResults = localResults.length + streamingResults.length;
+  const streamingCountLabel =
+    streamingTotal > streamingResults.length
+      ? `${streamingResults.length} di ${streamingTotal.toLocaleString("it-IT")}`
+      : `${streamingResults.length}`;
 
   useEffect(() => {
     if (!open) return;
@@ -64,6 +84,30 @@ export function SearchOverlay({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || !streamingHasMore || streamingLoadingMore || !onLoadMoreStreaming) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onLoadMoreStreaming();
+        }
+      },
+      { rootMargin: "320px" },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [
+    streamingHasMore,
+    streamingLoadingMore,
+    onLoadMoreStreaming,
+    streamingResults.length,
+  ]);
 
   return (
     <AnimatePresence>
@@ -78,27 +122,36 @@ export function SearchOverlay({
         >
           <div className="flex h-full min-h-0 flex-col">
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-16">
-              {loading && (
+              {showInitialLoader && (
                 <div className="flex items-center gap-3 page-px py-8 text-text-muted">
                   <Loader2 className="h-5 w-5 animate-spin" />
                   <span className="text-[15px]">Ricerca in corso…</span>
                 </div>
               )}
 
-              {!loading && hasQuery && totalResults === 0 && (
+              {hasQuery && streamingLoading && streamingResults.length > 0 && (
+                <p className="page-px pb-1 pt-2 text-[12px] text-text-muted">
+                  Aggiornamento risultati…
+                </p>
+              )}
+
+              {!showInitialLoader && hasQuery && totalResults === 0 && !streamingLoading && (
                 <p className="page-px py-10 text-[15px] text-text-secondary">
                   Nessun risultato per{" "}
                   <span className="font-medium text-text-primary">«{trimmed}»</span>
                 </p>
               )}
 
-              {!loading && hasQuery && totalResults > 0 && (
+              {hasQuery && totalResults > 0 && (
                 <p className="page-px pb-2 pt-2 text-[13px] text-text-muted">
                   {totalResults} risultat{totalResults === 1 ? "o" : "i"}
+                  {streamingResults.length > 0 &&
+                    ` · ${streamingCountLabel} in streaming`}
+                  {streamingHasMore && " · scorri per altri"}
                 </p>
               )}
 
-              {!loading && !hasQuery && suggestionBrowse.length > 0 && (
+              {!showInitialLoader && !hasQuery && suggestionBrowse.length > 0 && (
                 <MediaRow
                   index="01"
                   title="In evidenza"
@@ -113,7 +166,7 @@ export function SearchOverlay({
                 />
               )}
 
-              {!loading && hasQuery && streamingBrowse.length > 0 && (
+              {hasQuery && streamingBrowse.length > 0 && (
                 <SearchSection title="In streaming">
                   <SearchGrid
                     items={streamingBrowse}
@@ -124,10 +177,15 @@ export function SearchOverlay({
                     onToggleStreamingList={onToggleStreamingList}
                     onEdit={onEdit}
                   />
+                  {streamingHasMore && (
+                    <div ref={loadMoreRef} className="flex justify-center py-8">
+                      <LoadingSpinner size="sm" className="border-t-accent" />
+                    </div>
+                  )}
                 </SearchSection>
               )}
 
-              {!loading && hasQuery && localBrowse.length > 0 && (
+              {hasQuery && localBrowse.length > 0 && (
                 <SearchSection title="Nella tua libreria">
                   <SearchGrid
                     items={localBrowse}
@@ -140,7 +198,7 @@ export function SearchOverlay({
                 </SearchSection>
               )}
 
-              {!loading && !hasQuery && suggestionBrowse.length > 12 && (
+              {!showInitialLoader && !hasQuery && suggestionBrowse.length > 12 && (
                 <SearchSection title="Altri titoli">
                   <SearchGrid
                     items={suggestionBrowse.slice(12, 36)}
@@ -154,7 +212,7 @@ export function SearchOverlay({
                 </SearchSection>
               )}
 
-              {!loading && !hasQuery && suggestionBrowse.length === 0 && (
+              {!showInitialLoader && !hasQuery && suggestionBrowse.length === 0 && (
                 <p className="page-px py-10 text-[14px] text-text-muted">
                   Inizia a digitare per cercare film e serie in streaming e nella
                   tua libreria.
@@ -203,11 +261,7 @@ function SearchGrid({
   onEdit?: (id: string) => void;
 }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="page-px browse-grid"
-    >
+    <div className="page-px browse-grid">
       {items.map((browse, i) => (
         <MediaCard
           key={browseItemId(browse)}
@@ -222,6 +276,6 @@ function SearchGrid({
           onEdit={onEdit}
         />
       ))}
-    </motion.div>
+    </div>
   );
 }

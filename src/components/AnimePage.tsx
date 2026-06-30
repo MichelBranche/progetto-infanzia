@@ -1,37 +1,61 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import type { StremioMetaPreview } from "../types/stremio";
-import type { StreamingRow } from "../lib/useStreamingCatalogs";
-import {
-  streamingBrowseItem,
-  streamingPreviewDisplayName,
-} from "../lib/streamingBrowse";
+import { fetchSaturnPoster } from "../lib/addonsApi";
+import { useSaturnAnimeBrowse } from "../lib/useSaturnAnimeBrowse";
+import { streamingPreviewDisplayName } from "../lib/streamingBrowse";
 import { LoadingSpinner } from "./LoadingSpinner";
 
+const posterCache = new Map<string, string | null>();
+const posterInflight = new Map<string, Promise<string | null>>();
+const POSTER_MAX_CONCURRENT = 3;
+let posterActive = 0;
+const posterQueue: Array<() => void> = [];
+
+function runPosterTask(slug: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const start = () => {
+      posterActive += 1;
+      fetchSaturnPoster(slug)
+        .then((url) => {
+          posterCache.set(slug, url);
+          resolve(url);
+        })
+        .catch(() => {
+          posterCache.set(slug, null);
+          resolve(null);
+        })
+        .finally(() => {
+          posterInflight.delete(slug);
+          posterActive -= 1;
+          const next = posterQueue.shift();
+          if (next) next();
+        });
+    };
+
+    if (posterActive < POSTER_MAX_CONCURRENT) {
+      start();
+    } else {
+      posterQueue.push(start);
+    }
+  });
+}
+
+function loadSaturnPoster(slug: string): Promise<string | null> {
+  if (posterCache.has(slug)) {
+    return Promise.resolve(posterCache.get(slug) ?? null);
+  }
+  const pending = posterInflight.get(slug);
+  if (pending) return pending;
+  const task = runPosterTask(slug);
+  posterInflight.set(slug, task);
+  return task;
+}
+
 interface AnimePageProps {
-  rows: StreamingRow[];
-  previews: StremioMetaPreview[];
-  loading: boolean;
+  seedPreviews?: StremioMetaPreview[];
   onPlayStreaming: (preview: StremioMetaPreview) => void;
   enrichStreamingPreview: (preview: StremioMetaPreview) => StremioMetaPreview;
-}
-
-function isBrowseableSaturn(preview: StremioMetaPreview) {
-  if (preview.catalogPrefix !== "saturn") return false;
-  const release = preview.releaseInfo?.trim() ?? "";
-  if (release.includes("Prossimamente")) return false;
-  if (release.includes("episodi") || release === "Episodio recente") return true;
-  return !release && Boolean(preview.slug);
-}
-
-function canonicalKey(preview: StremioMetaPreview) {
-  const name = streamingPreviewDisplayName(preview).toLowerCase();
-  const base = name
-    .replace(/\(ita\)|\(dub\)|\(sub\)/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-  const season = preview.slug?.match(/season-(\d+)/i)?.[1];
-  return season ? `${base}|s${season}` : base;
 }
 
 const STAGGER_CAP = 24;
@@ -48,9 +72,45 @@ const AnimeTile = memo(function AnimeTile({
   const title = streamingPreviewDisplayName(preview);
   const meta = preview.releaseInfo?.trim();
   const stagger = index < STAGGER_CAP;
+  const slug = preview.slug ?? preview.id;
+  const tileRef = useRef<HTMLButtonElement>(null);
+  const [inView, setInView] = useState(false);
+  const [poster, setPoster] = useState(preview.poster ?? null);
+
+  useEffect(() => {
+    setPoster(preview.poster ?? null);
+  }, [preview.poster]);
+
+  useEffect(() => {
+    const node = tileRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setInView(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "120px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!inView || poster || !slug) return;
+    let cancelled = false;
+    void loadSaturnPoster(slug).then((url) => {
+      if (!cancelled && url) setPoster(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [inView, poster, slug]);
 
   return (
     <motion.button
+      ref={tileRef}
       type="button"
       initial={stagger ? { opacity: 0, y: 12 } : false}
       animate={{ opacity: 1, y: 0 }}
@@ -63,11 +123,11 @@ const AnimeTile = memo(function AnimeTile({
       className="group w-full cursor-pointer text-left"
     >
       <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-[#14141c] ring-1 ring-white/[0.06] transition group-hover:ring-white/15">
-        {preview.poster ? (
+        {poster ? (
           <img
-            src={preview.poster}
+            src={poster}
             alt={title}
-            loading="eager"
+            loading="lazy"
             decoding="async"
             className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
@@ -93,60 +153,32 @@ const AnimeTile = memo(function AnimeTile({
 });
 
 export function AnimePage({
-  rows,
-  previews,
-  loading,
+  seedPreviews = [],
   onPlayStreaming,
   enrichStreamingPreview,
 }: AnimePageProps) {
-  const saturnRows = useMemo(
-    () => rows.filter((row) => row.key.startsWith("saturn")),
-    [rows],
-  );
+  const { items, total, loading, loadingMore, hasMore, error, loadMore } =
+    useSaturnAnimeBrowse(seedPreviews);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  const animePreviews = useMemo(() => {
-    const best = new Map<string, StremioMetaPreview>();
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || !hasMore || loadingMore) return;
 
-    const consider = (raw: StremioMetaPreview) => {
-      if (!isBrowseableSaturn(raw)) return;
-      const preview = enrichStreamingPreview(raw);
-      const key = canonicalKey(preview);
-      const existing = best.get(key);
-      if (!existing) {
-        best.set(key, preview);
-        return;
-      }
-      const score = (p: StremioMetaPreview) => {
-        const release = p.releaseInfo ?? "";
-        const eps = Number.parseInt(release.match(/(\d+)\s*episod/i)?.[1] ?? "0", 10);
-        let s = eps * 100;
-        if (release.includes("Dub")) s -= 120;
-        if (p.name.toLowerCase().includes("ita")) s += 40;
-        return s;
-      };
-      if (score(preview) > score(existing)) {
-        best.set(key, preview);
-      }
-    };
-
-    for (const row of saturnRows) {
-      for (const item of row.items) consider(item);
-    }
-    for (const preview of previews) consider(preview);
-
-    return [...best.values()].sort((a, b) =>
-      streamingPreviewDisplayName(a).localeCompare(
-        streamingPreviewDisplayName(b),
-        "it",
-        { sensitivity: "base" },
-      ),
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadMore();
+        }
+      },
+      { rootMargin: "400px" },
     );
-  }, [saturnRows, previews, enrichStreamingPreview]);
 
-  const browseItems = useMemo(
-    () => animePreviews.map((preview) => streamingBrowseItem(preview)),
-    [animePreviews],
-  );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, loadingMore, loadMore, items.length]);
+
+  const displayTotal = Math.max(total, items.length);
 
   return (
     <div className="page-px pb-16 pt-24 sm:pt-28">
@@ -157,30 +189,48 @@ export function AnimePage({
         Anime
       </h1>
       <p className="mt-2 max-w-prose text-[14px] text-text-secondary sm:text-[15px]">
-        {animePreviews.length > 0
-          ? `${animePreviews.length.toLocaleString("it-IT")} anime · Versioni duplicate e titoli senza episodi sono nascosti`
-          : "Catalogo AnimeSaturn · Versioni duplicate e titoli senza episodi sono nascosti"}
+        {displayTotal > 0
+          ? `${displayTotal.toLocaleString("it-IT")}+ anime · Scorri per caricare altri titoli`
+          : "Catalogo AnimeSaturn · Scorri per esplorare"}
       </p>
 
-      {loading && browseItems.length === 0 ? (
+      {error && items.length === 0 && (
+        <p className="mt-6 text-center text-[13px] text-red-400/90">{error}</p>
+      )}
+
+      {error && items.length > 0 && (
+        <p className="mt-4 text-center text-[12px] text-text-muted">{error}</p>
+      )}
+
+      {loading && items.length === 0 ? (
         <div className="flex justify-center py-20">
           <LoadingSpinner size="md" className="border-t-accent" />
         </div>
-      ) : animePreviews.length === 0 ? (
+      ) : items.length === 0 ? (
         <p className="mt-10 text-center text-[13px] text-text-muted">
-          Nessun anime disponibile. Aggiorna il catalogo dalle impostazioni.
+          Nessun anime disponibile al momento.
         </p>
       ) : (
-        <div className="mt-8 page-px browse-grid">
-          {animePreviews.map((preview, index) => (
-            <AnimeTile
-              key={`${preview.type}:${preview.id}`}
-              preview={preview}
-              index={index}
-              onPlay={onPlayStreaming}
-            />
-          ))}
-        </div>
+        <>
+          <div className="mt-8 page-px browse-grid">
+            {items.map((raw, index) => {
+              const preview = enrichStreamingPreview(raw);
+              return (
+                <AnimeTile
+                  key={`${preview.type}:${preview.id}`}
+                  preview={preview}
+                  index={index}
+                  onPlay={onPlayStreaming}
+                />
+              );
+            })}
+          </div>
+          {hasMore && (
+            <div ref={loadMoreRef} className="flex justify-center py-10">
+              <LoadingSpinner size="sm" className="border-t-accent" />
+            </div>
+          )}
+        </>
       )}
     </div>
   );

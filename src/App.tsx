@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { searchScCatalog } from "./lib/addonsApi";
+import { useStreamingSearch } from "./lib/useStreamingSearch";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { prefetchBootCatalog } from "./lib/bootCatalog";
 import { ProfileSelectScreen } from "./components/ProfileSelectScreen";
@@ -75,7 +75,6 @@ function AppContent() {
   const [activeNav, setActiveNav] = useState("home");
   const [profileTab, setProfileTab] = useState<ProfileTab>("watched");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [scSearchLoading, setScSearchLoading] = useState(false);
   const [watchingId, setWatchingId] = useState<string | null>(null);
   const [watchAutoplay, setWatchAutoplay] = useState(false);
   const [seriesKey, setSeriesKey] = useState<string | null>(null);
@@ -84,7 +83,7 @@ function AppContent() {
   const [addonWatch, setAddonWatch] = useState<AddonWatchTarget | null>(null);
   const [partyGuestSession, setPartyGuestSession] = useState<WatchPartySession | null>(null);
   const [heroItems, setHeroItems] = useState<MediaItem[]>([]);
-  const [scSearchResults, setScSearchResults] = useState<StremioMetaPreview[]>([]);
+  const heroSeededRef = useRef(false);
   const { hasStreaming } = useAddons();
   const {
     rows: streamingRows,
@@ -130,61 +129,33 @@ function AppContent() {
   );
 
   const searchableCatalog = useMemo(() => {
-    const seen = new Set<string>();
-    const out: StremioMetaPreview[] = [];
+    const byKey = new Map<string, StremioMetaPreview>();
     const push = (preview: StremioMetaPreview) => {
       const key = `${preview.type}:${preview.id}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push(preview);
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, preview);
+        return;
+      }
+      if (!existing.poster && preview.poster) {
+        byKey.set(key, { ...existing, poster: preview.poster });
+      }
     };
     for (const preview of catalogIndex) push(preview);
     for (const row of streamingRows) {
       for (const item of row.items) push(item);
     }
-    return out;
+    return [...byKey.values()];
   }, [catalogIndex, streamingRows]);
 
-  useEffect(() => {
-    const q = searchQuery.trim();
-    if (!q) {
-      setScSearchResults([]);
-      setScSearchLoading(false);
-      return;
-    }
-    setScSearchLoading(true);
-    const timer = setTimeout(() => {
-      const lower = q.toLowerCase();
-      const localMatches =
-        q.length >= 2
-          ? searchableCatalog.filter((preview) => {
-              const slug = preview.slug?.toLowerCase().replace(/-/g, " ") ?? "";
-              return (
-                preview.name.toLowerCase().includes(lower) || slug.includes(lower)
-              );
-            })
-          : [];
-
-      void searchScCatalog(q)
-        .then((apiResults) => {
-          const seen = new Set<string>();
-          const merged: StremioMetaPreview[] = [];
-          for (const preview of [...apiResults, ...localMatches]) {
-            const key = `${preview.type}:${preview.id}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            merged.push(preview);
-          }
-          setScSearchResults(merged);
-        })
-        .catch(() => setScSearchResults(localMatches))
-        .finally(() => setScSearchLoading(false));
-    }, 300);
-    return () => {
-      clearTimeout(timer);
-      setScSearchLoading(false);
-    };
-  }, [searchQuery, searchableCatalog]);
+  const {
+    results: scSearchResults,
+    loading: scSearchLoading,
+    loadingMore: scSearchLoadingMore,
+    hasMore: scSearchHasMore,
+    total: scSearchTotal,
+    loadMore: loadMoreScSearch,
+  } = useStreamingSearch(searchQuery, searchableCatalog);
 
   useEffect(() => {
     if (!isParent && (activeNav === "add" || activeNav === "manage" || activeNav === "settings" || activeNav === "activity")) {
@@ -300,13 +271,33 @@ function AppContent() {
     }
   }, [activeNav, refreshStreamingContinue]);
 
+  const heroStreamingPreviews = useMemo(() => {
+    if (streamingPreviews.length > 0) return streamingPreviews;
+    const seen = new Set<string>();
+    const fallback: StremioMetaPreview[] = [];
+    for (const row of streamingRows) {
+      for (const item of row.items) {
+        const key = `${item.type}:${item.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        fallback.push(item);
+      }
+    }
+    return fallback;
+  }, [streamingPreviews, streamingRows]);
+
   useEffect(() => {
     if (activeNav !== "home") return;
-    if (loading || streamingLoading) return;
+    if (loading) return;
+    if (heroSeededRef.current) return;
+    if (heroStreamingPreviews.length === 0 && (library?.items.length ?? 0) === 0) {
+      return;
+    }
+    heroSeededRef.current = true;
     setHeroItems(
       buildRandomHeroItems(
         library?.items ?? [],
-        streamingPreviews,
+        heroStreamingPreviews,
         (preview) => previewToMediaItem(enrichListedPreview(preview)),
         8,
       ),
@@ -314,10 +305,9 @@ function AppContent() {
   }, [
     activeNav,
     library?.items,
-    streamingPreviews,
+    heroStreamingPreviews,
     enrichListedPreview,
     loading,
-    streamingLoading,
   ]);
 
   const localFavorites = useMemo(
@@ -381,7 +371,24 @@ function AppContent() {
     withMyListFlags,
   ]);
 
-  const homeContentReady = !streamingLoading && !loading;
+  const homeContentReady = !loading;
+  const homeStreamingPending =
+    streamingLoading && streamingRows.length === 0 && unifiedHomeRows.length === 0;
+
+  const saturnSeedPreviews = useMemo(() => {
+    const seen = new Set<string>();
+    const out: StremioMetaPreview[] = [];
+    for (const row of streamingRows) {
+      if (!row.key.startsWith("saturn")) continue;
+      for (const item of row.items) {
+        const key = `${item.type}:${item.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(item);
+      }
+    }
+    return out;
+  }, [streamingRows]);
 
   const sectionBrowseItems = useMemo(() => {
     const localItems = getItemsBySection(activeNav);
@@ -584,8 +591,12 @@ function AppContent() {
           onClose={handleCloseSearch}
           localResults={searchResults}
           streamingResults={scSearchResults}
+          streamingTotal={scSearchTotal}
           suggestions={searchSuggestions}
           streamingLoading={scSearchLoading}
+          streamingLoadingMore={scSearchLoadingMore}
+          streamingHasMore={scSearchHasMore}
+          onLoadMoreStreaming={loadMoreScSearch}
           onPlay={handlePlay}
           onPlayStreaming={handlePlayStreaming}
           onOpenSeries={handleOpenSeries}
@@ -649,9 +660,7 @@ function AppContent() {
 
                 {!seriesKey && activeNav === "anime" && (
                   <AnimePage
-                    rows={streamingRows}
-                    previews={streamingPreviews}
-                    loading={streamingLoading}
+                    seedPreviews={saturnSeedPreviews}
                     onPlayStreaming={handlePlayStreaming}
                     enrichStreamingPreview={enrichListedPreview}
                   />
@@ -717,6 +726,17 @@ function AppContent() {
                       </div>
                     ) : (
                       <>
+                    {homeStreamingPending && (
+                      <div className="flex items-center justify-center gap-3 py-16 text-text-muted">
+                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/10 border-t-accent" />
+                        <span className="text-[14px]">Caricamento catalogo streaming…</span>
+                      </div>
+                    )}
+                    {syncingIndex && streamingRows.length > 0 && (
+                      <p className="page-px pt-24 text-center text-[12px] text-text-muted sm:pt-28">
+                        Sincronizzazione catalogo in corso…
+                      </p>
+                    )}
                     {heroItems.length > 0 && (
                       <HeroBanner
                         items={heroItems}
@@ -874,7 +894,12 @@ function AppGate() {
   } = useProfile();
 
   useEffect(() => {
-    void prefetchBootCatalog().then(() => setCatalogReady(true));
+    const timeout = window.setTimeout(() => setCatalogReady(true), 10_000);
+    void prefetchBootCatalog().finally(() => {
+      window.clearTimeout(timeout);
+      setCatalogReady(true);
+    });
+    return () => window.clearTimeout(timeout);
   }, []);
 
   const bootDone = bootPhase === "done";

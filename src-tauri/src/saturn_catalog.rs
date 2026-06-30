@@ -6,6 +6,7 @@ use reqwest::blocking::Client;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const META_SATURN_INDEX: &str = "saturn_catalog_index";
@@ -13,6 +14,8 @@ const META_SATURN_INDEX_TS: &str = "saturn_catalog_index_ts";
 const META_SATURN_SITE_ROOT: &str = "saturn_site_root";
 const META_SATURN_CDN_ROOT: &str = "saturn_cdn_root";
 const META_SATURN_ENABLED: &str = "saturn_catalog_enabled";
+const META_SATURN_POSTER_CACHE: &str = "saturn_poster_cache";
+const POSTER_ENRICH_LIMIT: usize = 400;
 const DEFAULT_APP_URL: &str = "https://www.animesaturn.net";
 const ROW_LIMIT: usize = 48;
 const HTTP_TIMEOUT_SECS: u64 = 60;
@@ -490,7 +493,11 @@ fn ingest_card(cards: &mut HashMap<String, SaturnCard>, card: SaturnCard) {
         .entry(card.slug.clone())
         .and_modify(|existing| {
             if card_rank(&card) > card_rank(existing) {
+                let preserved_poster = existing.poster_src.clone();
                 *existing = card.clone();
+                if existing.poster_src.is_none() {
+                    existing.poster_src = preserved_poster;
+                }
             } else {
                 if existing.poster_src.is_none() {
                     existing.poster_src = card.poster_src.clone();
@@ -765,10 +772,23 @@ fn load_cached_index(db: &Database) -> Option<Vec<StremioMetaPreview>> {
 }
 
 fn save_cached_index(db: &Database, index: &[StremioMetaPreview]) -> Result<(), String> {
+    if index.is_empty() {
+        return Ok(());
+    }
     let json = serde_json::to_string(index).map_err(|e| e.to_string())?;
     db.set_meta(META_SATURN_INDEX, &json)?;
     db.set_meta(META_SATURN_INDEX_TS, &now_ts().to_string())?;
     Ok(())
+}
+
+/// Arricchisce poster in cache senza bloccare il refresh del catalogo.
+pub fn enrich_cached_posters(db: &Database, limit: usize) {
+    let mut index = match load_cached_index(db) {
+        Some(items) if !items.is_empty() => items,
+        _ => return,
+    };
+    enrich_index_missing_posters(db, &mut index, limit);
+    let _ = save_cached_index(db, &index);
 }
 
 fn ensure_preview_name(preview: &mut StremioMetaPreview) {
@@ -792,6 +812,9 @@ fn repair_index_names(index: &mut [StremioMetaPreview]) {
 fn preview_rank(preview: &StremioMetaPreview) -> i32 {
     let release = preview.release_info.as_deref().unwrap_or("");
     let mut score = 0;
+    if preview.poster.is_some() {
+        score += 250;
+    }
     if release.contains("Prossimamente") {
         score -= 500;
     }
@@ -833,7 +856,13 @@ fn finalize_index(index: Vec<StremioMetaPreview>) -> Vec<StremioMetaPreview> {
         best.entry(key)
             .and_modify(|existing| {
                 if preview_rank(&preview) > preview_rank(existing) {
+                    let preserved_poster = existing.poster.clone();
                     *existing = preview.clone();
+                    if existing.poster.is_none() {
+                        existing.poster = preserved_poster;
+                    }
+                } else if preview.poster.is_some() && existing.poster.is_none() {
+                    existing.poster = preview.poster.clone();
                 }
             })
             .or_insert(preview);
@@ -850,7 +879,13 @@ fn dedupe_previews(items: Vec<StremioMetaPreview>) -> Vec<StremioMetaPreview> {
         best.entry(key)
             .and_modify(|existing| {
                 if preview_rank(&preview) > preview_rank(existing) {
+                    let preserved_poster = existing.poster.clone();
                     *existing = preview.clone();
+                    if existing.poster.is_none() {
+                        existing.poster = preserved_poster;
+                    }
+                } else if preview.poster.is_some() && existing.poster.is_none() {
+                    existing.poster = preview.poster.clone();
                 }
             })
             .or_insert(preview);
@@ -942,18 +977,185 @@ fn merge_index(index: &mut Vec<StremioMetaPreview>, rows: &[ScCatalogRow]) {
                 .iter_mut()
                 .find(|p| format!("{}:{}", p.r#type, p.id) == key)
             {
-                if existing.name.trim().is_empty() {
+                if item.poster.is_some() && existing.poster.is_none() {
+                    existing.poster = item.poster.clone();
+                }
+                if existing.name.trim().is_empty() && !item.name.trim().is_empty() {
                     existing.name = item.name.clone();
-                    if existing.poster.is_none() {
-                        existing.poster = item.poster.clone();
-                    }
-                    if existing.slug.is_none() {
-                        existing.slug = item.slug.clone();
-                    }
+                }
+                if existing.slug.is_none() {
+                    existing.slug = item.slug.clone();
                 }
             }
         }
     }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaturnBrowsePage {
+    pub items: Vec<StremioMetaPreview>,
+    pub total: usize,
+    pub offset: usize,
+    pub has_more: bool,
+}
+
+struct BrowseState {
+    items: Vec<StremioMetaPreview>,
+    source_idx: usize,
+}
+
+static BROWSE_CACHE: Mutex<Option<BrowseState>> = Mutex::new(None);
+
+pub fn reset_browse_cache() {
+    if let Ok(mut guard) = BROWSE_CACHE.lock() {
+        *guard = None;
+    }
+}
+
+fn browse_source_paths() -> Vec<String> {
+    let mut paths: Vec<String> = listing_paths().iter().map(|p| (*p).to_string()).collect();
+    paths.extend(az_list_paths());
+    paths
+}
+
+fn preview_sort_name(preview: &StremioMetaPreview) -> String {
+    if preview.name.trim().is_empty() {
+        preview
+            .slug
+            .as_deref()
+            .map(slug_to_display_name)
+            .unwrap_or_else(|| preview.id.clone())
+    } else {
+        preview.name.clone()
+    }
+    .to_lowercase()
+}
+
+fn sort_browse_items(items: &mut [StremioMetaPreview]) {
+    items.sort_by(|a, b| preview_sort_name(a).cmp(&preview_sort_name(b)));
+}
+
+fn load_home_rows_for_browse(db: &Database) -> Vec<ScCatalogRow> {
+    let local = filter_rows(load_local_home(db));
+    if local.iter().any(|row| !row.items.is_empty()) {
+        return local;
+    }
+    load_home_rows(db)
+}
+
+fn seed_browse_index(db: &Database) -> Vec<StremioMetaPreview> {
+    let rows = load_home_rows_for_browse(db);
+    let mut items = Vec::new();
+    merge_index(&mut items, &rows);
+    if items.is_empty() {
+        if let Some(cached) = load_cached_index(db) {
+            items = cached;
+            repair_index_names(&mut items);
+            items = finalize_index(items);
+        }
+    } else {
+        items = finalize_index(items);
+    }
+    sort_browse_items(&mut items);
+    items
+}
+
+fn extend_browse_from_source(db: &Database, state: &mut BrowseState) -> bool {
+    let sources = browse_source_paths();
+    if state.source_idx >= sources.len() {
+        return false;
+    }
+    let path = sources[state.source_idx].clone();
+    state.source_idx += 1;
+
+    let client = match http_client() {
+        Ok(c) => c,
+        Err(_) => return state.source_idx < sources.len(),
+    };
+    let base = app_url(db);
+    let Some(html) = fetch_online_html(&client, &base, &path) else {
+        return state.source_idx < sources.len();
+    };
+
+    let mut cards: HashMap<String, SaturnCard> = HashMap::new();
+    ingest_html_page(&mut cards, &html);
+    if cards.is_empty() {
+        return state.source_idx < sources.len();
+    }
+
+    let mut batch: Vec<StremioMetaPreview> = cards
+        .values()
+        .filter(|card| is_browseable(card))
+        .map(|card| card_to_preview(db, card))
+        .collect();
+    if batch.is_empty() {
+        return state.source_idx < sources.len();
+    }
+
+    state.items.append(&mut batch);
+    state.items = finalize_index(std::mem::take(&mut state.items));
+    sort_browse_items(&mut state.items);
+    state.source_idx < sources.len()
+}
+
+pub fn browse_anime_page(
+    db: &Database,
+    offset: usize,
+    limit: usize,
+) -> Result<SaturnBrowsePage, String> {
+    if !enabled(db) {
+        return Ok(SaturnBrowsePage {
+            items: Vec::new(),
+            total: 0,
+            offset,
+            has_more: false,
+        });
+    }
+
+    let limit = limit.clamp(1, 96);
+    let sources_len = browse_source_paths().len();
+    let mut guard = BROWSE_CACHE
+        .lock()
+        .map_err(|e| format!("Cache browse anime: {e}"))?;
+
+    if guard.is_none() {
+        *guard = Some(BrowseState {
+            items: seed_browse_index(db),
+            source_idx: 0,
+        });
+    }
+
+    let state = guard.as_mut().expect("browse cache");
+
+    const MAX_EXTEND_PER_REQUEST: usize = 1;
+    let target = offset.saturating_add(limit);
+    let mut extended = 0usize;
+    while state.items.len() < target
+        && state.source_idx < sources_len
+        && extended < MAX_EXTEND_PER_REQUEST
+    {
+        if !extend_browse_from_source(db, state) {
+            break;
+        }
+        extended += 1;
+    }
+
+    let total = state.items.len();
+    let end = offset.saturating_add(limit).min(total);
+    let items = if offset < total {
+        state.items[offset..end].to_vec()
+    } else {
+        Vec::new()
+    };
+    let has_more = end < total || state.source_idx < sources_len;
+
+    Ok(SaturnBrowsePage {
+        items,
+        total,
+        offset,
+        has_more,
+    })
 }
 
 pub struct SaturnCatalogResponse {
@@ -971,13 +1173,6 @@ pub fn fetch_catalog(db: &Database) -> Result<SaturnCatalogResponse, String> {
             synced_at: 0,
             total_count: 0,
         });
-    }
-
-    let cached_count = load_cached_index(db).map(|index| index.len()).unwrap_or(0);
-    if cached_count < 100 {
-        if let Ok(refreshed) = refresh_catalog_index(db) {
-            return Ok(refreshed);
-        }
     }
 
     let rows = load_home_rows(db);
@@ -1012,12 +1207,20 @@ pub fn refresh_catalog_index(db: &Database) -> Result<SaturnCatalogResponse, Str
     }
 
     let rows = load_home_rows(db);
+    let cached = load_cached_index(db).unwrap_or_default();
     let mut index = sync_online_index(db);
+    if index.is_empty() && !cached.is_empty() {
+        index = cached.clone();
+    }
     enrich_index_from_local_site(db, &mut index);
     repair_index_names(&mut index);
     merge_index(&mut index, &rows);
     index = finalize_index(index);
+    if index.is_empty() && !cached.is_empty() {
+        index = cached;
+    }
     save_cached_index(db, &index)?;
+    reset_browse_cache();
 
     Ok(SaturnCatalogResponse {
         total_count: index.len(),
@@ -1036,6 +1239,85 @@ pub fn poster_file_path(db: &Database, rel_path: &str) -> Option<PathBuf> {
         Some(canonical)
     } else {
         None
+    }
+}
+
+fn load_poster_cache(db: &Database) -> HashMap<String, String> {
+    db.get_meta(META_SATURN_POSTER_CACHE)
+        .ok()
+        .flatten()
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default()
+}
+
+fn save_poster_cache(db: &Database, cache: &HashMap<String, String>) -> Result<(), String> {
+    let json = serde_json::to_string(cache).map_err(|e| e.to_string())?;
+    db.set_meta(META_SATURN_POSTER_CACHE, &json)
+}
+
+fn extract_poster_from_anime_html(db: &Database, html: &str) -> Option<String> {
+    let patterns = [
+        r#"(?is)property="og:image" content="([^"]+)""#,
+        r#"(?is)<img[^>]+class="[^"]*poster[^"]*"[^>]+src="([^"]+)""#,
+        r#"(?is)<img[^>]+src="([^"]+)"[^>]+class="[^"]*poster[^"]*""#,
+        r#"(?is)<img[^>]+src="(https?://[^"]*saturncdn\.net/static/images/locandine/[^"]+)""#,
+    ];
+    for pat in patterns {
+        let Ok(re) = Regex::new(pat) else {
+            continue;
+        };
+        if let Some(cap) = re.captures(html) {
+            if let Some(url) = cap.get(1).and_then(|m| resolve_poster_url(db, m.as_str())) {
+                return Some(url);
+            }
+        }
+    }
+    None
+}
+
+fn fetch_poster_for_slug_http(db: &Database, slug: &str) -> Option<String> {
+    let slug = slug.trim();
+    if slug.is_empty() {
+        return None;
+    }
+    let client = http_client().ok()?;
+    let base = app_url(db);
+    let html = fetch_online_html(&client, &base, &format!("/anime/{slug}"))?;
+    extract_poster_from_anime_html(db, &html)
+}
+
+pub fn resolve_poster_for_slug(db: &Database, slug: &str) -> Option<String> {
+    let slug = slug.trim();
+    if slug.is_empty() {
+        return None;
+    }
+    let mut cache = load_poster_cache(db);
+    if let Some(url) = cache.get(slug) {
+        return Some(url.clone());
+    }
+    let poster = fetch_poster_for_slug_http(db, slug)?;
+    cache.insert(slug.to_string(), poster.clone());
+    let _ = save_poster_cache(db, &cache);
+    Some(poster)
+}
+
+fn enrich_index_missing_posters(db: &Database, index: &mut [StremioMetaPreview], limit: usize) {
+    let mut done = 0usize;
+    for item in index.iter_mut() {
+        if done >= limit {
+            break;
+        }
+        if item.poster.is_some() {
+            continue;
+        }
+        if item.catalog_prefix.as_deref() != Some("saturn") {
+            continue;
+        }
+        let slug = item.slug.as_deref().unwrap_or(item.id.as_str());
+        if let Some(poster) = resolve_poster_for_slug(db, slug) {
+            item.poster = Some(poster);
+            done += 1;
+        }
     }
 }
 

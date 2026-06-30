@@ -6,6 +6,8 @@ import type {
   ScCatalogResponse,
   StremioMeta,
   StremioMetaPreview,
+  SaturnBrowsePage,
+  SearchCatalogPage,
   StreamingContinueItem,
   StreamingWatchProgressInput,
 } from "../types/stremio";
@@ -130,6 +132,18 @@ export async function searchScCatalog(
   return invoke<StremioMetaPreview[]>("search_sc_catalog_cmd", { query });
 }
 
+export async function searchScCatalogPage(
+  query: string,
+  offset: number,
+  limit = 48,
+): Promise<SearchCatalogPage> {
+  return invoke<SearchCatalogPage>("search_sc_catalog_page_cmd", {
+    query,
+    offset,
+    limit,
+  });
+}
+
 export async function resolveScPreview(
   titleId: string,
   slug: string,
@@ -142,6 +156,19 @@ export async function resolveScPreview(
 
 export async function fetchSaturnMeta(slug: string): Promise<StremioMeta> {
   return invoke<StremioMeta>("fetch_saturn_meta_cmd", { slug });
+}
+
+export async function fetchSaturnPoster(
+  slug: string,
+): Promise<string | null> {
+  return invoke<string | null>("resolve_saturn_poster_cmd", { slug });
+}
+
+export async function fetchSaturnAnimePage(
+  offset: number,
+  limit = 48,
+): Promise<SaturnBrowsePage> {
+  return invoke<SaturnBrowsePage>("browse_saturn_anime_cmd", { offset, limit });
 }
 
 export async function resolveSaturnStream(
