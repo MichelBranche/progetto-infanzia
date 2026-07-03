@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { castTransport, getCastPosition, saveWatchProgress } from "../lib/api";
 import { saveStreamingWatchProgress } from "../lib/addonsApi";
+import { logCloudWatchEvent } from "../lib/cloudWatchSync";
 import {
   endWatchSession,
   startAddonWatchSession,
@@ -261,6 +262,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               positionSecs: position,
               durationSecs: dur > 0 ? dur : undefined,
             });
+            void logCloudWatchEvent({
+              titleName: remotePlayback.titleName ?? media.title,
+              contentType: remotePlayback.contentType,
+              catalogPrefix: remotePlayback.catalogPrefix,
+              slug: remotePlayback.slug,
+              episodeLabel: remotePlayback.episodeLabel,
+              secondsWatched: position,
+            });
           } catch {
             // silent
           }
@@ -269,6 +278,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         if (remotePlayback) return;
         try {
           await saveWatchProgress(profileId, media.id, position, dur || undefined);
+          void logCloudWatchEvent({
+            titleName: media.title,
+            secondsWatched: position,
+          });
         } catch {
           // silent
         }

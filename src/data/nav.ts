@@ -16,7 +16,8 @@ export type NavIcon =
   | "Wifi"
   | "Users"
   | "Anime"
-  | "User";
+  | "User"
+  | "Terminal";
 
 export interface NavItem {
   id: string;
@@ -71,6 +72,7 @@ function filterItems(items: NavItem[], hasStreaming: boolean) {
 export function getNavSections(
   profile: Profile | null,
   hasStreaming = false,
+  devMode = false,
 ): NavSection[] {
   if (!profile) return [];
 
@@ -97,6 +99,14 @@ export function getNavSections(
       id: "system",
       label: "Account",
       items: systemItems,
+    });
+  }
+
+  if (devMode) {
+    sections.push({
+      id: "devtools",
+      label: "Sviluppo",
+      items: [{ id: "dev", label: "Dev console", icon: "Terminal" }],
     });
   }
 
@@ -142,6 +152,10 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
     activity: {
       title: "Attività bambini",
       subtitle: "Cosa hanno guardato i profili bambino",
+    },
+    dev: {
+      title: "Dev console",
+      subtitle: "Utenti, cronologia e analytics (solo sviluppatore)",
     },
     search: {
       title: "Cerca",

@@ -1710,6 +1710,41 @@ impl Database {
         Ok(total)
     }
 
+    pub fn dev_top_watched_titles(
+        &self,
+        profile_id: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::dev_admin::DevTopTitle>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT COALESCE(NULLIF(ws.session_title, ''), m.title, ws.media_id) AS title,
+                        COALESCE(SUM(ws.seconds_watched), 0) AS total_seconds,
+                        COUNT(*) AS play_count
+                 FROM watch_sessions ws
+                 LEFT JOIN media m ON m.id = ws.media_id
+                 WHERE ws.profile_id = ?1
+                 GROUP BY title
+                 HAVING total_seconds > 0
+                 ORDER BY total_seconds DESC
+                 LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map(params![profile_id, limit as i64], |row| {
+                Ok(crate::dev_admin::DevTopTitle {
+                    title: row.get(0)?,
+                    total_seconds: row.get(1)?,
+                    play_count: row.get(2)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
+    }
+
     pub fn get_watch_history(
         &self,
         profile_id: &str,

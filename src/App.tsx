@@ -45,6 +45,7 @@ import { markStreamingInMyList } from "./lib/myList";
 import { splitTop10Row } from "./lib/streamingRows";
 import type { BrowseItem } from "./lib/browse";
 import { STREMIO_ADDONS_ENABLED, isBuiltinStreamingCatalog } from "./lib/features";
+import { isDevAdminEmail } from "./lib/devAdmin";
 import {
   buildUnifiedHomeRows,
   buildRandomHeroItems,
@@ -85,6 +86,11 @@ const ParentalActivityPage = lazy(() =>
     default: m.ParentalActivityPage,
   })),
 );
+const DevConsolePage = lazy(() =>
+  import("./components/DevConsolePage").then((m) => ({
+    default: m.DevConsolePage,
+  })),
+);
 const StreamingPage = lazy(() =>
   import("./components/StreamingPage").then((m) => ({ default: m.StreamingPage })),
 );
@@ -120,6 +126,7 @@ function SuspenseRoute({ children }: { children: React.ReactNode }) {
 function AppContent() {
   const { activeProfile, clearProfile, isParent } = useProfile();
   const { profile: cloudProfile } = useCloudAccount();
+  const devMode = isDevAdminEmail(cloudProfile?.email);
   usePresenceHeartbeat(Boolean(cloudProfile));
   const { pendingCount: pendingFriendRequests, refreshFriendAlerts } =
     useCloudFriendAlertsContext();
@@ -273,6 +280,7 @@ function AppContent() {
 
   const handleNav = (id: string) => {
     if ((id === "add" || id === "manage" || id === "settings" || id === "activity") && !isParent) return;
+    if (id === "dev" && !devMode) return;
     setSeriesKey(null);
     if (id === "mylist") {
       setProfileTab("list");
@@ -698,7 +706,7 @@ function AppContent() {
   ]);
   const showEmptyLibraryOnly =
     isEmpty &&
-    !["add", "settings", "manage", "activity", "profile", "anime", "streaming"].includes(
+    !["add", "settings", "manage", "activity", "profile", "anime", "streaming", "dev"].includes(
       activeNav,
     ) &&
     !(hasStreaming && streamingBrowseNav.has(activeNav));
@@ -715,6 +723,7 @@ function AppContent() {
       <Sidebar
         activeId={searchOpen ? "search" : activeNav}
         profile={activeProfile}
+        devMode={devMode}
         onNavigate={handleNav}
         onSwitchProfile={clearProfile}
         badgeCounts={sidebarBadges}
@@ -883,6 +892,12 @@ function AppContent() {
                   </SuspenseRoute>
                 )}
 
+                {!seriesKey && activeNav === "dev" && devMode && (
+                  <SuspenseRoute>
+                    <DevConsolePage />
+                  </SuspenseRoute>
+                )}
+
                 {!seriesKey && activeNav === "manage" && isParent && library && (
                   <SuspenseRoute>
                     <ManageLibraryPage
@@ -1005,7 +1020,9 @@ function AppContent() {
                   activeNav !== "add" &&
                   activeNav !== "manage" &&
                   activeNav !== "settings" &&
-                  activeNav !== "streaming" && (
+                  activeNav !== "streaming" &&
+                  activeNav !== "activity" &&
+                  activeNav !== "dev" && (
                   <SectionBrowsePage
                     sectionId={activeNav}
                     title={sectionInfo?.title ?? activeNav}

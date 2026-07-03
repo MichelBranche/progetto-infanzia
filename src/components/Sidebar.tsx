@@ -10,6 +10,7 @@ import {
   Search,
   Settings,
   Sparkles,
+  Terminal,
   Tv,
   Wifi,
   User,
@@ -38,11 +39,13 @@ const iconMap: Record<string, LucideIcon> = {
   Wifi,
   User,
   Anime: Clapperboard,
+  Terminal,
 };
 
 interface SidebarProps {
   activeId: string;
   profile: Profile;
+  devMode?: boolean;
   onNavigate: (id: string) => void;
   onSwitchProfile?: () => void;
   badgeCounts?: Record<string, number>;
@@ -168,13 +171,14 @@ function NavEntry({
 export function Sidebar({
   activeId,
   profile,
+  devMode = false,
   onNavigate,
   onSwitchProfile,
   badgeCounts,
   alertDots,
 }: SidebarProps) {
   const { hasStreaming } = useAddons();
-  const sections = getNavSections(profile, hasStreaming);
+  const sections = getNavSections(profile, hasStreaming, devMode);
   const [pinned, setPinned] = useState(() => {
     try {
       return localStorage.getItem(SIDEBAR_PIN_KEY) === "true";

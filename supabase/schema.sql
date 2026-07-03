@@ -189,3 +189,144 @@ begin
     alter publication supabase_realtime add table public.user_presence;
   end if;
 end $$;
+
+-- Cronologia visione cloud (sync client per analytics dev)
+create table if not exists public.cloud_watch_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.cloud_profiles (id) on delete cascade,
+  title_name text not null,
+  content_type text,
+  catalog_prefix text,
+  slug text,
+  episode_label text,
+  seconds_watched double precision not null default 0,
+  watched_at timestamptz not null default now()
+);
+
+create index if not exists cloud_watch_events_user_watched_idx
+  on public.cloud_watch_events (user_id, watched_at desc);
+
+alter table public.cloud_watch_events enable row level security;
+
+drop policy if exists "watch events insert own" on public.cloud_watch_events;
+create policy "watch events insert own"
+  on public.cloud_watch_events for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists "watch events read own" on public.cloud_watch_events;
+create policy "watch events read own"
+  on public.cloud_watch_events for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+create or replace function public.is_dev_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, auth
+as $$
+  select exists (
+    select 1
+    from auth.users u
+    where u.id = auth.uid()
+      and lower(u.email) = 'yutubecraft1234@gmail.com'
+  );
+$$;
+
+revoke all on function public.is_dev_admin() from public;
+grant execute on function public.is_dev_admin() to authenticated;
+
+create or replace function public.dev_users_overview()
+returns json
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+begin
+  if not public.is_dev_admin() then
+    raise exception 'Accesso negato';
+  end if;
+
+  return coalesce((
+    select json_agg(row_to_json(t) order by t.auth_created_at desc nulls last)
+    from (
+      select
+        u.id as user_id,
+        u.email,
+        u.created_at as auth_created_at,
+        u.last_sign_in_at,
+        (u.email_confirmed_at is not null) as email_confirmed,
+        (p.id is not null) as has_profile,
+        p.display_name,
+        p.friend_code,
+        p.created_at as profile_created_at,
+        coalesce(fr.friends_count, 0) as friends_count,
+        pr.status as presence_status,
+        pr.last_seen_at,
+        pr.activity as presence_activity,
+        (
+          select coalesce(json_agg(f order by f.display_name), '[]'::json)
+          from (
+            select
+              fp.id as friend_id,
+              fp.display_name,
+              fp.email,
+              fp.friend_code
+            from public.friend_requests frx
+            join public.cloud_profiles fp on fp.id = case
+              when frx.requester_id = p.id then frx.addressee_id
+              else frx.requester_id
+            end
+            where frx.status = 'accepted'
+              and p.id is not null
+              and (frx.requester_id = p.id or frx.addressee_id = p.id)
+          ) f
+        ) as friends,
+        (
+          select coalesce(json_agg(e order by e.watched_at desc), '[]'::json)
+          from (
+            select
+              cwe.title_name,
+              cwe.content_type,
+              cwe.episode_label,
+              cwe.seconds_watched,
+              cwe.watched_at
+            from public.cloud_watch_events cwe
+            where cwe.user_id = p.id
+            order by cwe.watched_at desc
+            limit 50
+          ) e
+        ) as recent_watches,
+        (
+          select coalesce(json_agg(top order by top.total_seconds desc), '[]'::json)
+          from (
+            select
+              cwe.title_name,
+              sum(cwe.seconds_watched)::double precision as total_seconds,
+              count(*)::int as play_count
+            from public.cloud_watch_events cwe
+            where cwe.user_id = p.id
+            group by cwe.title_name
+            order by sum(cwe.seconds_watched) desc
+            limit 10
+          ) top
+        ) as top_titles
+      from auth.users u
+      left join public.cloud_profiles p on p.id = u.id
+      left join public.user_presence pr on pr.user_id = p.id
+      left join lateral (
+        select count(*)::int as friends_count
+        from public.friend_requests fr2
+        where fr2.status = 'accepted'
+          and p.id is not null
+          and (fr2.requester_id = p.id or fr2.addressee_id = p.id)
+      ) fr on true
+    ) t
+  ), '[]'::json);
+end;
+$$;
+
+revoke all on function public.dev_users_overview() from public;
+grant execute on function public.dev_users_overview() to authenticated;

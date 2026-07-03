@@ -3,6 +3,7 @@ mod cast;
 mod catalog_search;
 mod db;
 mod debrid;
+mod dev_admin;
 mod html_text;
 mod friend_presence;
 mod import_media;
@@ -497,6 +498,11 @@ fn get_watch_history_cmd(
     state
         .db
         .get_watch_history(&child_profile_id, limit.unwrap_or(50))
+}
+
+#[tauri::command]
+fn dev_local_dashboard_cmd(state: State<'_, AppState>) -> Result<dev_admin::DevLocalDashboard, String> {
+    dev_admin::local_dashboard(state.db.as_ref())
 }
 
 #[tauri::command]
@@ -1965,6 +1971,7 @@ pub fn run() {
             get_profile_limits_cmd,
             update_profile_limits_cmd,
             get_watch_history_cmd,
+            dev_local_dashboard_cmd,
             start_watch_session_cmd,
             update_watch_session_cmd,
             end_watch_session_cmd,
