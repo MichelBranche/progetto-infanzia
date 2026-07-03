@@ -190,7 +190,10 @@ export function titleDetailFromStremio(
 ): TitleDetailModel {
   const isSeries = meta.type === "series" || meta.type === "channel";
   const episodes = stremioVideosToDetailEpisodes(meta, meta.videos, progressByVideoId);
-  const preferred = preferredEpisodeId?.trim();
+  const preferred =
+    isSeries && preferredEpisodeId?.trim()
+      ? preferredEpisodeId.trim()
+      : undefined;
   const primaryVideo =
     (preferred
       ? meta.videos.find((v) => v.id === preferred)

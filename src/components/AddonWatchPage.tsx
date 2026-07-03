@@ -340,7 +340,8 @@ export function AddonWatchPage({
   const startPlayback = useCallback(
     async (videoId: string, videoTitle: string) => {
       if (!meta) return;
-      const episodeId = videoId?.trim();
+      const isMovie = meta.type === "movie";
+      const episodeId = isMovie ? meta.id : videoId?.trim();
       const isMultiEpisodeSeries =
         (meta.type === "series" || meta.type === "channel") &&
         meta.videos.length > 1;
@@ -356,7 +357,7 @@ export function AddonWatchPage({
       setError(null);
       try {
         const streams = isSc
-          ? [await resolveScStream(metaId, slug!, episodeId)]
+          ? [await resolveScStream(metaId, slug!, isMovie ? undefined : episodeId)]
           : isLoonex
             ? [await resolveLoonexStream(slug!, episodeId)]
             : isSaturn
@@ -369,10 +370,11 @@ export function AddonWatchPage({
           );
           return;
         }
+        const progressVideoId = isMovie ? meta.id : episodeId;
         if (streams.length === 1) {
-          await playStream(streams[0], episodeId, videoTitle);
+          await playStream(streams[0], progressVideoId, videoTitle);
         } else {
-          setStreamPick({ videoId: episodeId, videoTitle, streams });
+          setStreamPick({ videoId: progressVideoId, videoTitle, streams });
         }
       } catch (err) {
         if (generation === playbackGenerationRef.current) {
@@ -441,11 +443,15 @@ export function AddonWatchPage({
     ) {
       return;
     }
-    const video = meta.videos.find((v) => v.id === initialVideoId);
+    const isMovie = meta.type === "movie";
+    const autoplayVideoId = isMovie
+      ? (meta.videos[0]?.id ?? metaId)
+      : initialVideoId;
+    const video = meta.videos.find((v) => v.id === autoplayVideoId);
     const title = video?.title?.trim() || meta.name;
     initialAutoplayDoneRef.current = true;
-    void startPlayback(initialVideoId, title);
-  }, [meta, initialVideoId, loading, startPlayback]);
+    void startPlayback(autoplayVideoId, title);
+  }, [meta, initialVideoId, metaId, loading, startPlayback]);
 
   if (!STREMIO_ADDONS_ENABLED && !isBuiltinStreamingCatalog(catalogPrefix)) {
     return (

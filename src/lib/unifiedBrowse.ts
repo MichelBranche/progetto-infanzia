@@ -117,6 +117,13 @@ export function applyStreamingProgress(
 ): StremioMetaPreview {
   const item = progressMap.get(streamingProgressKey(preview));
   if (!item) return preview;
+  if (preview.type === "movie") {
+    return {
+      ...preview,
+      watchPosition: item.positionSecs,
+      watchDuration: item.durationSecs,
+    };
+  }
   const episodeId = preview.resumeVideoId?.trim();
   if (episodeId && item.videoId !== episodeId) {
     return preview;

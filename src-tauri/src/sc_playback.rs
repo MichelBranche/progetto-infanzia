@@ -104,7 +104,13 @@ pub fn resolve_playback(
         .get("embedUrl")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "Player non disponibile per questo titolo".to_string())?;
-    let embed_url = embed_url_with_episode(embed_url, episode_id);
+    let is_movie = props
+        .get("title")
+        .map(title_type)
+        .map(|t| t == "movie")
+        .unwrap_or(false);
+    let effective_episode = if is_movie { None } else { episode_id };
+    let embed_url = embed_url_with_episode(embed_url, effective_episode);
 
     let iframe_html = session.get_html(&embed_url, Some(&referer))?;
     let vix_embed =

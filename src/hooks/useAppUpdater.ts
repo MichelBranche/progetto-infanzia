@@ -76,6 +76,7 @@ export function useAppUpdater({ autoCheck = true }: UseAppUpdaterOptions = {}) {
 
   const install = useCallback(async () => {
     if (!pendingUpdate) return;
+    setShowPrompt(true);
     setPhase("downloading");
     setError(null);
     setProgress({ downloaded: 0, total: null });

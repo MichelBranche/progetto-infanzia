@@ -712,7 +712,7 @@ fn apply_preview_metadata(
             .clone()
             .or_else(|| source_row_title.map(str::to_string));
     }
-    if incoming.resume_video_id.is_some() {
+    if incoming.r#type != "movie" && incoming.resume_video_id.is_some() {
         existing.resume_video_id = incoming.resume_video_id.clone();
         if !incoming.name.trim().is_empty() {
             existing.name = incoming.name.clone();
@@ -1216,11 +1216,20 @@ fn map_title(cdn: &str, title: ScTitle) -> StremioMetaPreview {
     } else {
         "movie"
     };
-    let (episode_id, episode_name, episode_images) = episode_context_from_title(&title);
-    let display_name = episode_name
-        .as_deref()
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or(title.name.as_str());
+    let is_series = stremio_type == "series";
+    let (episode_id, episode_name, episode_images) = if is_series {
+        episode_context_from_title(&title)
+    } else {
+        (None, None, Vec::new())
+    };
+    let display_name = if is_series {
+        episode_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or(title.name.as_str())
+    } else {
+        title.name.as_str()
+    };
     let poster = browse_poster_url(cdn, &title.images)
         .or_else(|| browse_poster_url(cdn, &episode_images));
     StremioMetaPreview {
@@ -1240,7 +1249,11 @@ fn map_title(cdn: &str, title: ScTitle) -> StremioMetaPreview {
             .collect(),
         source_row_key: None,
         source_row_title: None,
-        resume_video_id: episode_id.map(|id| id.to_string()),
+        resume_video_id: if is_series {
+            episode_id.map(|id| id.to_string())
+        } else {
+            None
+        },
     }
 }
 
@@ -1258,15 +1271,24 @@ pub fn preview_from_value(
     } else {
         "movie"
     };
+    let is_series = stremio_type == "series";
     let images: Vec<ScImage> = title
         .get("images")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
-    let (episode_id, episode_name, episode_images) = episode_context_from_value(title);
-    let display_name = episode_name
-        .as_deref()
-        .filter(|n| !n.trim().is_empty())
-        .unwrap_or(name);
+    let (episode_id, episode_name, episode_images) = if is_series {
+        episode_context_from_value(title)
+    } else {
+        (None, None, Vec::new())
+    };
+    let display_name = if is_series {
+        episode_name
+            .as_deref()
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or(name)
+    } else {
+        name
+    };
     let poster = browse_poster_url(cdn, &images)
         .or_else(|| browse_poster_url(cdn, &episode_images));
     let mut genres = genres_from_value(title);
@@ -1295,7 +1317,11 @@ pub fn preview_from_value(
         genres,
         source_row_key: None,
         source_row_title: None,
-        resume_video_id: episode_id.map(|ep| ep.to_string()),
+        resume_video_id: if is_series {
+            episode_id.map(|ep| ep.to_string())
+        } else {
+            None
+        },
     })
 }
 
@@ -1310,6 +1336,73 @@ pub fn fetch_home_catalog(db: &crate::db::Database) -> Result<Vec<ScCatalogRow>,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn movie_preview_ignores_episode_context() {
+        let preview = map_title(
+            "https://cdn.example",
+            ScTitle {
+                id: 999,
+                name: "Reminders of Him".into(),
+                slug: "reminders-of-him".into(),
+                title_type: "movie".into(),
+                last_air_date: Some("2022".into()),
+                images: Vec::new(),
+                genres: Vec::new(),
+                episode_id: Some(123456),
+                episode: Some(ScEpisodeSnippet {
+                    id: Some(123456),
+                    name: Some("La casa di Topolino".into()),
+                    images: Vec::new(),
+                }),
+            },
+        );
+        assert_eq!(preview.r#type, "movie");
+        assert_eq!(preview.name, "Reminders of Him");
+        assert!(preview.resume_video_id.is_none());
+    }
+
+    /// Audit live: quanti film SC hanno episode_id spurio (slider + ricerca campione).
+    #[test]
+    #[ignore]
+    fn audit_movies_with_episode_context() {
+        let rows = fetch_sliders(DEFAULT_APP_URL, DEFAULT_CDN_URL, DEFAULT_LANG)
+            .expect("all sliders");
+        let mut mapped_bad = 0usize;
+        for row in &rows {
+            for item in &row.items {
+                if item.r#type == "movie" && item.resume_video_id.is_some() {
+                    mapped_bad += 1;
+                    eprintln!(
+                        "  mapped bad: {} ({}) resume={:?}",
+                        item.name,
+                        item.slug.as_deref().unwrap_or("?"),
+                        item.resume_video_id
+                    );
+                }
+            }
+        }
+        eprintln!(
+            "Film con resume_video_id dopo map (tutti gli slider): {mapped_bad}"
+        );
+
+        let results = crate::sc_playback::search_titles(
+            DEFAULT_APP_URL,
+            DEFAULT_CDN_URL,
+            DEFAULT_LANG,
+            "reminders",
+        )
+        .expect("search");
+        for preview in results {
+            if !preview.name.to_lowercase().contains("reminder") {
+                continue;
+            }
+            eprintln!(
+                "Search: {} type={} resume_video_id={:?}",
+                preview.name, preview.r#type, preview.resume_video_id
+            );
+        }
+    }
 
     #[test]
     fn browse_poster_prefers_cover_over_poster() {

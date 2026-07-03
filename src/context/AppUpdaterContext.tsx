@@ -26,9 +26,17 @@ export function AppUpdaterProvider({ children }: { children: ReactNode }) {
     <AppUpdaterContext.Provider value={updater}>
       {children}
       <UpdatePrompt
-        open={updater.showPrompt && updater.phase === "available" && !!updater.pendingUpdate}
+        open={
+          updater.showPrompt &&
+          !!updater.pendingUpdate &&
+          (updater.phase === "available" ||
+            updater.phase === "downloading" ||
+            updater.phase === "installing" ||
+            updater.phase === "error")
+        }
         phase={updater.phase}
         update={updater.pendingUpdate}
+        currentVersion={updater.currentVersion}
         progress={updater.progress}
         error={updater.error}
         onInstall={() => void updater.install()}

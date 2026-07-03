@@ -32,23 +32,36 @@ export function streamingPreviewDisplayName(preview: StremioMetaPreview): string
 }
 
 export function streamingMediaId(preview: StremioMetaPreview): string {
+  const isSeries = preview.type === "series" || preview.type === "channel";
   if (preview.catalogPrefix === "sc" && preview.slug) {
     const base = `${SC_STREAMING_ID_PREFIX}${preview.type}:${preview.id}:${preview.slug}`;
-    if (preview.resumeVideoId && preview.resumeVideoId !== preview.id) {
+    if (
+      isSeries &&
+      preview.resumeVideoId &&
+      preview.resumeVideoId !== preview.id
+    ) {
       return `${base}:${preview.resumeVideoId}`;
     }
     return base;
   }
   if (preview.catalogPrefix === "saturn" && preview.slug) {
     const base = `${SATURN_STREAMING_ID_PREFIX}${preview.type}:${preview.slug}`;
-    if (preview.resumeVideoId && preview.resumeVideoId !== preview.id) {
+    if (
+      isSeries &&
+      preview.resumeVideoId &&
+      preview.resumeVideoId !== preview.id
+    ) {
       return `${base}:${preview.resumeVideoId}`;
     }
     return base;
   }
   if (preview.catalogPrefix === "loonex" && preview.slug) {
     const base = `${LOONEX_STREAMING_ID_PREFIX}${preview.type}:${preview.slug}`;
-    if (preview.resumeVideoId && preview.resumeVideoId !== preview.id) {
+    if (
+      isSeries &&
+      preview.resumeVideoId &&
+      preview.resumeVideoId !== preview.id
+    ) {
       return `${base}:${preview.resumeVideoId}`;
     }
     return base;
@@ -239,8 +252,12 @@ export function streamingPreviewDedupeKey(
 export function streamingWatchVideoId(
   preview: StremioMetaPreview,
 ): string | undefined {
-  const resume = preview.resumeVideoId?.trim();
-  if (resume) return resume;
+  const isSeries = preview.type === "series" || preview.type === "channel";
+  if (isSeries) {
+    const resume = preview.resumeVideoId?.trim();
+    if (resume) return resume;
+    return undefined;
+  }
   if (
     preview.type === "movie" &&
     preview.watchPosition != null &&
@@ -318,12 +335,13 @@ export function continueToMediaItem(item: StreamingContinueItem): MediaItem {
 }
 
 export function continueToWatchTarget(item: StreamingContinueItem): AddonWatchTarget {
+  const isMovie = item.contentType === "movie";
   return {
     contentType: item.contentType,
     metaId: item.titleId,
     slug: item.slug,
     catalogPrefix: item.catalogPrefix,
-    videoId: item.videoId,
+    videoId: isMovie ? item.titleId : item.videoId,
   };
 }
 

@@ -2,6 +2,7 @@ import Hls from "hls.js";
 
 const frameCache = new Map<string, string>();
 let activeCaptures = 0;
+const MAX_CONCURRENT_CAPTURES = 3;
 const captureQueue: Array<() => void> = [];
 
 function scheduleCapture<T>(fn: () => Promise<T>): Promise<T> {
@@ -16,7 +17,7 @@ function scheduleCapture<T>(fn: () => Promise<T>): Promise<T> {
           if (next) next();
         });
     };
-    if (activeCaptures < 2) run();
+    if (activeCaptures < MAX_CONCURRENT_CAPTURES) run();
     else captureQueue.push(run);
   });
 }
@@ -87,7 +88,7 @@ export function captureVideoFrame(
     video.addEventListener("error", onError);
     try {
       const safeTime = Math.max(0, Math.min(timeSec, Math.max(0, video.duration - 0.25)));
-      if (Math.abs(video.currentTime - safeTime) < 0.15) {
+      if (Math.abs(video.currentTime - safeTime) < 0.08) {
         onSeeked();
         return;
       }
@@ -199,7 +200,7 @@ export async function captureFrameFromStream(
 }
 
 export function scrubFrameCacheKey(streamUrl: string, timeSec: number): string {
-  return `scrub:${streamUrl}:${Math.round(timeSec)}`;
+  return `scrub:${streamUrl}:${Math.round(timeSec * 2) / 2}`;
 }
 
 export async function captureScrubFrame(
@@ -211,9 +212,13 @@ export async function captureScrubFrame(
   const cached = frameCache.get(key);
   if (cached) return cached;
 
-  const frame = await captureVideoFrame(video, timeSec, 240);
+  const frame = await scheduleCapture(() => captureVideoFrame(video, timeSec, 320));
   if (frame) {
     frameCache.set(key, frame);
+    if (frameCache.size > 200) {
+      const first = frameCache.keys().next().value;
+      if (first) frameCache.delete(first);
+    }
   }
   return frame;
 }
