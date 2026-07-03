@@ -50,6 +50,7 @@ export interface TitleDetailModel {
   description?: string;
   episodes: TitleDetailEpisode[];
   primaryEpisodeId?: string;
+  preferredEpisodeId?: string;
   playLabel?: string;
   hasPreview?: boolean;
 }
@@ -185,9 +186,15 @@ export function stremioVideosToDetailEpisodes(
 export function titleDetailFromStremio(
   meta: StremioMeta,
   progressByVideoId?: Record<string, TitleDetailEpisodeProgress>,
+  preferredEpisodeId?: string,
 ): TitleDetailModel {
   const isSeries = meta.type === "series" || meta.type === "channel";
-  const primaryVideo = meta.videos[0];
+  const episodes = stremioVideosToDetailEpisodes(meta, meta.videos, progressByVideoId);
+  const preferred = preferredEpisodeId?.trim();
+  const primaryVideo =
+    (preferred
+      ? meta.videos.find((v) => v.id === preferred)
+      : undefined) ?? meta.videos[0];
 
   return {
     id: meta.id,
@@ -205,8 +212,9 @@ export function titleDetailFromStremio(
     genreLine: meta.genres.join(", ") || undefined,
     directorsLine: meta.directors?.join(", "),
     description: meta.description?.trim(),
-    episodes: stremioVideosToDetailEpisodes(meta, meta.videos, progressByVideoId),
+    episodes,
     primaryEpisodeId: primaryVideo?.id,
+    preferredEpisodeId: preferred,
     playLabel: "Riproduci",
     hasPreview: meta.hasPreview,
   };

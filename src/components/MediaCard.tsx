@@ -4,7 +4,10 @@ import { Play, Plus, Check, Layers, Pencil, Wifi } from "lucide-react";
 import type { BrowseItem } from "../lib/browse";
 import { browseItemMedia, browseItemTitle } from "../lib/browse";
 import { isStreamingSeries } from "../lib/streamingBrowse";
-import { prefetchScPreview } from "../lib/streamingPreviewCache";
+import { prefetchStreamingPreview } from "../lib/streamingPreviewCache";
+import {
+  previewToStreamingTarget,
+} from "../lib/streamingHeroPreview";
 import type { StremioMetaPreview } from "../types/stremio";
 import type { MediaItem } from "../types/media";
 import {
@@ -31,6 +34,7 @@ interface MediaCardProps {
   layout?: "row" | "grid";
   onPlay: (id: string) => void;
   onPlayStreaming?: (preview: StremioMetaPreview) => void;
+  onOpenDetail?: (browse: BrowseItem) => void;
   onOpenSeries?: (seriesKey: string) => void;
   onToggleFavorite?: (id: string) => void;
   onToggleStreamingList?: (preview: StremioMetaPreview) => void;
@@ -43,6 +47,7 @@ export const MediaCard = memo(function MediaCard({
   layout = "row",
   onPlay,
   onPlayStreaming,
+  onOpenDetail,
   onOpenSeries,
   onToggleFavorite,
   onToggleStreamingList,
@@ -60,12 +65,11 @@ export const MediaCard = memo(function MediaCard({
   const isStreaming = browse.kind === "streaming";
   const isSaturnPreview =
     isStreaming && browse.preview.catalogPrefix === "saturn";
-  const isScPreview =
-    browse.kind === "streaming" && browse.preview.catalogPrefix === "sc" && !!browse.preview.slug;
-  const scPreview =
-    isScPreview && browse.kind === "streaming"
-      ? { titleId: browse.preview.id, slug: browse.preview.slug! }
+  const streamPreviewTarget =
+    browse.kind === "streaming"
+      ? previewToStreamingTarget(browse.preview)
       : null;
+  const canStreamPreview = streamPreviewTarget != null;
   const isSeries =
     browse.kind === "series" ||
     (isStreaming && isStreamingSeries(browse.preview));
@@ -74,7 +78,7 @@ export const MediaCard = memo(function MediaCard({
       ? browse.preview.resumeEpisodeLabel
       : null;
   const hasVideoPreview =
-    isScPreview || (!isStreaming && !isSeries);
+    canStreamPreview || (!isStreaming && !isSeries);
   const progress =
     browse.kind === "media"
       ? watchProgressPercent(browse.item)
@@ -106,6 +110,10 @@ export const MediaCard = memo(function MediaCard({
   const durationLabel = formatDuration(previewMedia.watchDuration);
 
   const handleClick = () => {
+    if (onOpenDetail) {
+      onOpenDetail(browse);
+      return;
+    }
     if (isStreaming && browse.kind === "streaming") {
       onPlayStreaming?.(browse.preview);
       return;
@@ -137,8 +145,8 @@ export const MediaCard = memo(function MediaCard({
 
   useEffect(() => {
     if (!expanded) return;
-    if (isScPreview && scPreview) {
-      prefetchScPreview(scPreview.titleId, scPreview.slug);
+    if (canStreamPreview && streamPreviewTarget) {
+      prefetchStreamingPreview(streamPreviewTarget, CARD_PREVIEW_SEC);
       claimCardPreviewFocus(previewMedia.id);
       return () => releaseCardPreviewFocus(previewMedia.id);
     }
@@ -149,8 +157,8 @@ export const MediaCard = memo(function MediaCard({
     expanded,
     isSeries,
     isStreaming,
-    isScPreview,
-    scPreview,
+    canStreamPreview,
+    streamPreviewTarget,
     previewMedia.id,
     claimCardPreviewFocus,
     releaseCardPreviewFocus,
@@ -158,13 +166,19 @@ export const MediaCard = memo(function MediaCard({
 
   if (layout === "grid") {
     return (
-      <article
-        className="group w-full cursor-pointer"
+      <motion.article
+        className="group relative w-full cursor-pointer"
         onClick={handleClick}
+        whileHover={{ scale: 1.06, y: -4 }}
+        transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
       >
-        <div className="overflow-hidden rounded bg-[#1a1a1a] shadow-[0_4px_12px_rgba(0,0,0,0.35)] ring-1 ring-white/[0.06] transition-shadow group-hover:shadow-[0_8px_20px_rgba(0,0,0,0.45)] group-hover:ring-white/10">
+        <div className="overflow-hidden rounded-md bg-[#141414] shadow-[0_4px_16px_rgba(0,0,0,0.45)] ring-1 ring-white/[0.06] transition-shadow duration-300 group-hover:shadow-[0_12px_32px_rgba(0,0,0,0.55)] group-hover:ring-white/12">
           <div className="relative aspect-[2/3] overflow-hidden bg-black">
-            <PosterImage item={item} variant="browse" />
+            <PosterImage
+              item={item}
+              variant="browse"
+              className="transition-transform duration-500 group-hover:scale-105"
+            />
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
             {progress > 2 && (
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/20">
@@ -194,7 +208,7 @@ export const MediaCard = memo(function MediaCard({
             </p>
           </div>
         </div>
-      </article>
+      </motion.article>
     );
   }
 
@@ -244,10 +258,9 @@ export const MediaCard = memo(function MediaCard({
                 className="absolute inset-0 z-[1] h-full w-full object-cover"
               />
             )}
-            {expanded && isScPreview && scPreview && (
+            {expanded && canStreamPreview && streamPreviewTarget && (
               <StreamingVideoPreview
-                titleId={scPreview.titleId}
-                slug={scPreview.slug}
+                target={streamPreviewTarget}
                 active={expanded}
                 maxDurationSec={CARD_PREVIEW_SEC}
                 muted={isPreviewMuted(previewMedia.id, expanded)}

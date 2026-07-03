@@ -64,6 +64,18 @@ export async function removeFriend(
   });
 }
 
+export async function syncLanFriendsPresence(
+  profileId: string,
+  displayName: string,
+  deepScan = false,
+): Promise<import("../types/cloud").LanFriendPresence[]> {
+  return invoke("sync_lan_friends_presence_cmd", {
+    profileId,
+    displayName,
+    deepScan,
+  });
+}
+
 export interface CreateWatchPartyInput {
   profileName: string;
   mediaId: string;

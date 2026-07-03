@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   fetchAddonMeta,
   fetchScMeta,
   fetchScSeasonEpisodes,
   fetchSaturnMeta,
+  fetchLoonexMeta,
   getStreamingWatchProgress,
   listStreamingTitleProgress,
   resolveAddonStreams,
   resolveScStream,
   resolveSaturnStream,
+  resolveLoonexStream,
   resolveScPreview,
   resolveTorrentSource,
 } from "../lib/addonsApi";
@@ -28,10 +30,21 @@ import type { WatchPartySession } from "../types/watchParty";
 import { VideoPlayer } from "./VideoPlayer";
 import { StreamingTitlePage } from "./StreamingTitlePage";
 
+import type { BrowseItem } from "../lib/browse";
+import { RelatedTitlesSection } from "./RelatedTitlesSection";
+
 interface AddonWatchPageProps extends AddonWatchTarget {
   profileId: string;
   onBack: () => void;
   onRefreshContinue?: () => void | Promise<void>;
+  relatedItems?: BrowseItem[];
+  onOpenDetail?: (browse: BrowseItem) => void;
+  onPlayRelated?: (id: string) => void;
+  onPlayStreamingRelated?: (preview: StremioMetaPreview) => void;
+  onOpenSeries?: (seriesKey: string) => void;
+  onToggleFavorite?: (id: string) => void;
+  onToggleStreamingList?: (preview: StremioMetaPreview) => void;
+  onEdit?: (id: string) => void;
   watchPartySession?: WatchPartySession | null;
   onWatchPartySessionChange?: (session: WatchPartySession | null) => void;
 }
@@ -99,16 +112,26 @@ export function AddonWatchPage({
   contentType,
   metaId,
   videoId: initialVideoId,
+  preferredVideoId: initialPreferredVideoId,
   slug,
   catalogPrefix,
   onBack,
   onRefreshContinue,
+  relatedItems = [],
+  onOpenDetail,
+  onPlayRelated,
+  onPlayStreamingRelated,
+  onOpenSeries,
+  onToggleFavorite,
+  onToggleStreamingList,
+  onEdit,
   watchPartySession,
   onWatchPartySessionChange,
 }: AddonWatchPageProps) {
   const isSc = catalogPrefix === "sc" && !!slug;
   const isSaturn = catalogPrefix === "saturn" && !!slug;
-  const isBuiltin = isSc || isSaturn;
+  const isLoonex = catalogPrefix === "loonex" && !!slug;
+  const isBuiltin = isSc || isSaturn || isLoonex;
   const [meta, setMeta] = useState<StremioMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +155,15 @@ export function AddonWatchPage({
     Record<string, TitleDetailEpisodeProgress>
   >({});
   const { streamingListKeys, toggleStreaming } = useMyList(profileId);
+  const initialAutoplayDoneRef = useRef(false);
+  const userPlaybackStartedRef = useRef(false);
+  const playbackGenerationRef = useRef(0);
+
+  useEffect(() => {
+    initialAutoplayDoneRef.current = false;
+    userPlaybackStartedRef.current = false;
+    playbackGenerationRef.current = 0;
+  }, [metaId, slug, catalogPrefix, contentType, initialVideoId, initialPreferredVideoId]);
 
   const loadEpisodeProgress = useCallback(async () => {
     if (!isBuiltin || !slug || !meta) {
@@ -193,13 +225,15 @@ export function AddonWatchPage({
       try {
         const stream = isSc
           ? await resolveScStream(metaId, slug, videoId)
-          : await resolveSaturnStream(slug, videoId);
+          : isLoonex
+            ? await resolveLoonexStream(slug, videoId)
+            : await resolveSaturnStream(slug, videoId);
         return { url: stream.url, isHls: stream.isHls };
       } catch {
         return null;
       }
     },
-    [isBuiltin, isSc, metaId, slug],
+    [isBuiltin, isSc, isLoonex, metaId, slug],
   );
 
   const playStream = useCallback(
@@ -274,9 +308,11 @@ export function AddonWatchPage({
       try {
         const data = isSc
           ? await fetchScMeta(metaId, slug!)
-          : isSaturn
-            ? await fetchSaturnMeta(slug!)
-            : await fetchAddonMeta(profileId, contentType, metaId);
+          : isLoonex
+            ? await fetchLoonexMeta(slug!)
+            : isSaturn
+              ? await fetchSaturnMeta(slug!)
+              : await fetchAddonMeta(profileId, contentType, metaId);
         if (!cancelled) setMeta(data);
       } catch (err) {
         if (!cancelled) {
@@ -289,7 +325,7 @@ export function AddonWatchPage({
     return () => {
       cancelled = true;
     };
-  }, [profileId, contentType, metaId, isSc, isSaturn, slug]);
+  }, [profileId, contentType, metaId, isSc, isSaturn, isLoonex, slug]);
 
   useEffect(() => {
     if (!meta || playback) return;
@@ -304,15 +340,29 @@ export function AddonWatchPage({
   const startPlayback = useCallback(
     async (videoId: string, videoTitle: string) => {
       if (!meta) return;
+      const episodeId = videoId?.trim();
+      const isMultiEpisodeSeries =
+        (meta.type === "series" || meta.type === "channel") &&
+        meta.videos.length > 1;
+      if (isMultiEpisodeSeries && !episodeId) {
+        setError("Seleziona un episodio dalla lista.");
+        return;
+      }
+
+      const generation = ++playbackGenerationRef.current;
+      userPlaybackStartedRef.current = true;
       setStreamsLoading(true);
       setStreamPick(null);
       setError(null);
       try {
         const streams = isSc
-          ? [await resolveScStream(metaId, slug!, videoId)]
-          : isSaturn
-            ? [await resolveSaturnStream(slug!, videoId)]
-            : await resolveAddonStreams(profileId, meta.type, videoId);
+          ? [await resolveScStream(metaId, slug!, episodeId)]
+          : isLoonex
+            ? [await resolveLoonexStream(slug!, episodeId)]
+            : isSaturn
+              ? [await resolveSaturnStream(slug!, episodeId)]
+              : await resolveAddonStreams(profileId, meta.type, episodeId);
+        if (generation !== playbackGenerationRef.current) return;
         if (streams.length === 0) {
           setError(
             "Nessuno stream riproducibile in app. Installa un addon con risorsa «stream» (URL HTTP/HLS).",
@@ -320,17 +370,21 @@ export function AddonWatchPage({
           return;
         }
         if (streams.length === 1) {
-          await playStream(streams[0], videoId, videoTitle);
+          await playStream(streams[0], episodeId, videoTitle);
         } else {
-          setStreamPick({ videoId, videoTitle, streams });
+          setStreamPick({ videoId: episodeId, videoTitle, streams });
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        if (generation === playbackGenerationRef.current) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
       } finally {
-        setStreamsLoading(false);
+        if (generation === playbackGenerationRef.current) {
+          setStreamsLoading(false);
+        }
       }
     },
-    [meta, profileId, playStream, isSc, isSaturn, metaId, slug],
+    [meta, profileId, playStream, isSc, isSaturn, isLoonex, metaId, slug],
   );
 
   const startPreview = useCallback(async () => {
@@ -378,9 +432,18 @@ export function AddonWatchPage({
   );
 
   useEffect(() => {
-    if (!meta || !initialVideoId || loading) return;
+    if (
+      !meta ||
+      !initialVideoId ||
+      loading ||
+      initialAutoplayDoneRef.current ||
+      userPlaybackStartedRef.current
+    ) {
+      return;
+    }
     const video = meta.videos.find((v) => v.id === initialVideoId);
     const title = video?.title?.trim() || meta.name;
+    initialAutoplayDoneRef.current = true;
     void startPlayback(initialVideoId, title);
   }, [meta, initialVideoId, loading, startPlayback]);
 
@@ -484,6 +547,7 @@ export function AddonWatchPage({
       <StreamingTitlePage
         meta={meta}
         episodeProgress={episodeProgress}
+        preferredVideoId={initialPreferredVideoId}
         loading={streamsLoading || resolving}
         error={error}
         onBack={onBack}
@@ -497,6 +561,20 @@ export function AddonWatchPage({
         myListLoading={myListLoading}
         resolveEpisodeStream={isBuiltin ? resolveEpisodeStream : undefined}
         onLoadSeason={isSc ? handleLoadSeason : undefined}
+        footer={
+          relatedItems.length > 0 ? (
+            <RelatedTitlesSection
+              items={relatedItems}
+              onPlay={onPlayRelated ?? (() => {})}
+              onPlayStreaming={onPlayStreamingRelated}
+              onOpenDetail={onOpenDetail}
+              onOpenSeries={onOpenSeries}
+              onToggleFavorite={onToggleFavorite}
+              onToggleStreamingList={onToggleStreamingList}
+              onEdit={onEdit}
+            />
+          ) : undefined
+        }
       />
       {streamPick && (
         <StreamPickModal

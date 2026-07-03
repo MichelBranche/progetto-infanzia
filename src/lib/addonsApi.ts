@@ -194,6 +194,20 @@ export async function resolveSaturnStream(
   });
 }
 
+export async function fetchLoonexMeta(slug: string): Promise<StremioMeta> {
+  return invoke<StremioMeta>("fetch_loonex_meta_cmd", { slug });
+}
+
+export async function resolveLoonexStream(
+  slug: string,
+  episodeId?: string,
+): Promise<PlayableStream> {
+  return invoke<PlayableStream>("resolve_loonex_stream_cmd", {
+    slug,
+    episodeId: episodeId ?? null,
+  });
+}
+
 export async function saveStreamingWatchProgress(
   profileId: string,
   input: StreamingWatchProgressInput,

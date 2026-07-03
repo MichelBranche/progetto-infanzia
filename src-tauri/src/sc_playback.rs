@@ -1,4 +1,5 @@
 use crate::addon_proxy::AddonProxyRegistry;
+use crate::html_text::decode_html_entities;
 use crate::sc_catalog;
 use crate::stremio::{PlayableStream, StremioMeta, StremioMetaPreview, StremioVideo};
 use reqwest::blocking::Client;
@@ -103,8 +104,9 @@ pub fn resolve_playback(
         .get("embedUrl")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "Player non disponibile per questo titolo".to_string())?;
+    let embed_url = embed_url_with_episode(embed_url, episode_id);
 
-    let iframe_html = session.get_html(embed_url, Some(&referer))?;
+    let iframe_html = session.get_html(&embed_url, Some(&referer))?;
     let vix_embed =
         extract_iframe_src(&iframe_html).ok_or_else(|| "Embed vixcloud non trovato".to_string())?;
     let vix_html = session.get_html(&vix_embed, Some(app))?;
@@ -112,6 +114,37 @@ pub fn resolve_playback(
         build_playlist_url(&vix_embed, &vix_html, locale)?,
         proxy,
     ))
+}
+
+/// Solo per test/debug: restituisce l'embedUrl grezzo per ciascun episodio richiesto.
+pub fn debug_embed_urls(
+    app: &str,
+    locale: &str,
+    title_id: i64,
+    slug: &str,
+    episode_ids: &[Option<i64>],
+) -> Vec<(Option<i64>, Result<String, String>)> {
+    episode_ids
+        .iter()
+        .map(|ep| {
+            let result = (|| {
+                let mut session = ScSession::open(app, locale)?;
+                let watch_path = watch_path(locale, title_id, slug, *ep);
+                let referer = title_path(locale, title_id, slug, None);
+                let page = session.inertia_page(&watch_path, Some(&referer))?;
+                let props = page_props(&page)?;
+                let embed = props
+                    .get("embedUrl")
+                    .and_then(|v| v.as_str())
+                    .map(|raw| embed_url_with_episode(raw, *ep))
+                    .ok_or_else(|| "embedUrl mancante".to_string())?;
+                let iframe_html = session.get_html(&embed, Some(&referer))?;
+                extract_iframe_src(&iframe_html)
+                    .ok_or_else(|| "vix embed mancante".to_string())
+            })();
+            (*ep, result)
+        })
+        .collect()
 }
 
 pub fn resolve_preview(
@@ -163,7 +196,7 @@ pub fn search_titles(
         .map(|titles| {
             titles
                 .iter()
-                .filter_map(|t| sc_catalog::preview_from_value(cdn, t))
+                .filter_map(|t| sc_catalog::preview_from_value(cdn, t, None))
                 .collect()
         })
         .unwrap_or_default())
@@ -674,9 +707,35 @@ fn title_season_path(locale: &str, title_id: i64, slug: &str, season_number: i32
 fn watch_path(locale: &str, title_id: i64, slug: &str, episode_id: Option<i64>) -> String {
     let mut path = format!("/{locale}/watch/{title_id}-{slug}");
     if let Some(episode_id) = episode_id {
-        path.push_str(&format!("?episode_id={episode_id}"));
+        path.push_str(&format!("?e={episode_id}"));
     }
     path
+}
+
+/// Il server SC ignora il parametro episodio nel watch path (via Inertia) e
+/// restituisce sempre l'embedUrl del primo episodio. L'iframe però accetta
+/// `episode_id`: forzandolo qui si ottiene il vix embed dell'episodio giusto.
+fn embed_url_with_episode(embed_url: &str, episode_id: Option<i64>) -> String {
+    let Some(episode_id) = episode_id else {
+        return embed_url.to_string();
+    };
+    let Ok(mut url) = reqwest::Url::parse(embed_url) else {
+        return embed_url.to_string();
+    };
+    let others: Vec<(String, String)> = url
+        .query_pairs()
+        .filter(|(k, _)| k != "episode_id")
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
+    {
+        let mut pairs = url.query_pairs_mut();
+        pairs.clear();
+        for (k, v) in &others {
+            pairs.append_pair(k, v);
+        }
+        pairs.append_pair("episode_id", &episode_id.to_string());
+    }
+    url.to_string()
 }
 
 fn page_props(page: &Value) -> Result<&Value, String> {
@@ -767,19 +826,19 @@ fn title_name(title: &Value) -> String {
     title
         .get("name")
         .and_then(|v| v.as_str())
-        .unwrap_or("Titolo")
-        .to_string()
+        .map(decode_html_entities)
+        .unwrap_or_else(|| "Titolo".to_string())
 }
 
 fn plot_from_title(title: &Value) -> Option<String> {
-    title.get("plot").and_then(|v| v.as_str()).map(decode_html)
+    title
+        .get("plot")
+        .and_then(|v| v.as_str())
+        .map(decode_html_entities)
 }
 
 fn decode_html(input: &str) -> String {
-    input
-        .replace("&#39;", "'")
-        .replace("&quot;", "\"")
-        .replace("&amp;", "&")
+    decode_html_entities(input)
 }
 
 fn poster_from_images(cdn: &str, images: Option<&Value>) -> Option<String> {
@@ -822,8 +881,8 @@ fn episodes_from_season(
             let name = episode
                 .get("name")
                 .and_then(|v| v.as_str())
-                .unwrap_or("Episodio")
-                .to_string();
+                .map(decode_html_entities)
+                .unwrap_or_else(|| "Episodio".to_string());
             let duration = episode.get("duration").and_then(|v| v.as_i64());
             Some(StremioVideo {
                 id: id.to_string(),

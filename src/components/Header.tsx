@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
-import { motion } from "framer-motion";
-import { Search, Bell, RefreshCw, ChevronDown, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Search, Bell, RefreshCw, X } from "lucide-react";
 import { ProfileAvatar } from "./ProfileAvatar";
 import type { Profile } from "../types/profile";
-import { isParentProfile } from "../types/profile";
+import { isParentProfile, roleLabel } from "../types/profile";
 
 interface HeaderProps {
   profile: Profile;
@@ -15,7 +15,11 @@ interface HeaderProps {
   onRescan: () => void;
   onSwitchProfile: () => void;
   scanning: boolean;
-  totalCount?: number;
+  scrolled?: boolean;
+}
+
+function ToolbarDivider() {
+  return <span className="hidden h-5 w-px shrink-0 bg-white/[0.08] sm:block" />;
 }
 
 export function Header({
@@ -28,7 +32,7 @@ export function Header({
   onRescan,
   onSwitchProfile,
   scanning,
-  totalCount,
+  scrolled = false,
 }: HeaderProps) {
   const isParent = isParentProfile(profile);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -46,120 +50,138 @@ export function Header({
 
   return (
     <header
-      className={`pointer-events-none absolute top-0 right-0 left-0 flex items-start justify-end page-px py-4 sm:py-5 lg:py-6 ${
-        searchActive ? "z-[35]" : "z-20"
+      className={`pointer-events-none absolute top-0 right-0 left-0 z-20 page-px transition-[background,box-shadow] duration-500 ${
+        searchActive ? "z-[35]" : ""
+      } ${
+        scrolled || searchActive
+          ? "border-b border-white/[0.06] bg-[#070709]/90 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl"
+          : ""
       }`}
     >
+      <div className="noise-overlay pointer-events-none absolute inset-0 opacity-[0.12]" />
+
       <div
-        className={`pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-void/95 via-void/50 to-transparent transition-[height] duration-300 ${
-          searchActive ? "h-32 sm:h-36" : "h-24 lg:h-28"
-        }`}
-      />
-      <div
-        className={`pointer-events-auto relative flex w-full min-w-0 ${
-          searchActive
-            ? "flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-2"
-            : "max-w-full flex-wrap items-center justify-end gap-1.5 sm:gap-2"
+        className={`pointer-events-auto relative flex items-stretch justify-end gap-0 py-3 sm:py-4 lg:py-5 ${
+          searchActive ? "flex-col sm:flex-row sm:items-center" : ""
         }`}
       >
-        {totalCount !== undefined && !searchActive && (
-          <span className="hidden text-[11px] tabular-nums text-text-muted sm:block">
-            {totalCount} titoli
-          </span>
-        )}
-
-        <motion.div
-          className={`flex h-10 min-w-0 items-center gap-2.5 rounded-full border border-white/[0.08] bg-void/90 shadow-[0_8px_32px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-all duration-300 sm:gap-3 ${
-            searchActive
-              ? "w-full px-4 sm:h-11 sm:max-w-2xl sm:flex-1 sm:px-5"
-              : "px-3.5 sm:px-4"
-          }`}
-          initial={{ opacity: 0, y: -12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6, duration: 0.5 }}
-        >
-          <button
-            type="button"
-            onClick={openSearch}
-            className="shrink-0 text-text-muted transition-colors hover:text-text-primary"
-            aria-label="Cerca"
-          >
-            <Search className="h-4 w-4 sm:h-[18px] sm:w-[18px]" strokeWidth={1.5} />
-          </button>
-          <input
-            ref={inputRef}
-            type="text"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            onFocus={openSearch}
-            placeholder="Cerca titoli…"
-            className={`min-w-0 bg-transparent text-text-primary caret-accent placeholder:text-text-muted outline-none ${
-              searchActive
-                ? "flex-1 text-[15px] sm:text-base"
-                : "w-24 text-[13px] sm:w-36 md:w-44"
-            }`}
-          />
-          {searchActive && (
-            <button
-              type="button"
-              onClick={() => {
-                if (searchQuery) onSearchChange("");
-                else onCloseSearch?.();
-              }}
-              className="shrink-0 text-text-muted transition-colors hover:text-text-primary"
-              aria-label={searchQuery ? "Cancella ricerca" : "Chiudi ricerca"}
+        <AnimatePresence mode="wait">
+          {searchActive ? (
+            <motion.div
+              key="search-expanded"
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+              className="flex w-full min-w-0 flex-1 items-end gap-3 border-b border-white/20 pb-2 sm:max-w-3xl"
             >
-              <X className="h-4 w-4" strokeWidth={1.5} />
-            </button>
+              <span className="mb-0.5 hidden text-[10px] font-medium uppercase tracking-[0.32em] text-text-muted sm:block">
+                Ricerca
+              </span>
+              <Search
+                className="mb-0.5 h-4 w-4 shrink-0 text-text-muted"
+                strokeWidth={1.5}
+              />
+              <input
+                ref={inputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+                placeholder="Titoli, serie, cartoni…"
+                className="min-w-0 flex-1 bg-transparent font-display text-[15px] tracking-[-0.02em] text-text-primary caret-accent placeholder:text-text-muted/70 outline-none sm:text-[16px]"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (searchQuery) onSearchChange("");
+                  else onCloseSearch?.();
+                }}
+                className="mb-0.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.2em] text-text-muted transition-colors hover:text-text-secondary"
+                aria-label={searchQuery ? "Cancella ricerca" : "Chiudi ricerca"}
+              >
+                <X className="h-3.5 w-3.5" strokeWidth={1.5} />
+                <span className="hidden sm:inline">Chiudi</span>
+              </button>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="toolbar"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.25 }}
+              className="flex w-full items-center justify-end gap-3 sm:gap-4"
+            >
+              <div className="flex items-center gap-3 sm:gap-4">
+                <button
+                  type="button"
+                  onClick={openSearch}
+                  className="group flex items-end gap-2.5 border-b border-white/10 pb-1.5 transition-colors hover:border-white/30"
+                  aria-label="Cerca"
+                >
+                  <Search
+                    className="mb-0.5 h-3.5 w-3.5 text-text-muted transition-colors group-hover:text-text-secondary"
+                    strokeWidth={1.5}
+                  />
+                  <span className="hidden font-display text-[13px] tracking-[-0.02em] text-text-muted transition-colors group-hover:text-text-secondary sm:inline">
+                    Cerca
+                  </span>
+                  <kbd className="mb-0.5 hidden font-mono text-[9px] text-text-muted/50 sm:inline">
+                    /
+                  </kbd>
+                </button>
+
+                <ToolbarDivider />
+
+                {isParent && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={onRescan}
+                      disabled={scanning}
+                      title="Aggiorna libreria"
+                      className="group flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.22em] text-text-muted transition-colors hover:text-text-secondary disabled:opacity-40"
+                    >
+                      <RefreshCw
+                        className={`h-3.5 w-3.5 ${scanning ? "animate-spin" : ""}`}
+                        strokeWidth={1.5}
+                      />
+                      <span className="hidden md:inline">Sync</span>
+                    </button>
+                    <ToolbarDivider />
+                  </>
+                )}
+
+                <button
+                  type="button"
+                  className="flex h-8 w-8 items-center justify-center text-text-muted transition-colors hover:text-text-secondary"
+                  aria-label="Notifiche"
+                >
+                  <Bell className="h-3.5 w-3.5" strokeWidth={1.5} />
+                </button>
+
+                <ToolbarDivider />
+
+                <button
+                  type="button"
+                  onClick={onSwitchProfile}
+                  title="Cambia profilo"
+                  className="group flex items-center gap-2.5 py-0.5 text-left transition-opacity hover:opacity-85"
+                >
+                  <ProfileAvatar profile={profile} size="sm" />
+                  <div className="hidden min-w-0 sm:block">
+                    <p className="truncate font-display text-[13px] font-medium tracking-[-0.02em] text-text-primary">
+                      {profile.name}
+                    </p>
+                    <p className="truncate text-[9px] uppercase tracking-[0.18em] text-text-muted">
+                      {roleLabel(profile.role)}
+                    </p>
+                  </div>
+                </button>
+              </div>
+            </motion.div>
           )}
-        </motion.div>
-
-        {isParent && (
-          <motion.button
-            onClick={onRescan}
-            disabled={scanning}
-            initial={{ opacity: 0, y: -12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.65, duration: 0.5 }}
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            title="Aggiorna libreria"
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.08] bg-void/75 shadow-[0_8px_32px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-colors hover:border-white/12 disabled:opacity-50"
-          >
-            <RefreshCw
-              className={`h-3.5 w-3.5 text-text-secondary ${scanning ? "animate-spin" : ""}`}
-              strokeWidth={1.5}
-            />
-          </motion.button>
-        )}
-
-        <motion.button
-          initial={{ opacity: 0, y: -12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7, duration: 0.5 }}
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.97 }}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.08] bg-void/75 shadow-[0_8px_32px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-colors hover:border-white/12"
-        >
-          <Bell className="h-3.5 w-3.5 text-text-secondary" strokeWidth={1.5} />
-        </motion.button>
-
-        <motion.button
-          onClick={onSwitchProfile}
-          initial={{ opacity: 0, y: -12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.75, duration: 0.5 }}
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.97 }}
-          className="flex items-center gap-2 rounded-full border border-white/[0.08] bg-void/75 py-1 pl-1 pr-3 shadow-[0_8px_32px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-colors hover:border-white/12"
-          title="Cambia profilo"
-        >
-          <ProfileAvatar profile={profile} size="sm" />
-          <span className="hidden max-w-[80px] truncate text-[12px] font-medium text-text-primary sm:block">
-            {profile.name}
-          </span>
-          <ChevronDown className="h-3 w-3 text-text-muted" />
-        </motion.button>
+        </AnimatePresence>
       </div>
     </header>
   );

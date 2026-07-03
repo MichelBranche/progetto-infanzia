@@ -147,13 +147,13 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
       title: "Cerca",
       subtitle: "Streaming e libreria locale",
     },
-    film: { title: "Film", subtitle: "Tutti i film nella libreria" },
+    film: { title: "Film", subtitle: "Blockbuster, drammi e grandi storie" },
     anime: {
       title: "Anime",
       subtitle: "Catalogo AnimeSaturn · Sub ITA e ITA",
     },
-    cartoni: { title: "Cartoni", subtitle: "Animazione e avventure" },
-    serie: { title: "Serie TV", subtitle: "Stagioni e episodi" },
+    cartoni: { title: "Cartoni", subtitle: "Animazione, avventure e Loonex" },
+    serie: { title: "Serie TV", subtitle: "Stagioni, episodi e binge watching" },
     capsula: {
       title: "Capsula del tempo",
       subtitle: "Classici e tesori rari",

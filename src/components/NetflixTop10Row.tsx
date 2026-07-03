@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { StremioMetaPreview } from "../types/stremio";
+import type { BrowseItem } from "../lib/browse";
+import { streamingBrowseItem } from "../lib/streamingBrowse";
 import { CARD_HOVER_DELAY_MS, CARD_PREVIEW_SEC } from "../lib/preview";
 import { top10NumberPad, top10PosterWidth } from "../lib/useCardDimensions";
-import { prefetchScPreview } from "../lib/streamingPreviewCache";
+import { prefetchStreamingPreview } from "../lib/streamingPreviewCache";
+import { previewToStreamingTarget } from "../lib/streamingHeroPreview";
 import { streamingPreviewDisplayName } from "../lib/streamingBrowse";
 import { usePreviewAudio } from "../context/PreviewAudioContext";
 import { PreviewAudioToggle } from "./PreviewAudioToggle";
@@ -13,12 +16,14 @@ interface NetflixTop10RowProps {
   title: string;
   items: StremioMetaPreview[];
   onPlayStreaming: (preview: StremioMetaPreview) => void;
+  onOpenDetail?: (browse: BrowseItem) => void;
 }
 
 export function NetflixTop10Row({
   title,
   items,
   onPlayStreaming,
+  onOpenDetail,
 }: NetflixTop10RowProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -59,13 +64,14 @@ export function NetflixTop10Row({
 
   const handleItemEnter = (preview: StremioMetaPreview) => {
     const previewId = `top10:${preview.id}`;
-    const canPreview = preview.catalogPrefix === "sc" && !!preview.slug;
+    const streamTarget = previewToStreamingTarget(preview);
+    const canPreview = streamTarget != null;
 
     clearHoverTimer();
     hoverTimer.current = window.setTimeout(() => {
       setHoveredId(previewId);
-      if (canPreview) {
-        prefetchScPreview(preview.id, preview.slug!);
+      if (canPreview && streamTarget) {
+        prefetchStreamingPreview(streamTarget, CARD_PREVIEW_SEC);
         claimCardPreviewFocus(previewId);
       }
     }, CARD_HOVER_DELAY_MS);
@@ -78,7 +84,7 @@ export function NetflixTop10Row({
   };
 
   return (
-    <section className="group/top10 relative z-20 -mt-2 overflow-visible py-3 sm:-mt-4 sm:py-4">
+    <section className="group/top10 relative z-10 -mt-2 overflow-visible py-3 hover:z-30 sm:-mt-4 sm:py-4">
       <div className="page-px">
         <div className="mb-4 flex flex-col items-center gap-3 sm:mb-5">
           <h2 className="font-display text-center text-xl font-semibold tracking-[-0.02em] text-text-primary sm:text-2xl">
@@ -114,14 +120,21 @@ export function NetflixTop10Row({
             const rank = index + 1;
             const previewId = `top10:${preview.id}`;
             const numberPad = top10NumberPad(rank, posterWidth);
-            const canPreview = preview.catalogPrefix === "sc" && !!preview.slug;
+            const streamTarget = previewToStreamingTarget(preview);
+            const canPreview = streamTarget != null;
             const isHovered = hoveredId === previewId;
 
             return (
               <button
                 key={`${preview.type}:${preview.id}`}
                 type="button"
-                onClick={() => onPlayStreaming(preview)}
+                onClick={() => {
+                  if (onOpenDetail) {
+                    onOpenDetail(streamingBrowseItem(preview));
+                    return;
+                  }
+                  onPlayStreaming(preview);
+                }}
                 onMouseEnter={() => handleItemEnter(preview)}
                 onMouseLeave={() => handleItemLeave(preview)}
                 className="group/item relative flex shrink-0 flex-col items-end"
@@ -149,10 +162,9 @@ export function NetflixTop10Row({
                     className="relative z-[2] ml-auto shrink-0 overflow-hidden rounded-md bg-[#1a1a1a] shadow-[0_8px_24px_rgba(0,0,0,0.45)] ring-1 ring-white/10 transition-transform duration-200 group-hover/item:scale-[1.05] group-hover/item:ring-white/25"
                     style={{ width: posterWidth, height: posterHeight }}
                   >
-                    {canPreview && isHovered && (
+                    {canPreview && isHovered && streamTarget && (
                       <StreamingVideoPreview
-                        titleId={preview.id}
-                        slug={preview.slug!}
+                        target={streamTarget}
                         active={isHovered}
                         maxDurationSec={CARD_PREVIEW_SEC}
                         muted={isPreviewMuted(previewId, isHovered)}

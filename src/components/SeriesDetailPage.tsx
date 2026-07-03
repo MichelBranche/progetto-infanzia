@@ -14,12 +14,22 @@ import {
 import { titleDetailFromSeriesKey } from "../lib/titleDetail";
 import { TitleDetailPage } from "./TitleDetailPage";
 
+import type { BrowseItem } from "../lib/browse";
+import { RelatedTitlesSection } from "./RelatedTitlesSection";
+import type { StremioMetaPreview } from "../types/stremio";
+
 interface SeriesDetailPageProps {
   seriesKey: string;
   items: MediaItem[];
   isParent: boolean;
+  relatedItems?: BrowseItem[];
   onBack: () => void;
   onPlay: (id: string) => void;
+  onOpenDetail?: (browse: BrowseItem) => void;
+  onPlayStreaming?: (preview: StremioMetaPreview) => void;
+  onOpenSeries?: (seriesKey: string) => void;
+  onToggleFavorite?: (id: string) => void;
+  onToggleStreamingList?: (preview: StremioMetaPreview) => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void | Promise<void>;
   onAddEpisode: (series: SeriesRef) => void;
@@ -29,8 +39,14 @@ export function SeriesDetailPage({
   seriesKey,
   items,
   isParent,
+  relatedItems = [],
   onBack,
   onPlay,
+  onOpenDetail,
+  onPlayStreaming,
+  onOpenSeries,
+  onToggleFavorite,
+  onToggleStreamingList,
   onEdit,
   onDelete,
   onAddEpisode,
@@ -147,6 +163,20 @@ export function SeriesDetailPage({
             </button>
           </div>
         ) : null
+      }
+      footer={
+        relatedItems.length > 0 ? (
+          <RelatedTitlesSection
+            items={relatedItems}
+            onPlay={onPlay}
+            onPlayStreaming={onPlayStreaming}
+            onOpenDetail={onOpenDetail}
+            onOpenSeries={onOpenSeries}
+            onToggleFavorite={onToggleFavorite}
+            onToggleStreamingList={onToggleStreamingList}
+            onEdit={onEdit}
+          />
+        ) : undefined
       }
     />
   );

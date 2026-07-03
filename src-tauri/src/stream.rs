@@ -1,18 +1,20 @@
 use crate::addon_proxy::AddonProxyRegistry;
 use crate::db::Database;
+use crate::friend_presence::{get_device_presence, PresenceHello, PresenceRegistry};
 use crate::models::STREAM_PORT;
 use crate::torrent::TorrentEngine;
 use crate::watch_party::{self, WatchPartyRegistry, WsConnectParams};
 use axum::{
     body::Body,
-    extract::{Path, Query, State, WebSocketUpgrade},
+    extract::{ConnectInfo, Path, Query, State, WebSocketUpgrade},
     http::{header, HeaderMap, Response, StatusCode},
     response::IntoResponse,
-    routing::get,
-    Router,
+    routing::{get, post},
+    Json, Router,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::net::SocketAddr;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio_util::io::ReaderStream;
@@ -23,6 +25,46 @@ pub struct StreamState {
     pub addon_proxy: Arc<AddonProxyRegistry>,
     pub torrent: Arc<TorrentEngine>,
     pub watch_party: Arc<WatchPartyRegistry>,
+    pub presence: PresenceRegistry,
+}
+
+#[derive(serde::Deserialize)]
+struct PresenceLookupQuery {
+    code: String,
+}
+
+async fn presence_whoami_handler(
+    State(state): State<Arc<StreamState>>,
+) -> impl IntoResponse {
+    match get_device_presence(&state.presence) {
+        Some(p) => (StatusCode::OK, Json(p)).into_response(),
+        None => StatusCode::NO_CONTENT.into_response(),
+    }
+}
+
+async fn presence_lookup_handler(
+    State(state): State<Arc<StreamState>>,
+    Query(query): Query<PresenceLookupQuery>,
+) -> impl IntoResponse {
+    let wanted = query.code.trim().to_uppercase();
+    match get_device_presence(&state.presence) {
+        Some(p) if p.friend_code.to_uppercase() == wanted => {
+            (StatusCode::OK, Json(p)).into_response()
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn presence_hello_handler(
+    State(state): State<Arc<StreamState>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(body): Json<PresenceHello>,
+) -> impl IntoResponse {
+    let host = addr.ip().to_string();
+    let _ = state
+        .db
+        .update_friend_hosts_for_code(&body.friend_code, &host);
+    StatusCode::NO_CONTENT
 }
 
 pub async fn start_server(
@@ -30,12 +72,14 @@ pub async fn start_server(
     addon_proxy: Arc<AddonProxyRegistry>,
     torrent: Arc<TorrentEngine>,
     watch_party: Arc<WatchPartyRegistry>,
+    presence: PresenceRegistry,
 ) {
     let state = Arc::new(StreamState {
         db,
         addon_proxy,
         torrent,
         watch_party,
+        presence,
     });
 
     let cors = CorsLayer::new()
@@ -51,6 +95,7 @@ pub async fn start_server(
         .route("/poster/{id}", get(poster_handler))
         .route("/series-poster/{id}", get(series_poster_handler))
         .route("/saturn-poster/{*path}", get(saturn_poster_handler))
+        .route("/loonex-poster/{*path}", get(loonex_poster_handler))
         .route(
             "/remote/{id}",
             get(remote_handler).head(remote_head_handler),
@@ -61,6 +106,9 @@ pub async fn start_server(
             get(torrent_handler).head(torrent_head_handler),
         )
         .route("/watch-party/ws", get(watch_party_ws_handler))
+        .route("/presence/whoami", get(presence_whoami_handler))
+        .route("/presence/lookup", get(presence_lookup_handler))
+        .route("/presence/hello", post(presence_hello_handler))
         .layer(cors)
         .with_state(state);
 
@@ -288,15 +336,88 @@ async fn series_poster_handler(
     .await
 }
 
+async fn loonex_poster_handler(
+    State(state): State<Arc<StreamState>>,
+    Path(path): Path<String>,
+) -> Result<Response<Body>, StatusCode> {
+    let decoded = urlencoding::decode(&path).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let rel = decoded.replace('\\', "/");
+    if let Some(file_path) = crate::loonex_catalog::poster_file_path(state.db.as_ref(), &rel) {
+        return serve_image(file_path.to_string_lossy().to_string()).await;
+    }
+    let upstream =
+        crate::loonex_catalog::poster_upstream_url(state.db.as_ref(), &rel);
+    serve_remote_image(&upstream).await
+}
+
+async fn serve_remote_image(url: &str) -> Result<Response<Body>, StatusCode> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+             (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Branchefy/0.1",
+        )
+        .build()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let referer = referer_for_image_url(url);
+    let response = client
+        .get(url)
+        .header("Referer", referer)
+        .header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+        .send()
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?
+        .error_for_status()
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/jpeg")
+        .to_string();
+
+    let data = response
+        .bytes()
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CACHE_CONTROL, "public, max-age=3600")
+        .body(Body::from(data))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+fn referer_for_image_url(url: &str) -> &'static str {
+    let lower = url.to_ascii_lowercase();
+    if lower.contains("image.tmdb.org") || lower.contains("themoviedb.org") {
+        "https://www.themoviedb.org/"
+    } else if lower.contains("saturncdn.net") {
+        "https://www.animesaturn.ac/"
+    } else if lower.contains("streamingcommunity") {
+        "https://streamingcommunityz.tech/"
+    } else {
+        "https://loonex.eu/cartoni/"
+    }
+}
+
 async fn saturn_poster_handler(
     State(state): State<Arc<StreamState>>,
     Path(path): Path<String>,
 ) -> Result<Response<Body>, StatusCode> {
     let decoded = urlencoding::decode(&path).map_err(|_| StatusCode::BAD_REQUEST)?;
     let rel = decoded.replace('\\', "/");
-    let file_path = crate::saturn_catalog::poster_file_path(state.db.as_ref(), &rel)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    serve_image(file_path.to_string_lossy().to_string()).await
+    if let Some(file_path) = crate::saturn_catalog::poster_file_path(state.db.as_ref(), &rel) {
+        return serve_image(file_path.to_string_lossy().to_string()).await;
+    }
+    let upstream = format!(
+        "https://img.saturncdn.net/{}",
+        rel.trim_start_matches('/')
+    );
+    serve_remote_image(&upstream).await
 }
 
 async fn serve_image(file_path: String) -> Result<Response<Body>, StatusCode> {

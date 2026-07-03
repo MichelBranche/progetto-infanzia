@@ -94,6 +94,8 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    const { clearMyPresence } = await import("../lib/cloudPresence");
+    await clearMyPresence();
     await signOutCloud();
     setProfile(null);
     setUser(null);

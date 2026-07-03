@@ -3,12 +3,16 @@ mod cast;
 mod catalog_search;
 mod db;
 mod debrid;
+mod html_text;
+mod friend_presence;
 mod import_media;
 mod media_ops;
 mod models;
 mod network;
 mod parental;
 mod profiles;
+mod loonex_catalog;
+mod loonex_playback;
 mod saturn_catalog;
 mod saturn_playback;
 mod sc_catalog;
@@ -37,7 +41,7 @@ use profiles::{CreateProfileInput, Profile, UpdateProfileInput};
 use scanner::{resolve_media_root, scan_library};
 use serde::Deserialize;
 use settings::{AppSettings, UpdateSettingsInput};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use stremio::{
     fetch_catalog, fetch_manifest, fetch_meta, fetch_streams, has_resource, raw_to_playable,
@@ -47,6 +51,10 @@ use stremio::{
 };
 use tauri::{AppHandle, Manager, State};
 use torrent::TorrentEngine;
+use friend_presence::{
+    new_presence_registry, set_device_presence, DevicePresence, LanFriendPresence,
+    PresenceRegistry,
+};
 use watch_party::{WatchPartyContent, WatchPartyRegistry, WatchPartyRoomInfo};
 
 struct AppState {
@@ -55,6 +63,7 @@ struct AppState {
     addon_proxy: Arc<AddonProxyRegistry>,
     torrent: Arc<TorrentEngine>,
     watch_party: Arc<WatchPartyRegistry>,
+    presence: PresenceRegistry,
 }
 
 fn build_library(
@@ -657,18 +666,64 @@ async fn fetch_saturn_catalog_fast(
     }
 }
 
+async fn fetch_loonex_catalog_fast(
+    db: Arc<crate::db::Database>,
+) -> Option<loonex_catalog::LoonexCatalogResponse> {
+    let task = tokio::task::spawn_blocking(move || loonex_catalog::fetch_catalog(db.as_ref()));
+    match tokio::time::timeout(std::time::Duration::from_secs(20), task).await {
+        Ok(Ok(Ok(response))) => Some(response),
+        _ => None,
+    }
+}
+
+fn merge_external_catalog(
+    response: &mut sc_catalog::ScCatalogResponse,
+    rows: Vec<sc_catalog::ScCatalogRow>,
+    index: Vec<StremioMetaPreview>,
+    synced_at: i64,
+) {
+    response.rows.extend(rows);
+    let mut seen: HashSet<String> = response
+        .index
+        .iter()
+        .map(|p| {
+            format!(
+                "{}:{}:{}",
+                p.catalog_prefix.as_deref().unwrap_or("sc"),
+                p.r#type,
+                p.id
+            )
+        })
+        .collect();
+    for item in index {
+        let key = format!(
+            "{}:{}:{}",
+            item.catalog_prefix.as_deref().unwrap_or("sc"),
+            item.r#type,
+            item.id
+        );
+        if seen.insert(key) {
+            response.index.push(item);
+        }
+    }
+    response.synced_at = response.synced_at.max(synced_at);
+    response.total_count = response.index.len();
+}
+
 #[tauri::command]
 async fn fetch_sc_catalog_cmd(
     state: State<'_, AppState>,
 ) -> Result<sc_catalog::ScCatalogResponse, String> {
     let sc_enabled = sc_catalog::catalog_enabled(&state.db);
     let saturn_enabled = saturn_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled {
+    let loonex_enabled = loonex_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled {
         return Ok(sc_catalog::ScCatalogResponse {
             rows: Vec::new(),
             index: Vec::new(),
             synced_at: 0,
             total_count: 0,
+            needs_background_sync: false,
         });
     }
     let cdn = sc_catalog::cdn_url(&state.db);
@@ -686,6 +741,7 @@ async fn fetch_sc_catalog_cmd(
                     index: Vec::new(),
                     synced_at: 0,
                     total_count: 0,
+                    needs_background_sync: false,
                 });
             }
             tokio::task::spawn_blocking(move || {
@@ -700,16 +756,50 @@ async fn fetch_sc_catalog_cmd(
         if !saturn_enabled {
             return None;
         }
-        fetch_saturn_catalog_fast(Arc::clone(&db)).await
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(4),
+            fetch_saturn_catalog_fast(Arc::clone(&db)),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => None,
+        }
     };
 
-    let (sc_result, saturn) = tokio::join!(sc_future, saturn_future);
+    let loonex_future = async {
+        if !loonex_enabled {
+            return None;
+        }
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(4),
+            fetch_loonex_catalog_fast(Arc::clone(&db)),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => None,
+        }
+    };
+
+    let (sc_result, saturn, loonex) = tokio::join!(sc_future, saturn_future, loonex_future);
     let mut response = sc_result?;
 
     if let Some(saturn) = saturn {
-        response.rows.extend(saturn.rows);
-        response.synced_at = response.synced_at.max(saturn.synced_at);
-        response.total_count = response.index.len();
+        merge_external_catalog(
+            &mut response,
+            saturn.rows,
+            saturn.index,
+            saturn.synced_at,
+        );
+    }
+    if let Some(loonex) = loonex {
+        merge_external_catalog(
+            &mut response,
+            loonex.rows,
+            loonex.index,
+            loonex.synced_at,
+        );
     }
 
     Ok(response)
@@ -755,12 +845,14 @@ async fn refresh_sc_catalog_cmd(
 ) -> Result<sc_catalog::ScCatalogResponse, String> {
     let sc_enabled = sc_catalog::catalog_enabled(&state.db);
     let saturn_enabled = saturn_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled {
+    let loonex_enabled = loonex_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled {
         return Ok(sc_catalog::ScCatalogResponse {
             rows: Vec::new(),
             index: Vec::new(),
             synced_at: 0,
             total_count: 0,
+            needs_background_sync: false,
         });
     }
     let cdn = sc_catalog::cdn_url(&state.db);
@@ -775,25 +867,28 @@ async fn refresh_sc_catalog_cmd(
                 index: Vec::new(),
                 synced_at: 0,
                 total_count: 0,
+                needs_background_sync: false,
             }
         };
 
         if saturn_enabled {
             let saturn = saturn_catalog::refresh_catalog_index(db.as_ref())?;
-            response.rows.extend(saturn.rows);
-            let mut seen: std::collections::HashSet<String> = response
-                .index
-                .iter()
-                .map(|p| format!("{}:{}", p.r#type, p.id))
-                .collect();
-            for item in saturn.index {
-                let key = format!("{}:{}", item.r#type, item.id);
-                if seen.insert(key) {
-                    response.index.push(item);
-                }
-            }
-            response.synced_at = response.synced_at.max(saturn.synced_at);
-            response.total_count = response.index.len();
+            merge_external_catalog(
+                &mut response,
+                saturn.rows,
+                saturn.index,
+                saturn.synced_at,
+            );
+        }
+
+        if loonex_enabled {
+            let loonex = loonex_catalog::refresh_catalog_index(db.as_ref())?;
+            merge_external_catalog(
+                &mut response,
+                loonex.rows,
+                loonex.index,
+                loonex.synced_at,
+            );
         }
 
         Ok(response)
@@ -891,7 +986,8 @@ async fn search_sc_catalog_page_inner(
     let db = Arc::clone(&state.db);
     let sc_enabled = sc_catalog::catalog_enabled(&state.db);
     let saturn_enabled = saturn_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled {
+    let loonex_enabled = loonex_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled {
         return Ok(catalog_search::SearchCatalogPage {
             items: Vec::new(),
             total: 0,
@@ -912,6 +1008,7 @@ async fn search_sc_catalog_page_inner(
             page_limit,
             sc_enabled,
             saturn_enabled,
+            loonex_enabled,
             &cdn,
             &locale,
         )
@@ -975,6 +1072,39 @@ async fn resolve_saturn_stream_cmd(
     })
     .await
     .map_err(|e| format!("Errore riproduzione Saturn: {e}"))?
+}
+
+#[tauri::command]
+async fn fetch_loonex_meta_cmd(
+    state: State<'_, AppState>,
+    slug: String,
+) -> Result<StremioMeta, String> {
+    if !loonex_catalog::enabled(&state.db) {
+        return Err("Catalogo Loonex Cartoni disabilitato".into());
+    }
+    let db = Arc::clone(&state.db);
+    tokio::task::spawn_blocking(move || loonex_playback::fetch_title_meta(db.as_ref(), &slug))
+        .await
+        .map_err(|e| format!("Errore meta Loonex: {e}"))?
+}
+
+#[tauri::command]
+async fn resolve_loonex_stream_cmd(
+    state: State<'_, AppState>,
+    slug: String,
+    episode_id: Option<String>,
+) -> Result<PlayableStream, String> {
+    if !loonex_catalog::enabled(&state.db) {
+        return Err("Catalogo Loonex Cartoni disabilitato".into());
+    }
+    let episode_id = episode_id.filter(|s| !s.trim().is_empty());
+    let db = Arc::clone(&state.db);
+    let proxy = state.addon_proxy.clone();
+    tokio::task::spawn_blocking(move || {
+        loonex_playback::resolve_playback(db.as_ref(), &slug, episode_id.as_deref(), &proxy)
+    })
+    .await
+    .map_err(|e| format!("Errore riproduzione Loonex: {e}"))?
 }
 
 #[tauri::command]
@@ -1601,6 +1731,33 @@ fn remove_friend_cmd(
 }
 
 #[tauri::command]
+async fn sync_lan_friends_presence_cmd(
+    state: State<'_, AppState>,
+    profile_id: String,
+    display_name: String,
+    deep_scan: Option<bool>,
+) -> Result<Vec<LanFriendPresence>, String> {
+    let friend_code = state.db.get_or_create_friend_code(&profile_id)?;
+    set_device_presence(
+        &state.presence,
+        DevicePresence {
+            profile_id: profile_id.clone(),
+            friend_code: friend_code.clone(),
+            display_name: display_name.clone(),
+        },
+    );
+
+    friend_presence::sync_lan_presence(
+        state.db.as_ref(),
+        &profile_id,
+        &friend_code,
+        &display_name,
+        deep_scan.unwrap_or(false),
+    )
+    .await
+}
+
+#[tauri::command]
 fn create_watch_party_cmd(
     state: State<'_, AppState>,
     profile_id: String,
@@ -1728,6 +1885,7 @@ fn init_app(handle: &AppHandle) -> Result<AppState, String> {
     let db = Arc::new(Database::open(&db_path)?);
     let _ = db.ensure_catalog_addon();
     let _ = saturn_catalog::ensure_defaults(&db);
+    let _ = loonex_catalog::ensure_defaults(&db);
     let _ = db.sync_empty_child_allowlists();
     let media_root = parking_lot::RwLock::new(resolve_media_root(handle, &db));
     scan_library(&db, media_root.read().as_path())?;
@@ -1743,13 +1901,22 @@ fn init_app(handle: &AppHandle) -> Result<AppState, String> {
     let torrent_engine = Arc::new(TorrentEngine::new(cache_dir.join("branchefy-torrents")));
 
     let watch_party = Arc::new(WatchPartyRegistry::new());
+    let presence = new_presence_registry();
 
     let db_stream = db.clone();
     let proxy_stream = addon_proxy.clone();
     let torrent_stream = torrent_engine.clone();
     let party_stream = watch_party.clone();
+    let presence_stream = presence.clone();
     tauri::async_runtime::spawn(async move {
-        stream::start_server(db_stream, proxy_stream, torrent_stream, party_stream).await;
+        stream::start_server(
+            db_stream,
+            proxy_stream,
+            torrent_stream,
+            party_stream,
+            presence_stream,
+        )
+        .await;
     });
 
     Ok(AppState {
@@ -1758,6 +1925,7 @@ fn init_app(handle: &AppHandle) -> Result<AppState, String> {
         addon_proxy,
         torrent: torrent_engine,
         watch_party,
+        presence,
     })
 }
 
@@ -1819,6 +1987,8 @@ pub fn run() {
             browse_saturn_anime_cmd,
             fetch_saturn_meta_cmd,
             resolve_saturn_stream_cmd,
+            fetch_loonex_meta_cmd,
+            resolve_loonex_stream_cmd,
             resolve_sc_preview_cmd,
             update_streaming_watch_progress_cmd,
             get_streaming_watch_progress_cmd,
@@ -1846,6 +2016,7 @@ pub fn run() {
             list_friends_cmd,
             add_friend_cmd,
             remove_friend_cmd,
+            sync_lan_friends_presence_cmd,
             create_watch_party_cmd,
             get_watch_party_cmd,
             close_watch_party_cmd,

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Clock, Library, Loader2, Users } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Clock, Library, Loader2, X } from "lucide-react";
 import type { Profile } from "../types/profile";
-import { roleLabel } from "../types/profile";
 import type { MediaItem } from "../types/media";
 import type { StremioMetaPreview } from "../types/stremio";
-import { ProfileAvatar } from "./ProfileAvatar";
 import { MediaGrid } from "./MediaGrid";
 import { FriendsPage } from "./FriendsPage";
+import { ProfileHero } from "./profile/ProfileHero";
 import { getStreamingWatchHistory } from "../lib/addonsApi";
 import { isWatchInProgress, toBrowseItems } from "../lib/browse";
 import {
@@ -16,6 +16,15 @@ import {
 import { streamingBrowseItem } from "../lib/streamingBrowse";
 import { markStreamingInMyList } from "../lib/myList";
 import type { WatchPartySession } from "../types/watchParty";
+import { useProfile } from "../context/ProfileContext";
+import { useCloudAccount } from "../context/CloudAccountContext";
+import { useCloudFriendPresence } from "../hooks/useFriendPresence";
+import { useLanFriendPresence } from "../hooks/useLanFriendPresence";
+import {
+  ProfileCustomizeForm,
+  profileCustomizeToUpdate,
+  valueFromProfile,
+} from "./profile/ProfileCustomizeForm";
 
 export type ProfileTab = "watched" | "list" | "friends";
 
@@ -37,10 +46,10 @@ interface ProfilePageProps {
   pendingFriendRequests?: number;
 }
 
-const tabs: { id: ProfileTab; label: string; icon: typeof Clock }[] = [
-  { id: "watched", label: "Guardati", icon: Clock },
-  { id: "list", label: "La mia Lista", icon: Library },
-  { id: "friends", label: "Amici", icon: Users },
+const tabs: { id: ProfileTab; label: string; index: string }[] = [
+  { id: "watched", label: "Guardati", index: "01" },
+  { id: "list", label: "La mia lista", index: "02" },
+  { id: "friends", label: "Amici", index: "03" },
 ];
 
 export function ProfilePage({
@@ -60,6 +69,19 @@ export function ProfilePage({
   onJoinSession,
   pendingFriendRequests = 0,
 }: ProfilePageProps) {
+  const { updateExistingProfile } = useProfile();
+  const { profile: cloudProfile } = useCloudAccount();
+  const friendsTabActive = activeTab === "friends";
+  const cloudPresence = useCloudFriendPresence(true);
+  const lanPresence = useLanFriendPresence(
+    profileId,
+    profile.name,
+    friendsTabActive,
+  );
+
+  const [customizing, setCustomizing] = useState(false);
+  const [customizeError, setCustomizeError] = useState<string | null>(null);
+  const [customizeSubmitting, setCustomizeSubmitting] = useState(false);
   const [streamingHistory, setStreamingHistory] = useState<
     Awaited<ReturnType<typeof getStreamingWatchHistory>>
   >([]);
@@ -84,7 +106,10 @@ export function ProfilePage({
   }, [profileId, activeTab]);
 
   const localWatched = useMemo(
-    () => libraryItems.filter((item) => isWatchInProgress(item) || (item.watchPosition ?? 0) > 5),
+    () =>
+      libraryItems.filter(
+        (item) => isWatchInProgress(item) || (item.watchPosition ?? 0) > 5,
+      ),
     [libraryItems],
   );
 
@@ -102,23 +127,26 @@ export function ProfilePage({
     return [...streaming, ...toBrowseItems(localFavorites)];
   }, [localFavorites, streamingList, streamingListKeys]);
 
+  const onlineFriendsCount =
+    (cloudProfile ? cloudPresence.onlineCount : 0) +
+    (friendsTabActive ? lanPresence.onlineCount : 0);
+
   return (
     <div className="pb-16">
-      <div className="page-px pt-24 sm:pt-28">
-        <div className="flex items-center gap-4">
-          <ProfileAvatar profile={profile} size="md" />
-          <div className="min-w-0">
-            <h1 className="font-display truncate text-3xl font-semibold tracking-[-0.03em] text-text-primary sm:text-4xl">
-              {profile.name}
-            </h1>
-            <p className="mt-1 text-[14px] text-text-secondary">
-              {roleLabel(profile.role)} · Il tuo spazio personale
-            </p>
-          </div>
-        </div>
+      <ProfileHero
+        profile={profile}
+        watchedCount={watchedItems.length}
+        listCount={listItems.length}
+        onlineFriendsCount={onlineFriendsCount}
+        onCustomize={() => {
+          setCustomizeError(null);
+          setCustomizing(true);
+        }}
+      />
 
-        <div className="mt-8 flex gap-1 overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
-          {tabs.map(({ id, label, icon: Icon }) => {
+      <div className="page-px mt-8 border-b border-white/[0.06]">
+        <nav className="-mb-px flex gap-6 overflow-x-auto">
+          {tabs.map(({ id, label, index }) => {
             const active = activeTab === id;
             const tabBadge =
               id === "friends" && pendingFriendRequests > 0
@@ -129,36 +157,47 @@ export function ProfilePage({
                 key={id}
                 type="button"
                 onClick={() => onTabChange(id)}
-                className={`relative flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-[13px] font-medium transition-colors ${
+                className={`group relative flex shrink-0 items-center gap-2.5 pb-3 text-[12px] font-medium uppercase tracking-[0.12em] transition-colors ${
                   active
-                    ? "bg-white/[0.08] text-text-primary ring-1 ring-white/[0.08]"
-                    : "text-text-muted hover:bg-white/[0.04] hover:text-text-secondary"
+                    ? "text-text-primary"
+                    : "text-text-muted hover:text-text-secondary"
                 }`}
               >
-                <Icon className="h-4 w-4" strokeWidth={1.5} />
+                <span
+                  className={`text-[10px] tabular-nums ${
+                    active ? "text-text-secondary" : "text-text-muted/50"
+                  }`}
+                >
+                  {index}
+                </span>
                 {label}
                 {tabBadge != null && (
-                  <span className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-[10px] font-semibold text-white">
+                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-semibold text-white">
                     {tabBadge > 9 ? "9+" : tabBadge}
                   </span>
                 )}
+                <span
+                  className={`absolute bottom-0 left-0 h-px bg-white transition-all duration-300 ${
+                    active ? "w-full" : "w-0 group-hover:w-full group-hover:opacity-30"
+                  }`}
+                />
               </button>
             );
           })}
-        </div>
+        </nav>
       </div>
 
       {activeTab === "watched" && (
-        <div className="mt-6">
+        <div className="mt-8">
           {historyLoading ? (
             <div className="flex justify-center py-20">
               <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
             </div>
           ) : watchedItems.length === 0 ? (
             <div className="page-px flex flex-col items-center justify-center py-20 text-center">
+              <Clock className="mb-4 h-8 w-8 text-text-muted/40" strokeWidth={1.5} />
               <p className="max-w-sm text-[15px] text-text-secondary">
-                Non hai ancora guardato nulla con questo profilo. I titoli appariranno qui
-                automaticamente.
+                Non hai ancora guardato nulla con questo profilo.
               </p>
             </div>
           ) : (
@@ -175,9 +214,10 @@ export function ProfilePage({
       )}
 
       {activeTab === "list" && (
-        <div className="mt-6">
+        <div className="mt-8">
           {listItems.length === 0 ? (
             <div className="page-px flex flex-col items-center justify-center py-20 text-center">
+              <Library className="mb-4 h-8 w-8 text-text-muted/40" strokeWidth={1.5} />
               <p className="max-w-sm text-[15px] text-text-secondary">
                 La lista è vuota. Premi + su un titolo per salvarlo qui.
               </p>
@@ -201,8 +241,74 @@ export function ProfilePage({
           profileId={profileId}
           profileName={profile.name}
           onJoinSession={onJoinSession}
+          cloudOnline={cloudPresence.onlineFriends}
+          cloudOffline={cloudPresence.offlineFriends}
+          cloudPresenceLoading={cloudPresence.loading}
+          onRefreshCloudPresence={cloudPresence.refresh}
+          lanOnline={lanPresence.onlineFriends}
+          lanOffline={lanPresence.offlineFriends}
+          lanPresenceLoading={lanPresence.loading}
+          onRefreshLanPresence={() => void lanPresence.refresh(true)}
         />
       )}
+
+      <AnimatePresence>
+        {customizing && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-void/90 p-6 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 16, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 16, scale: 0.98 }}
+              className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/[0.08] bg-[#0a0a0d] p-6 shadow-2xl sm:p-8"
+            >
+              <button
+                type="button"
+                onClick={() => setCustomizing(false)}
+                className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full text-text-muted hover:bg-white/[0.06] hover:text-text-primary"
+                aria-label="Chiudi"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <p className="mb-1 text-[10px] font-medium uppercase tracking-[0.28em] text-text-muted">
+                Profilo
+              </p>
+              <h2 className="font-display mb-6 text-2xl font-semibold tracking-[-0.03em] text-text-primary">
+                Personalizza
+              </h2>
+              <ProfileCustomizeForm
+                initial={valueFromProfile(profile)}
+                showRole={false}
+                submitLabel="Salva"
+                submitting={customizeSubmitting}
+                error={customizeError}
+                onCancel={() => setCustomizing(false)}
+                onSubmit={async (value) => {
+                  setCustomizeSubmitting(true);
+                  setCustomizeError(null);
+                  try {
+                    await updateExistingProfile(
+                      profileId,
+                      profileCustomizeToUpdate(value),
+                    );
+                    setCustomizing(false);
+                  } catch (err) {
+                    setCustomizeError(
+                      err instanceof Error ? err.message : String(err),
+                    );
+                  } finally {
+                    setCustomizeSubmitting(false);
+                  }
+                }}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -10,11 +10,14 @@ import {
   buildStreamingProgressMap,
   enrichStreamingPreview,
 } from "./unifiedBrowse";
+import { streamingPreviewDedupeKey } from "./streamingBrowse";
 import {
   getBootCatalogCache,
   hasUsableCatalog,
   ingestCatalogPayload,
+  needsCatalogRefresh,
   prefetchBootCatalog,
+  scheduleCatalogRefresh,
   type BootCatalogPayload,
 } from "./bootCatalog";
 import { STREMIO_ADDONS_ENABLED } from "./features";
@@ -127,6 +130,7 @@ async function loadScCatalog(): Promise<{
         syncedAt: response.syncedAt,
         totalCount: response.totalCount,
         error: null,
+        needsBackgroundSync: response.needsBackgroundSync,
       }),
     );
   } catch (err) {
@@ -256,13 +260,33 @@ export function useStreamingCatalogs(profileId: string): UseStreamingCatalogsRes
 
     const timeout = window.setTimeout(() => {
       if (!cancelled) setScLoading(false);
-    }, 12_000);
+    }, 4_000);
 
     void (async () => {
       const payload = await loadScCatalog();
       if (cancelled) return;
       applyScCatalog(payload);
       setScLoading(false);
+
+      const cached = getBootCatalogCache();
+      if (!cancelled && needsCatalogRefresh(cached)) {
+        setSyncingIndex(true);
+        try {
+          const refreshed = await scheduleCatalogRefresh();
+          if (!cancelled && refreshed) {
+            applyScCatalog({
+              rows: refreshed.rows,
+              index: refreshed.index,
+              syncedAt: refreshed.syncedAt,
+              totalCount: refreshed.totalCount,
+              needsFullSync: false,
+              error: refreshed.error,
+            });
+          }
+        } finally {
+          if (!cancelled) setSyncingIndex(false);
+        }
+      }
     })();
 
     return () => {
@@ -317,7 +341,7 @@ export function useStreamingCatalogs(profileId: string): UseStreamingCatalogsRes
             const fallback: StremioMetaPreview[] = [];
             for (const row of rows) {
               for (const item of row.items) {
-                const key = `${item.type}:${item.id}`;
+                const key = streamingPreviewDedupeKey(item);
                 if (seen.has(key)) continue;
                 seen.add(key);
                 fallback.push(item);

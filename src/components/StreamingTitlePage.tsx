@@ -10,11 +10,13 @@ interface StreamingTitlePageProps
   extends Omit<TitleDetailPageProps, "detail"> {
   meta: StremioMeta;
   episodeProgress?: Record<string, TitleDetailEpisodeProgress>;
+  preferredVideoId?: string;
 }
 
 export function StreamingTitlePage({
   meta,
   episodeProgress,
+  preferredVideoId,
   ...props
 }: StreamingTitlePageProps) {
   const progressKey = episodeProgress
@@ -23,8 +25,8 @@ export function StreamingTitlePage({
         .join("|")
     : "";
   const detail = useMemo(
-    () => titleDetailFromStremio(meta, episodeProgress),
-    [meta, progressKey, episodeProgress],
+    () => titleDetailFromStremio(meta, episodeProgress, preferredVideoId),
+    [meta, progressKey, episodeProgress, preferredVideoId],
   );
   return (
     <TitleDetailPage

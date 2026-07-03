@@ -13,6 +13,21 @@ export interface CloudFriend {
   email?: string;
 }
 
+export interface FriendPresence {
+  userId: string;
+  status: "online" | "away" | "offline";
+  lastSeenAt: string;
+  activity?: string;
+  isOnline: boolean;
+}
+
+export interface LanFriendPresence {
+  friendCode: string;
+  displayName: string;
+  online: boolean;
+  lastHost?: string;
+}
+
 export interface CloudFriendRequest {
   id: string;
   requesterId: string;

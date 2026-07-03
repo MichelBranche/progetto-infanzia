@@ -6,15 +6,17 @@ import type {
 import type { BrowseItem } from "./browse";
 import { browseItemId, isWatchInProgress, toBrowseItems } from "./browse";
 import type { StreamingRow } from "./useStreamingCatalogs";
+import { decodeHtmlEntities } from "./htmlText";
 import {
   continueToPreview,
   streamingBrowseItem,
+  streamingPreviewDedupeKey,
 } from "./streamingBrowse";
 
 export type LibraryMediaType = "film" | "serie" | "cartone";
 
 const ANIMATION_CONTEXT =
-  /anim|cartoon|carton|anime|bambin|kid|family|disney|pixar|dreamworks|nickelodeon|miyazaki|sc-genre-animation|sc-genre-family|sc-genre-kids/i;
+  /anim|cartoon|carton|anime|bambin|kid|family|famiglia|disney|pixar|dreamworks|nickelodeon|miyazaki|sc-genre-animation|sc-genre-family|sc-genre-kids/i;
 
 function parseYear(releaseInfo?: string): number | undefined {
   if (!releaseInfo) return undefined;
@@ -31,11 +33,37 @@ function isAnimationContext(context?: {
   return ANIMATION_CONTEXT.test(text);
 }
 
+function isAnimationFromGenres(genres?: string[]): boolean {
+  if (!genres?.length) return false;
+  return genres.some((genre) => ANIMATION_CONTEXT.test(genre));
+}
+
+function resolveStreamingContext(
+  preview: StremioMetaPreview,
+  context?: { rowKey?: string; rowTitle?: string },
+): { rowKey?: string; rowTitle?: string } {
+  return {
+    rowKey: context?.rowKey ?? preview.sourceRowKey,
+    rowTitle: context?.rowTitle ?? preview.sourceRowTitle,
+  };
+}
+
+export function isAnimationStreamingPreview(
+  preview: StremioMetaPreview,
+  context?: { rowKey?: string; rowTitle?: string },
+): boolean {
+  if (preview.catalogPrefix === "loonex") return true;
+  const resolved = resolveStreamingContext(preview, context);
+  return (
+    isAnimationContext(resolved) || isAnimationFromGenres(preview.genres)
+  );
+}
+
 export function classifyStreamingMediaType(
   preview: StremioMetaPreview,
   context?: { rowKey?: string; rowTitle?: string },
 ): LibraryMediaType {
-  const animated = isAnimationContext(context);
+  const animated = isAnimationStreamingPreview(preview, context);
   if (preview.type === "movie") {
     return animated ? "cartone" : "film";
   }
@@ -49,12 +77,17 @@ export function enrichStreamingPreview(
   preview: StremioMetaPreview,
   context?: { rowKey?: string; rowTitle?: string },
 ): StremioMetaPreview {
-  const mediaType = classifyStreamingMediaType(preview, context);
+  const resolved = resolveStreamingContext(preview, context);
+  const mediaType = classifyStreamingMediaType(preview, resolved);
   return {
     ...preview,
+    name: decodeHtmlEntities(preview.name),
+    description: preview.description
+      ? decodeHtmlEntities(preview.description)
+      : preview.description,
     mediaType,
-    sourceRowKey: context?.rowKey ?? preview.sourceRowKey,
-    sourceRowTitle: context?.rowTitle ?? preview.sourceRowTitle,
+    sourceRowKey: resolved.rowKey ?? preview.sourceRowKey,
+    sourceRowTitle: resolved.rowTitle ?? preview.sourceRowTitle,
   };
 }
 
@@ -84,11 +117,15 @@ export function applyStreamingProgress(
 ): StremioMetaPreview {
   const item = progressMap.get(streamingProgressKey(preview));
   if (!item) return preview;
+  const episodeId = preview.resumeVideoId?.trim();
+  if (episodeId && item.videoId !== episodeId) {
+    return preview;
+  }
   return {
     ...preview,
     watchPosition: item.positionSecs,
     watchDuration: item.durationSecs,
-    resumeVideoId: item.videoId,
+    resumeVideoId: episodeId || item.videoId,
   };
 }
 
@@ -101,7 +138,7 @@ export function flattenEnrichedStreaming(
 
   for (const row of rows) {
     for (const item of row.items) {
-      const key = `${item.type}:${item.id}`;
+      const key = streamingPreviewDedupeKey(item);
       if (seen.has(key)) continue;
       seen.add(key);
       const enriched = enrichStreamingPreview(item, {
@@ -196,6 +233,9 @@ function previewMatchesCollection(
   if (!rule || rule === "mylist") return false;
   if (rule === "all") return true;
   if (rule === "capsula") return streamingInCapsula(preview);
+  if (collectionId === "cartoni") {
+    return isAnimationStreamingPreview(preview);
+  }
   return rule.includes(preview.mediaType as LibraryMediaType);
 }
 
@@ -214,7 +254,7 @@ function padHomeRowItems(
   const padded = [...ordered];
   const pool = [...catalog]
     .filter((preview) => {
-      const key = `${preview.type}:${preview.id}`;
+      const key = streamingPreviewDedupeKey(preview);
       if (usedStreamingIds.has(key)) return false;
       return (
         collectionId === "discover" ||
@@ -232,10 +272,97 @@ function padHomeRowItems(
     if (seen.has(id)) continue;
     seen.add(id);
     padded.push(browse);
-    usedStreamingIds.add(`${preview.type}:${preview.id}`);
+    usedStreamingIds.add(streamingPreviewDedupeKey(preview));
   }
 
   return stableBrowseItems(padded).slice(0, HOME_ROW_DISPLAY_LIMIT);
+}
+
+function buildStreamingContextByKey(
+  streamingRows: StreamingRow[],
+): Map<string, { rowKey: string; rowTitle: string }> {
+  const contextByKey = new Map<string, { rowKey: string; rowTitle: string }>();
+  for (const row of streamingRows) {
+    const context = { rowKey: row.key, rowTitle: row.title };
+    for (const item of row.items) {
+      const key = `${item.type}:${item.id}`;
+      const existing = contextByKey.get(key);
+      if (!existing) {
+        contextByKey.set(key, context);
+        continue;
+      }
+      if (isAnimationContext(context) && !isAnimationContext(existing)) {
+        contextByKey.set(key, context);
+      }
+    }
+  }
+  return contextByKey;
+}
+
+function streamingPreviewContextKey(preview: StremioMetaPreview): string {
+  return `${preview.type}:${preview.id}`;
+}
+
+function streamingPreviewHasPoster(preview: StremioMetaPreview): boolean {
+  return Boolean(preview.poster?.trim());
+}
+
+/** Loonex index entries may omit artwork; rows/detail can still supply it later. */
+function includeAnimationCatalogPreview(preview: StremioMetaPreview): boolean {
+  return streamingPreviewHasPoster(preview);
+}
+
+function animationCatalogPreviewRank(preview: StremioMetaPreview): number {
+  if (preview.catalogPrefix === "loonex") return 0;
+  if (preview.catalogPrefix === "saturn") return 1;
+  return 2;
+}
+
+function streamingForAnimation(
+  previews: StremioMetaPreview[],
+  contextByKey: Map<string, { rowKey: string; rowTitle: string }>,
+  streamingRows: StreamingRow[],
+): BrowseItem[] {
+  const seen = new Set<string>();
+  const result: BrowseItem[] = [];
+
+  const push = (
+    preview: StremioMetaPreview,
+    context?: { rowKey: string; rowTitle: string },
+  ) => {
+    const key = streamingPreviewDedupeKey(preview);
+    if (seen.has(key)) return;
+    const resolved =
+      context ?? contextByKey.get(streamingPreviewContextKey(preview));
+    if (!isAnimationStreamingPreview(preview, resolved)) return;
+    seen.add(key);
+    result.push(
+      streamingBrowseItem(enrichStreamingPreview(preview, resolved)),
+    );
+  };
+
+  // Curated animation rows (Loonex cartoni, SC sliders) first — usually with covers.
+  for (const row of streamingRows) {
+    if (!isAnimationContext({ rowKey: row.key, rowTitle: row.title })) {
+      continue;
+    }
+    const context = { rowKey: row.key, rowTitle: row.title };
+    for (const item of row.items) {
+      push(item, context);
+    }
+  }
+
+  const catalogCandidates = previews
+    .filter(includeAnimationCatalogPreview)
+    .sort(
+      (a, b) => animationCatalogPreviewRank(a) - animationCatalogPreviewRank(b),
+    );
+
+  for (const preview of catalogCandidates) {
+    push(preview);
+  }
+
+  return result;
 }
 
 function streamingForTypes(
@@ -279,6 +406,11 @@ function streamingForCollection(
   }
   if (rule === "mylist") {
     return [];
+  }
+  if (collectionId === "cartoni") {
+    return previews
+      .filter((preview) => isAnimationStreamingPreview(preview))
+      .map(streamingBrowseItem);
   }
   return streamingForTypes(previews, rule);
 }
@@ -376,7 +508,7 @@ function streamingCatalogHomeRows(
     const items = streamRow.items
       .filter(
         (preview) =>
-          !usedStreamingIds.has(`${preview.type}:${preview.id}`),
+          !usedStreamingIds.has(streamingPreviewDedupeKey(preview)),
       )
       .map((preview) =>
         streamingBrowseItem(
@@ -427,7 +559,7 @@ export function buildUnifiedHomeRows(
   const markUsed = (items: BrowseItem[]) => {
     for (const item of items) {
       if (item.kind === "streaming") {
-        usedStreamingIds.add(`${item.preview.type}:${item.preview.id}`);
+        usedStreamingIds.add(streamingPreviewDedupeKey(item.preview));
       }
     }
   };
@@ -466,7 +598,7 @@ export function buildUnifiedHomeRows(
     }
 
     const availableStreaming = enriched.filter(
-      (preview) => !usedStreamingIds.has(`${preview.type}:${preview.id}`),
+      (preview) => !usedStreamingIds.has(streamingPreviewDedupeKey(preview)),
     );
     let items: BrowseItem[];
     if (mergeStreaming) {
@@ -536,7 +668,7 @@ export function buildUnifiedHomeRows(
 
   if (mergeStreaming) {
     const leftover = enriched.filter(
-      (preview) => !usedStreamingIds.has(`${preview.type}:${preview.id}`),
+      (preview) => !usedStreamingIds.has(streamingPreviewDedupeKey(preview)),
     );
     const discoverItems = padHomeRowItems(
       leftover.map((preview) => streamingBrowseItem(preview)),
@@ -566,11 +698,15 @@ export function mergedSectionBrowseItems(
   localItems: MediaItem[],
   catalogPreviews: StremioMetaPreview[],
   scSearchResults: StremioMetaPreview[],
+  streamingRows: StreamingRow[] = [],
 ): BrowseItem[] {
-  const enriched = catalogPreviews.map((preview) => enrichStreamingPreview(preview));
-  const searchStreaming = scSearchResults.map((preview) =>
-    enrichStreamingPreview(preview),
-  );
+  const contextByKey = buildStreamingContextByKey(streamingRows);
+  const enrich = (preview: StremioMetaPreview) => {
+    const context = contextByKey.get(`${preview.type}:${preview.id}`);
+    return enrichStreamingPreview(preview, context);
+  };
+  const enriched = catalogPreviews.map(enrich);
+  const searchStreaming = scSearchResults.map(enrich);
 
   if (section === "film") {
     const local = localItems.map((item) => ({ kind: "media" as const, item }));
@@ -578,11 +714,19 @@ export function mergedSectionBrowseItems(
     return dedupeBrowseItems([...local, ...streaming]);
   }
 
-  if (section === "serie" || section === "cartoni") {
-    const mediaType: LibraryMediaType =
-      section === "cartoni" ? "cartone" : "serie";
+  if (section === "cartoni") {
     const local = toBrowseItems(localItems);
-    const streaming = streamingForTypes(enriched, [mediaType]);
+    const streaming = streamingForAnimation(
+      enriched,
+      contextByKey,
+      streamingRows,
+    );
+    return dedupeBrowseItems([...local, ...streaming]);
+  }
+
+  if (section === "serie") {
+    const local = toBrowseItems(localItems);
+    const streaming = streamingForTypes(enriched, ["serie"]);
     return dedupeBrowseItems([...local, ...streaming]);
   }
 

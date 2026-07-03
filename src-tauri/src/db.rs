@@ -873,6 +873,10 @@ impl Database {
                             Some(slug)
                         }
                     },
+                    genres: Vec::new(),
+                    source_row_key: None,
+                    source_row_title: None,
+                    resume_video_id: None,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -1067,6 +1071,43 @@ impl Database {
         Ok(())
     }
 
+    pub fn update_friend_hosts_for_code(
+        &self,
+        friend_code: &str,
+        host: &str,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE friends SET last_host = ?2 WHERE friend_code = ?1",
+            rusqlite::params![friend_code.to_uppercase(), host],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn list_friend_hosts(
+        &self,
+        owner_profile_id: &str,
+    ) -> Result<Vec<(String, String, Option<String>)>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT friend_code, display_name, last_host FROM friends WHERE owner_profile_id = ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params![owner_profile_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
+    }
+
     pub fn count_media(&self) -> Result<usize, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let count: i32 = conn
@@ -1079,7 +1120,7 @@ impl Database {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, name, role, avatar_color, avatar_emoji, created_at,
+                "SELECT id, name, role, avatar_color, accent_color, avatar_style, avatar_emoji, created_at,
                         CASE WHEN pin_hash IS NOT NULL AND pin_hash != '' THEN 1 ELSE 0 END
                  FROM profiles ORDER BY
                    CASE role WHEN 'parent' THEN 0 WHEN 'child' THEN 1 ELSE 2 END,
@@ -1094,9 +1135,11 @@ impl Database {
                     name: row.get(1)?,
                     role: row.get(2)?,
                     avatar_color: row.get(3)?,
-                    avatar_emoji: row.get(4)?,
-                    created_at: row.get(5)?,
-                    has_pin: row.get::<_, i32>(6)? == 1,
+                    accent_color: row.get(4)?,
+                    avatar_style: row.get(5)?,
+                    avatar_emoji: row.get(6)?,
+                    created_at: row.get(7)?,
+                    has_pin: row.get::<_, i32>(8)? == 1,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -1127,15 +1170,38 @@ impl Database {
         let now = Utc::now().to_rfc3339();
         let id = format!("profile-{}", Utc::now().timestamp_millis());
 
+        let avatar_style = input
+            .avatar_style
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or("emoji");
+        match avatar_style {
+            "emoji" | "initial" | "gradient" => {}
+            _ => return Err("Stile avatar non valido".into()),
+        }
+
+        let avatar_emoji = if avatar_style == "emoji" {
+            input.avatar_emoji.clone()
+        } else {
+            None
+        };
+        let accent_color = if avatar_style == "gradient" {
+            input.accent_color.clone()
+        } else {
+            None
+        };
+
         conn.execute(
-            "INSERT INTO profiles (id, name, role, avatar_color, avatar_emoji, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO profiles (id, name, role, avatar_color, accent_color, avatar_style, avatar_emoji, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 id,
                 input.name.trim(),
                 input.role,
                 input.avatar_color,
-                input.avatar_emoji,
+                accent_color,
+                avatar_style,
+                avatar_emoji,
                 now,
             ],
         )
@@ -1146,7 +1212,9 @@ impl Database {
             name: input.name.trim().to_string(),
             role: input.role.clone(),
             avatar_color: input.avatar_color.clone(),
-            avatar_emoji: input.avatar_emoji.clone(),
+            accent_color,
+            avatar_style: Some(avatar_style.to_string()),
+            avatar_emoji,
             created_at: now,
             has_pin: false,
         })
@@ -1189,15 +1257,45 @@ impl Database {
             .avatar_color
             .as_deref()
             .unwrap_or(&existing.avatar_color);
-        let avatar_emoji = input
-            .avatar_emoji
+        let avatar_style = input
+            .avatar_style
             .as_deref()
-            .or(existing.avatar_emoji.as_deref());
+            .or(existing.avatar_style.as_deref())
+            .unwrap_or("emoji");
+        match avatar_style {
+            "emoji" | "initial" | "gradient" => {}
+            _ => return Err("Stile avatar non valido".into()),
+        }
+
+        let avatar_emoji = if avatar_style == "emoji" {
+            input
+                .avatar_emoji
+                .clone()
+                .or(existing.avatar_emoji.clone())
+        } else {
+            None
+        };
+        let accent_color = if avatar_style == "gradient" {
+            input
+                .accent_color
+                .clone()
+                .or(existing.accent_color.clone())
+        } else {
+            None
+        };
 
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         conn.execute(
-            "UPDATE profiles SET name = ?2, role = ?3, avatar_color = ?4, avatar_emoji = ?5 WHERE id = ?1",
-            params![id, name, role, avatar_color, avatar_emoji],
+            "UPDATE profiles SET name = ?2, role = ?3, avatar_color = ?4, accent_color = ?5, avatar_style = ?6, avatar_emoji = ?7 WHERE id = ?1",
+            params![
+                id,
+                name,
+                role,
+                avatar_color,
+                accent_color,
+                avatar_style,
+                avatar_emoji,
+            ],
         )
         .map_err(|e| e.to_string())?;
 
@@ -2190,6 +2288,19 @@ fn migrate_schema(conn: &Connection) -> Result<(), String> {
 
     if !table_has_column(conn, "profiles", "pin_hash")? {
         conn.execute("ALTER TABLE profiles ADD COLUMN pin_hash TEXT", [])
+            .map_err(|e| e.to_string())?;
+    }
+
+    if !table_has_column(conn, "profiles", "avatar_style")? {
+        conn.execute(
+            "ALTER TABLE profiles ADD COLUMN avatar_style TEXT NOT NULL DEFAULT 'emoji'",
+            [],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    if !table_has_column(conn, "profiles", "accent_color")? {
+        conn.execute("ALTER TABLE profiles ADD COLUMN accent_color TEXT", [])
             .map_err(|e| e.to_string())?;
     }
 

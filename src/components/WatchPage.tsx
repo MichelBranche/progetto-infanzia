@@ -14,21 +14,34 @@ import { isStreamingMediaId } from "../lib/streamingBrowse";
 import { mediaItemToStreamingPreview, streamingListKey } from "../lib/myList";
 import { useMyList } from "../lib/useMyList";
 import type { MediaItem } from "../types/media";
+import type { BrowseItem } from "../lib/browse";
+import type { StremioMetaPreview } from "../types/stremio";
 import { TitleDetailPage } from "./TitleDetailPage";
+import { RelatedTitlesSection } from "./RelatedTitlesSection";
 import { VideoPlayer } from "./VideoPlayer";
 
 interface WatchPageProps {
   mediaId: string;
   autoplay?: boolean;
+  relatedItems?: BrowseItem[];
   onBack: () => void;
   onPlayEpisode: (id: string) => void;
+  onOpenDetail?: (browse: BrowseItem) => void;
+  onPlayStreaming?: (preview: StremioMetaPreview) => void;
+  onOpenSeries?: (seriesKey: string) => void;
+  onToggleStreamingList?: (preview: StremioMetaPreview) => void;
 }
 
 export function WatchPage({
   mediaId,
   autoplay = false,
+  relatedItems = [],
   onBack,
   onPlayEpisode,
+  onOpenDetail,
+  onPlayStreaming,
+  onOpenSeries,
+  onToggleStreamingList,
 }: WatchPageProps) {
   const { activeProfile } = useProfile();
   const { library, toggleFavorite } = useLibrary();
@@ -198,6 +211,19 @@ export function WatchPage({
         isInMyList={isInMyList}
         onToggleMyList={() => void handleToggleMyList()}
         myListLoading={myListLoading}
+        footer={
+          relatedItems.length > 0 ? (
+            <RelatedTitlesSection
+              items={relatedItems}
+              onPlay={(id) => void startPlayback(id)}
+              onPlayStreaming={onPlayStreaming}
+              onOpenDetail={onOpenDetail}
+              onOpenSeries={onOpenSeries}
+              onToggleFavorite={toggleFavorite}
+              onToggleStreamingList={onToggleStreamingList}
+            />
+          ) : undefined
+        }
       />
     );
   }

@@ -4,15 +4,24 @@ import { Plus, Pencil, ArrowLeft, Trash2, Lock } from "lucide-react";
 import { useProfile } from "../context/ProfileContext";
 import { isBrowserDevMode } from "../lib/tauriEnv";
 import { ProfileAvatar } from "./ProfileAvatar";
+import { roleLabel, type Profile } from "../types/profile";
 import {
-  PROFILE_COLORS,
-  PROFILE_EMOJIS,
-  roleLabel,
-  type CreateProfileInput,
-  type Profile,
-  type ProfileRole,
-  type UpdateProfileInput,
-} from "../types/profile";
+  ProfileCustomizeForm,
+  profileCustomizeToCreate,
+  profileCustomizeToUpdate,
+  valueFromProfile,
+  type ProfileCustomizeValue,
+} from "./profile/ProfileCustomizeForm";
+import { PROFILE_COLORS, PROFILE_EMOJIS } from "../types/profile";
+
+const defaultCreateValue = (): ProfileCustomizeValue => ({
+  name: "",
+  role: "child",
+  avatarColor: PROFILE_COLORS[0],
+  accentColor: PROFILE_COLORS[1],
+  avatarStyle: "emoji",
+  avatarEmoji: PROFILE_EMOJIS[2],
+});
 
 export function ProfileSelectScreen() {
   const {
@@ -29,6 +38,8 @@ export function ProfileSelectScreen() {
 
   const [creating, setCreating] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const browserDev = isBrowserDevMode();
 
   if (loading) {
@@ -77,23 +88,55 @@ export function ProfileSelectScreen() {
 
         <AnimatePresence mode="wait">
           {creating ? (
-            <CreateProfileForm
+            <ProfileCustomizeForm
               key="create"
-              onCancel={() => setCreating(false)}
-              onSubmit={async (input) => {
-                const profile = await createNewProfile(input);
+              initial={defaultCreateValue()}
+              submitLabel="Crea profilo"
+              submitting={submitting}
+              error={error}
+              onCancel={() => {
                 setCreating(false);
-                selectProfile(profile);
+                setError(null);
+              }}
+              onSubmit={async (value) => {
+                setSubmitting(true);
+                setError(null);
+                try {
+                  const profile = await createNewProfile(profileCustomizeToCreate(value));
+                  setCreating(false);
+                  selectProfile(profile);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : String(err));
+                } finally {
+                  setSubmitting(false);
+                }
               }}
             />
           ) : editingProfile ? (
-            <EditProfileForm
+            <ProfileCustomizeForm
               key={editingProfile.id}
-              profile={editingProfile}
-              onCancel={() => setEditingProfile(null)}
-              onSubmit={async (input) => {
-                await updateExistingProfile(editingProfile.id, input);
+              initial={valueFromProfile(editingProfile)}
+              submitLabel="Salva modifiche"
+              submitting={submitting}
+              error={error}
+              onCancel={() => {
                 setEditingProfile(null);
+                setError(null);
+              }}
+              onSubmit={async (value) => {
+                setSubmitting(true);
+                setError(null);
+                try {
+                  await updateExistingProfile(
+                    editingProfile.id,
+                    profileCustomizeToUpdate(value),
+                  );
+                  setEditingProfile(null);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : String(err));
+                } finally {
+                  setSubmitting(false);
+                }
               }}
             />
           ) : (
@@ -218,285 +261,6 @@ export function ProfileSelectScreen() {
           </div>
         )}
       </motion.div>
-    </div>
-  );
-}
-
-function CreateProfileForm({
-  onCancel,
-  onSubmit,
-}: {
-  onCancel: () => void;
-  onSubmit: (input: CreateProfileInput) => Promise<void>;
-}) {
-  const [name, setName] = useState("");
-  const [role, setRole] = useState<ProfileRole>("child");
-  const [color, setColor] = useState<string>(PROFILE_COLORS[0]);
-  const [emoji, setEmoji] = useState<string>(PROFILE_EMOJIS[2]);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const preview: Profile = {
-    id: "preview",
-    name: name || "Nome",
-    role,
-    avatarColor: color,
-    avatarEmoji: emoji,
-    createdAt: "",
-    hasPin: false,
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) {
-      setError("Inserisci un nome");
-      return;
-    }
-    setSubmitting(true);
-    setError(null);
-    try {
-      await onSubmit({
-        name: name.trim(),
-        role,
-        avatarColor: color,
-        avatarEmoji: emoji,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <ProfileFormShell preview={preview} error={error}>
-      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-8">
-        <NameRoleFields name={name} setName={setName} role={role} setRole={setRole} />
-        <AvatarFields color={color} setColor={setColor} emoji={emoji} setEmoji={setEmoji} />
-        <SubmitRow submitting={submitting} label="Crea profilo" onCancel={onCancel} />
-      </form>
-    </ProfileFormShell>
-  );
-}
-
-function EditProfileForm({
-  profile,
-  onCancel,
-  onSubmit,
-}: {
-  profile: Profile;
-  onCancel: () => void;
-  onSubmit: (input: UpdateProfileInput) => Promise<void>;
-}) {
-  const [name, setName] = useState(profile.name);
-  const [role, setRole] = useState<ProfileRole>(profile.role);
-  const [color, setColor] = useState(profile.avatarColor);
-  const [emoji, setEmoji] = useState(profile.avatarEmoji ?? PROFILE_EMOJIS[2]);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const preview: Profile = {
-    ...profile,
-    name: name || profile.name,
-    role,
-    avatarColor: color,
-    avatarEmoji: emoji,
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) {
-      setError("Inserisci un nome");
-      return;
-    }
-    setSubmitting(true);
-    setError(null);
-    try {
-      await onSubmit({
-        name: name.trim(),
-        role,
-        avatarColor: color,
-        avatarEmoji: emoji,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <ProfileFormShell preview={preview} error={error}>
-      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-8">
-        <NameRoleFields name={name} setName={setName} role={role} setRole={setRole} />
-        <AvatarFields color={color} setColor={setColor} emoji={emoji} setEmoji={setEmoji} />
-        <SubmitRow submitting={submitting} label="Salva modifiche" onCancel={onCancel} />
-      </form>
-    </ProfileFormShell>
-  );
-}
-
-function ProfileFormShell({
-  preview,
-  error,
-  children,
-}: {
-  preview: Profile;
-  error: string | null;
-  children: React.ReactNode;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -12 }}
-      className="mx-auto max-w-md"
-    >
-      <div className="mb-8 flex justify-center">
-        <ProfileAvatar profile={preview} size="xl" />
-      </div>
-      {children}
-      {error && <p className="mt-4 text-center text-[13px] text-warm">{error}</p>}
-    </motion.div>
-  );
-}
-
-function NameRoleFields({
-  name,
-  setName,
-  role,
-  setRole,
-}: {
-  name: string;
-  setName: (v: string) => void;
-  role: ProfileRole;
-  setRole: (v: ProfileRole) => void;
-}) {
-  return (
-    <>
-      <div>
-        <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.2em] text-text-muted">
-          Nome
-        </label>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="es. Papà, Sofia, Marco..."
-          autoFocus
-          className="w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-[14px] text-text-primary outline-none focus:border-accent/30"
-        />
-      </div>
-      <div>
-        <label className="mb-3 block text-[11px] font-medium uppercase tracking-[0.2em] text-text-muted">
-          Tipo profilo
-        </label>
-        <div className="grid grid-cols-3 gap-2">
-          {(
-            [
-              ["parent", "Papà / Mamma", "Gestisce la libreria"],
-              ["child", "Bambino", "Solo titoli approvati"],
-              ["other", "Ospite", "Famiglia o amici"],
-            ] as const
-          ).map(([id, label, desc]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setRole(id)}
-              className={`rounded-xl border p-3 text-left transition-all ${
-                role === id
-                  ? "border-accent/40 bg-accent/10"
-                  : "border-white/[0.06] hover:border-white/10"
-              }`}
-            >
-              <p className="text-[12px] font-medium text-text-primary">{label}</p>
-              <p className="mt-0.5 text-[10px] text-text-muted">{desc}</p>
-            </button>
-          ))}
-        </div>
-      </div>
-    </>
-  );
-}
-
-function AvatarFields({
-  color,
-  setColor,
-  emoji,
-  setEmoji,
-}: {
-  color: string;
-  setColor: (v: string) => void;
-  emoji: string;
-  setEmoji: (v: string) => void;
-}) {
-  return (
-    <>
-      <div>
-        <label className="mb-3 block text-[11px] font-medium uppercase tracking-[0.2em] text-text-muted">
-          Colore avatar
-        </label>
-        <div className="flex flex-wrap gap-2">
-          {PROFILE_COLORS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setColor(c)}
-              className={`h-8 w-8 rounded-full transition-transform ${
-                color === c ? "scale-110 ring-2 ring-white ring-offset-2 ring-offset-void" : ""
-              }`}
-              style={{ backgroundColor: c }}
-            />
-          ))}
-        </div>
-      </div>
-      <div>
-        <label className="mb-3 block text-[11px] font-medium uppercase tracking-[0.2em] text-text-muted">
-          Emoji avatar
-        </label>
-        <div className="flex flex-wrap gap-2">
-          {PROFILE_EMOJIS.map((e) => (
-            <button
-              key={e}
-              type="button"
-              onClick={() => setEmoji(e)}
-              className={`flex h-10 w-10 items-center justify-center rounded-lg text-xl transition-all ${
-                emoji === e
-                  ? "bg-white/10 ring-1 ring-accent/40"
-                  : "bg-white/[0.03] hover:bg-white/[0.06]"
-              }`}
-            >
-              {e}
-            </button>
-          ))}
-        </div>
-      </div>
-    </>
-  );
-}
-
-function SubmitRow({
-  submitting,
-  label,
-  onCancel,
-}: {
-  submitting: boolean;
-  label: string;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="flex justify-center gap-3">
-      <button
-        type="submit"
-        disabled={submitting}
-        className="rounded-full bg-text-primary px-6 py-2.5 text-[13px] font-medium text-void hover:bg-white disabled:opacity-50"
-      >
-        {submitting ? "Salvataggio..." : label}
-      </button>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="rounded-full border border-white/10 px-5 py-2.5 text-[13px] text-text-secondary hover:text-text-primary"
-      >
-        Annulla
-      </button>
     </div>
   );
 }

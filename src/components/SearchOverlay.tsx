@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { MediaCard } from "./MediaCard";
-import { MediaRow } from "./MediaRow";
 import type { MediaItem } from "../types/media";
 import type { StremioMetaPreview } from "../types/stremio";
 import type { BrowseItem } from "../lib/browse";
@@ -157,18 +156,17 @@ export function SearchOverlay({
               )}
 
               {!showInitialLoader && !hasQuery && suggestionBrowse.length > 0 && (
-                <MediaRow
-                  index="01"
-                  title="In evidenza"
-                  subtitle="Titoli popolari in streaming"
-                  items={suggestionBrowse}
-                  onPlay={onPlay}
-                  onPlayStreaming={onPlayStreaming}
-                  onOpenSeries={onOpenSeries}
-                  onToggleFavorite={onToggleFavorite}
-                  onToggleStreamingList={onToggleStreamingList}
-                  onEdit={onEdit}
-                />
+                <SearchSection title="In evidenza">
+                  <SearchGrid
+                    items={suggestionBrowse.slice(0, 12)}
+                    onPlay={onPlay}
+                    onPlayStreaming={onPlayStreaming}
+                    onOpenSeries={onOpenSeries}
+                    onToggleFavorite={onToggleFavorite}
+                    onToggleStreamingList={onToggleStreamingList}
+                    onEdit={onEdit}
+                  />
+                </SearchSection>
               )}
 
               {hasQuery && streamingBrowse.length > 0 && (

@@ -1,4 +1,5 @@
 use crate::db::Database;
+use crate::loonex_catalog;
 use crate::saturn_catalog;
 use crate::sc_catalog;
 use crate::sc_playback;
@@ -47,6 +48,7 @@ fn run_search(
     query: &str,
     sc_enabled: bool,
     saturn_enabled: bool,
+    loonex_enabled: bool,
     cdn: &str,
     locale: &str,
 ) -> Vec<StremioMetaPreview> {
@@ -72,6 +74,9 @@ fn run_search(
     if saturn_enabled {
         push_unique(saturn_catalog::search_titles(db, query));
     }
+    if loonex_enabled {
+        push_unique(loonex_catalog::search_titles(db, query));
+    }
 
     out
 }
@@ -81,6 +86,7 @@ fn cached_search(
     query: &str,
     sc_enabled: bool,
     saturn_enabled: bool,
+    loonex_enabled: bool,
     cdn: &str,
     locale: &str,
 ) -> Vec<StremioMetaPreview> {
@@ -92,7 +98,15 @@ fn cached_search(
     let mut guard = match SEARCH_CACHE.lock() {
         Ok(g) => g,
         Err(_) => {
-            return run_search(db, query, sc_enabled, saturn_enabled, cdn, locale);
+            return run_search(
+                db,
+                query,
+                sc_enabled,
+                saturn_enabled,
+                loonex_enabled,
+                cdn,
+                locale,
+            );
         }
     };
 
@@ -102,7 +116,15 @@ fn cached_search(
         }
     }
 
-    let items = run_search(db, query, sc_enabled, saturn_enabled, cdn, locale);
+    let items = run_search(
+        db,
+        query,
+        sc_enabled,
+        saturn_enabled,
+        loonex_enabled,
+        cdn,
+        locale,
+    );
     guard.insert(
         key,
         SearchCacheEntry {
@@ -121,11 +143,20 @@ pub fn search_catalog_page(
     limit: usize,
     sc_enabled: bool,
     saturn_enabled: bool,
+    loonex_enabled: bool,
     cdn: &str,
     locale: &str,
 ) -> SearchCatalogPage {
     let limit = limit.clamp(1, 96);
-    let items = cached_search(db, query, sc_enabled, saturn_enabled, cdn, locale);
+    let items = cached_search(
+        db,
+        query,
+        sc_enabled,
+        saturn_enabled,
+        loonex_enabled,
+        cdn,
+        locale,
+    );
     let total = items.len();
     let end = offset.saturating_add(limit).min(total);
     let page_items = if offset < total {

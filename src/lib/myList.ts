@@ -70,5 +70,6 @@ export function mediaItemToStreamingPreview(media: MediaItem): StremioMetaPrevie
     mediaType: media.mediaType,
     releaseInfo: media.year ? String(media.year) : undefined,
     inMyList: media.isFavorite,
+    resumeVideoId: target.videoId,
   };
 }

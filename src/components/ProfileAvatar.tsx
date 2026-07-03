@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import type { Profile } from "../types/profile";
+import type { Profile, ProfileAvatarStyle } from "../types/profile";
 import { profileInitial } from "../types/profile";
 
 interface ProfileAvatarProps {
@@ -15,21 +15,41 @@ const sizes = {
   xl: "h-28 w-28 text-4xl",
 };
 
+function resolveStyle(profile: Profile): ProfileAvatarStyle {
+  if (profile.avatarStyle) return profile.avatarStyle;
+  return profile.avatarEmoji ? "emoji" : "initial";
+}
+
 export function ProfileAvatar({
   profile,
   size = "md",
   selected,
 }: ProfileAvatarProps) {
+  const style = resolveStyle(profile);
+  const accent = profile.accentColor ?? profile.avatarColor;
+
+  const backgroundStyle =
+    style === "gradient"
+      ? {
+          background: `linear-gradient(135deg, ${profile.avatarColor} 0%, ${accent} 100%)`,
+        }
+      : { backgroundColor: profile.avatarColor };
+
+  const content =
+    style === "emoji"
+      ? (profile.avatarEmoji ?? profileInitial(profile.name))
+      : profileInitial(profile.name);
+
   return (
     <motion.div
-      className={`relative flex ${sizes[size]} items-center justify-center rounded-xl font-display font-semibold text-white transition-shadow ${
+      className={`relative flex ${sizes[size]} items-center justify-center rounded-xl font-display font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] transition-shadow ${
         selected ? "ring-2 ring-text-primary ring-offset-2 ring-offset-void" : ""
       }`}
-      style={{ backgroundColor: profile.avatarColor }}
+      style={backgroundStyle}
       whileHover={{ scale: 1.05 }}
       whileTap={{ scale: 0.97 }}
     >
-      {profile.avatarEmoji ?? profileInitial(profile.name)}
+      {content}
     </motion.div>
   );
 }

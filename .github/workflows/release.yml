@@ -15,6 +15,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Load release notes
+        id: notes
+        run: |
+          {
+            echo 'body<<RELEASE_EOF'
+            cat release-notes.md
+            echo ''
+            echo '### macOS (Intel e Apple Silicon)'
+            echo '- Scarica il file `.dmg` universale'
+            echo '- Firma ad-hoc: tasto destro sull app → **Apri** → conferma'
+            echo '- Aggiornamento automatico in-app non disponibile su Mac'
+            echo 'RELEASE_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -45,18 +59,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Branchefy ${{ github.ref_name }}
-          releaseBody: |
-            ## Branchefy ${{ github.ref_name }}
-
-            ### Windows
-            Installer `.exe` — aggiornamento automatico in-app (come prima).
-
-            ### macOS (Intel e Apple Silicon, M1+)
-            File `.dmg` universale — firma **ad-hoc** (gratuita, non notarizzata).
-            All'apertura: tasto destro sull'app → **Apri** → conferma.
-            Se macOS blocca ancora: Impostazioni → Privacy e sicurezza → **Apri comunque**.
-
-            L'auto-update in-app su Mac non è supportato in questa release.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           args: --target universal-apple-darwin
@@ -70,6 +73,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Load release notes
+        id: notes
+        shell: bash
+        run: |
+          {
+            echo 'body<<RELEASE_EOF'
+            cat release-notes.md
+            echo ''
+            echo '### Windows'
+            echo '- Installer `.exe` con aggiornamento automatico in-app'
+            echo 'RELEASE_EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -99,17 +115,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Branchefy ${{ github.ref_name }}
-          releaseBody: |
-            ## Branchefy ${{ github.ref_name }}
-
-            ### Windows
-            Installer `.exe` — aggiornamento automatico in-app (come prima).
-
-            ### macOS (Intel e Apple Silicon, M1+)
-            File `.dmg` universale — firma **ad-hoc** (gratuita, non notarizzata).
-            All'apertura: tasto destro sull'app → **Apri** → conferma.
-            Se macOS blocca ancora: Impostazioni → Privacy e sicurezza → **Apri comunque**.
-
-            L'auto-update in-app su Mac non è supportato in questa release.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false

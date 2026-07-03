@@ -1,10 +1,14 @@
 export type ProfileRole = "parent" | "child" | "other";
 
+export type ProfileAvatarStyle = "emoji" | "initial" | "gradient";
+
 export interface Profile {
   id: string;
   name: string;
   role: ProfileRole;
   avatarColor: string;
+  accentColor?: string;
+  avatarStyle?: ProfileAvatarStyle;
   avatarEmoji?: string;
   createdAt: string;
   hasPin: boolean;
@@ -14,6 +18,8 @@ export interface CreateProfileInput {
   name: string;
   role: ProfileRole;
   avatarColor: string;
+  accentColor?: string;
+  avatarStyle?: ProfileAvatarStyle;
   avatarEmoji?: string;
 }
 
@@ -21,7 +27,9 @@ export interface UpdateProfileInput {
   name?: string;
   role?: ProfileRole;
   avatarColor?: string;
-  avatarEmoji?: string;
+  accentColor?: string | null;
+  avatarStyle?: ProfileAvatarStyle;
+  avatarEmoji?: string | null;
 }
 
 export const PROFILE_COLORS = [
@@ -33,6 +41,14 @@ export const PROFILE_COLORS = [
   "#ff6b9d",
   "#4ade80",
   "#f472b6",
+  "#38bdf8",
+  "#a78bfa",
+  "#fb7185",
+  "#34d399",
+  "#fbbf24",
+  "#94a3b8",
+  "#f97316",
+  "#818cf8",
 ] as const;
 
 export const PROFILE_EMOJIS = [
@@ -48,6 +64,18 @@ export const PROFILE_EMOJIS = [
   "⭐",
   "🎬",
   "🎨",
+  "🎮",
+  "🎧",
+  "📚",
+  "🦁",
+  "🐼",
+  "🦊",
+  "🐶",
+  "🐱",
+  "🌟",
+  "🍿",
+  "🎭",
+  "🏆",
 ] as const;
 
 export const ACTIVE_PROFILE_KEY = "branchefy-active-profile";

@@ -8,7 +8,9 @@ import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { HeroBanner } from "./components/HeroBanner";
 import { MediaRow } from "./components/MediaRow";
-import { MediaGrid } from "./components/MediaGrid";
+import { SectionBrowsePage } from "./components/SectionBrowsePage";
+import { RowSkeleton } from "./components/RowSkeleton";
+import { StreamHubRow } from "./components/StreamHubRow";
 import { EmptyLibrary } from "./components/EmptyLibrary";
 import { ProfilePage, type ProfileTab } from "./components/ProfilePage";
 import { AppUpdaterProvider } from "./context/AppUpdaterContext";
@@ -16,7 +18,8 @@ import { ProfilePinModal } from "./components/ProfilePinModal";
 import { EditMediaModal } from "./components/EditMediaModal";
 import { LibraryProvider, useLibrary } from "./context/LibraryContext";
 import { AddonsProvider, useAddons } from "./context/AddonsContext";
-import { CloudAccountProvider } from "./context/CloudAccountContext";
+import { CloudAccountProvider, useCloudAccount } from "./context/CloudAccountContext";
+import { usePresenceHeartbeat } from "./hooks/useFriendPresence";
 import { NotificationProvider } from "./context/NotificationContext";
 import { CloudFriendAlertsProvider, useCloudFriendAlertsContext } from "./context/CloudFriendAlertsContext";
 import { ProfileProvider, useProfile } from "./context/ProfileContext";
@@ -24,6 +27,9 @@ import { PreviewAudioProvider } from "./context/PreviewAudioContext";
 import { sectionMeta } from "./data/nav";
 import {
   type SeriesRef,
+  getSeriesEpisodes,
+  parseSeriesKey,
+  toBrowseItems,
 } from "./lib/browse";
 import type { MediaItem } from "./types/media";
 import { deleteMedia, updateMedia, enrichMetadata } from "./lib/api";
@@ -31,6 +37,7 @@ import type { AddonWatchTarget } from "./lib/streamingBrowse";
 import {
   parseStreamingMediaId,
   previewToMediaItem,
+  previewToWatchTarget,
 } from "./lib/streamingBrowse";
 import { useStreamingCatalogs } from "./lib/useStreamingCatalogs";
 import { useMyList } from "./lib/useMyList";
@@ -44,6 +51,10 @@ import {
   enrichStreamingPreview,
   mergedSectionBrowseItems,
 } from "./lib/unifiedBrowse";
+import {
+  browseDetailAction,
+  similarBrowseItems,
+} from "./lib/browseDetail";
 import type { StremioMetaPreview } from "./types/stremio";
 import type { WatchPartySession } from "./types/watchParty";
 
@@ -108,6 +119,8 @@ function SuspenseRoute({ children }: { children: React.ReactNode }) {
 
 function AppContent() {
   const { activeProfile, clearProfile, isParent } = useProfile();
+  const { profile: cloudProfile } = useCloudAccount();
+  usePresenceHeartbeat(Boolean(cloudProfile));
   const { pendingCount: pendingFriendRequests, refreshFriendAlerts } =
     useCloudFriendAlertsContext();
   const {
@@ -132,16 +145,18 @@ function AppContent() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [addPresetSeries, setAddPresetSeries] = useState<SeriesRef | null>(null);
   const [addonWatch, setAddonWatch] = useState<AddonWatchTarget | null>(null);
+  const [detailSimilar, setDetailSimilar] = useState<BrowseItem[]>([]);
   const [partyGuestSession, setPartyGuestSession] = useState<WatchPartySession | null>(null);
   const [heroItems, setHeroItems] = useState<MediaItem[]>([]);
   const heroSeededRef = useRef(false);
+  const mainScrollRef = useRef<HTMLElement>(null);
+  const [mainScrolled, setMainScrolled] = useState(false);
   const { hasStreaming } = useAddons();
   const {
     rows: streamingRows,
     previews: streamingPreviews,
     catalogIndex,
     continueItems: streamingContinue,
-    catalogTotal,
     loading: streamingLoading,
     syncingIndex,
     error: streamingError,
@@ -251,6 +266,7 @@ function AppContent() {
   const handleBackFromWatch = async () => {
     setWatchingId(null);
     setWatchAutoplay(false);
+    setDetailSimilar([]);
     await refresh();
     await refreshStreamingContinue();
   };
@@ -302,8 +318,6 @@ function AppContent() {
     setAddPresetSeries(null);
     setActiveNav("home");
   };
-
-  const handleOpenSeries = (key: string) => setSeriesKey(key);
 
   const editingMedia = useMemo(() => {
     if (!editingId || !library) return null;
@@ -454,6 +468,7 @@ function AppContent() {
       localItems,
       streamingPreviews.map(withMyListFlags),
       scSearchResults.map(withMyListFlags),
+      streamingRows,
     );
   }, [
     activeNav,
@@ -461,54 +476,100 @@ function AppContent() {
     streamingPreviews,
     scSearchResults,
     withMyListFlags,
+    streamingRows,
   ]);
+
+  const sectionStreamingCount = useMemo(
+    () => sectionBrowseItems.filter((item) => item.kind === "streaming").length,
+    [sectionBrowseItems],
+  );
+
+  const sectionBrowseSubtitle = useMemo(() => {
+    const base = sectionMeta[activeNav]?.subtitle ?? "";
+    if (sectionStreamingCount > 0) {
+      return `${base} · ${sectionStreamingCount.toLocaleString("it-IT")} titoli in streaming`;
+    }
+    return base;
+  }, [activeNav, sectionStreamingCount]);
+
+  const browsePool = useMemo(() => {
+    const byId = new Map<string, BrowseItem>();
+    const push = (item: BrowseItem) => {
+      const key =
+        item.kind === "streaming"
+          ? `${item.preview.type}:${item.preview.id}`
+          : item.kind === "series"
+            ? `series:${item.series.mediaType}::${item.series.seriesTitle}`
+            : item.item.id;
+      if (!byId.has(key)) byId.set(key, item);
+    };
+    for (const item of sectionBrowseItems) push(item);
+    for (const row of unifiedHomeRows) {
+      for (const item of row.items) push(item);
+    }
+    return [...byId.values()];
+  }, [sectionBrowseItems, unifiedHomeRows]);
+
+  const handleOpenBrowseDetail = useCallback(
+    (browse: BrowseItem, pool?: BrowseItem[]) => {
+      setDetailSimilar(similarBrowseItems(browse, pool ?? browsePool));
+      const action = browseDetailAction(browse);
+      if (!action) return;
+      if (action.type === "watch") {
+        setWatchAutoplay(false);
+        setWatchingId(action.mediaId);
+        return;
+      }
+      if (action.type === "series") {
+        setSeriesKey(action.seriesKey);
+        return;
+      }
+      setAddonWatch(action.target);
+    },
+    [browsePool],
+  );
+
+  const handleOpenSeries = useCallback(
+    (key: string) => {
+      const series = parseSeriesKey(key);
+      if (series && library?.items) {
+        const episodes = getSeriesEpisodes(library.items, series);
+        const [browse] = toBrowseItems(episodes);
+        if (browse?.kind === "series") {
+          setDetailSimilar(similarBrowseItems(browse, browsePool));
+        }
+      }
+      setSeriesKey(key);
+    },
+    [library?.items, browsePool],
+  );
+
+  useEffect(() => {
+    const el = mainScrollRef.current;
+    if (!el) return;
+    const onScroll = () => setMainScrolled(el.scrollTop > 32);
+    onScroll();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [activeNav, seriesKey]);
 
   const handlePlayStreaming = (preview: StremioMetaPreview) => {
     if (!STREMIO_ADDONS_ENABLED && !isBuiltinStreamingCatalog(preview.catalogPrefix)) {
       return;
     }
-
-    const resumeVideoId =
-      preview.resumeVideoId?.trim() ||
-      (preview.type === "movie" &&
-      preview.watchPosition != null &&
-      preview.watchPosition > 5
-        ? preview.id
-        : undefined);
-
-    if (preview.catalogPrefix === "sc") {
-      if (!preview.slug) return;
-      setAddonWatch({
-        contentType: preview.type,
-        metaId: preview.id,
-        slug: preview.slug,
-        catalogPrefix: "sc",
-        videoId: resumeVideoId,
-      });
+    const target = previewToWatchTarget(preview);
+    if (
+      (target.catalogPrefix === "sc" ||
+        target.catalogPrefix === "saturn" ||
+        target.catalogPrefix === "loonex") &&
+      !target.slug
+    ) {
       return;
     }
-
-    if (preview.catalogPrefix === "saturn") {
-      if (!preview.slug) return;
-      setAddonWatch({
-        contentType: preview.type,
-        metaId: preview.slug,
-        slug: preview.slug,
-        catalogPrefix: "saturn",
-        videoId: resumeVideoId,
-      });
+    if (!target.catalogPrefix && !STREMIO_ADDONS_ENABLED) {
       return;
     }
-
-    if (!STREMIO_ADDONS_ENABLED) {
-      return;
-    }
-
-    setAddonWatch({
-      contentType: preview.type,
-      metaId: preview.id,
-      videoId: resumeVideoId,
-    });
+    setAddonWatch(target);
   };
 
   if (partyGuestSession) {
@@ -573,22 +634,35 @@ function AppContent() {
   }
 
   if (addonWatch) {
+    const handleBackFromAddon = async () => {
+      setAddonWatch(null);
+      setDetailSimilar([]);
+      await refreshStreamingContinue();
+      refreshFriendAlerts();
+    };
+
     return (
       <div className="h-full overflow-y-auto overflow-x-hidden bg-void">
         <SuspenseRoute>
           <AddonWatchPage
+          key={`${addonWatch.catalogPrefix ?? "sc"}:${addonWatch.metaId}:${addonWatch.slug ?? ""}:${addonWatch.videoId ?? ""}:${addonWatch.preferredVideoId ?? ""}`}
           profileId={activeProfile.id}
           contentType={addonWatch.contentType}
           metaId={addonWatch.metaId}
           videoId={addonWatch.videoId}
+          preferredVideoId={addonWatch.preferredVideoId}
           slug={addonWatch.slug}
           catalogPrefix={addonWatch.catalogPrefix}
-          onBack={async () => {
-            setAddonWatch(null);
-            await refreshStreamingContinue();
-            refreshFriendAlerts();
-          }}
+          onBack={handleBackFromAddon}
           onRefreshContinue={refreshStreamingContinue}
+          relatedItems={detailSimilar}
+          onOpenDetail={handleOpenBrowseDetail}
+          onPlayRelated={handlePlay}
+          onPlayStreamingRelated={handlePlayStreaming}
+          onOpenSeries={handleOpenSeries}
+          onToggleFavorite={toggleFavorite}
+          onToggleStreamingList={handleToggleStreamingList}
+          onEdit={isParent ? (id) => setEditingId(id) : undefined}
           />
         </SuspenseRoute>
       </div>
@@ -601,8 +675,13 @@ function AppContent() {
         <WatchPage
         mediaId={watchingId}
         autoplay={watchAutoplay}
+        relatedItems={detailSimilar}
         onBack={handleBackFromWatch}
         onPlayEpisode={handlePlayNow}
+        onOpenDetail={handleOpenBrowseDetail}
+        onPlayStreaming={handlePlayStreaming}
+        onOpenSeries={handleOpenSeries}
+        onToggleStreamingList={handleToggleStreamingList}
         />
       </SuspenseRoute>
     );
@@ -624,11 +703,6 @@ function AppContent() {
     ) &&
     !(hasStreaming && streamingBrowseNav.has(activeNav));
   const sectionInfo = sectionMeta[activeNav];
-  const sectionSubtitle =
-    catalogTotal > 0 &&
-    (activeNav === "film" || activeNav === "serie" || activeNav === "cartoni")
-      ? `${sectionInfo?.subtitle ?? ""} · ${catalogTotal.toLocaleString("it-IT")} titoli streaming sincronizzati dal sito`
-      : sectionInfo?.subtitle;
 
   return (
     <motion.div
@@ -642,6 +716,7 @@ function AppContent() {
         activeId={searchOpen ? "search" : activeNav}
         profile={activeProfile}
         onNavigate={handleNav}
+        onSwitchProfile={clearProfile}
         badgeCounts={sidebarBadges}
         alertDots={sidebarAlertDots}
       />
@@ -657,7 +732,7 @@ function AppContent() {
           onRescan={rescan}
           onSwitchProfile={clearProfile}
           scanning={scanning}
-          totalCount={library?.totalCount}
+          scrolled={mainScrolled}
         />
 
         <SuspenseRoute>
@@ -683,7 +758,10 @@ function AppContent() {
           />
         </SuspenseRoute>
 
-        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <main
+          ref={mainScrollRef}
+          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth"
+        >
           {loading && !library ? (
             <div className="flex h-full items-center justify-center pt-20">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/10 border-t-accent" />
@@ -699,10 +777,10 @@ function AppContent() {
             <AnimatePresence mode="wait">
               <motion.div
                 key={seriesKey ?? activeNav}
-                initial={{ opacity: 0, y: 8 }}
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
               >
                 {seriesKey && library && (
                   <SuspenseRoute>
@@ -710,8 +788,17 @@ function AppContent() {
                     seriesKey={seriesKey}
                     items={library.items}
                     isParent={isParent}
-                    onBack={() => setSeriesKey(null)}
+                    relatedItems={detailSimilar}
+                    onBack={() => {
+                      setSeriesKey(null);
+                      setDetailSimilar([]);
+                    }}
                     onPlay={handlePlayNow}
+                    onOpenDetail={handleOpenBrowseDetail}
+                    onPlayStreaming={handlePlayStreaming}
+                    onOpenSeries={handleOpenSeries}
+                    onToggleFavorite={toggleFavorite}
+                    onToggleStreamingList={handleToggleStreamingList}
                     onEdit={setEditingId}
                     onDelete={async (id) => {
                       await deleteMedia(activeProfile.id, id);
@@ -813,15 +900,18 @@ function AppContent() {
                 {!seriesKey && activeNav === "home" && (
                   <>
                     {!homeContentReady ? (
-                      <div className="flex min-h-[70vh] items-center justify-center bg-[#0a0a0a]">
-                        <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/10 border-t-accent" />
+                      <div className="pb-16">
+                        <div className="h-[52vh] min-h-[320px] shimmer-bg sm:min-h-[360px]" />
+                        <RowSkeleton />
+                        <RowSkeleton />
+                        <RowSkeleton />
                       </div>
                     ) : (
                       <>
                     {homeStreamingPending && (
-                      <div className="flex items-center justify-center gap-3 py-16 text-text-muted">
-                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/10 border-t-accent" />
-                        <span className="text-[14px]">Caricamento catalogo streaming…</span>
+                      <div className="page-px pb-2 pt-4">
+                        <RowSkeleton />
+                        <RowSkeleton />
                       </div>
                     )}
                     {syncingIndex && streamingRows.length > 0 && (
@@ -832,7 +922,8 @@ function AppContent() {
                     {heroItems.length > 0 && (
                       <HeroBanner
                         items={heroItems}
-                        onPlay={handlePlay}
+                        scrollContainerRef={mainScrollRef}
+                        onPlay={handlePlayNow}
                         onOpenSeries={(media) => {
                           if (media.seriesTitle) {
                             handleOpenSeries(
@@ -849,17 +940,19 @@ function AppContent() {
                         }
                       />
                     )}
+                    <StreamHubRow onNavigate={handleNav} />
                     {top10Row && (
                       <SuspenseRoute>
                         <NetflixTop10Row
                         title={top10Row.title}
                         items={top10Row.items}
                         onPlayStreaming={handlePlayStreaming}
+                        onOpenDetail={handleOpenBrowseDetail}
                         />
                       </SuspenseRoute>
                     )}
                     {(unifiedHomeRows.length > 0 || streamingError) && (
-                      <div className="relative z-10 -mt-4 space-y-0.5 sm:-mt-5">
+                      <div className="relative -mt-4 space-y-0.5 overflow-visible sm:-mt-5">
                         {unifiedHomeRows.map((row, i) => (
                             <MediaRow
                               key={row.key}
@@ -867,8 +960,10 @@ function AppContent() {
                               title={row.title}
                               subtitle={row.subtitle}
                               items={row.items}
-                              onPlay={handlePlay}
+                              animateEntrance
+                              onPlay={handlePlayNow}
                               onPlayStreaming={handlePlayStreaming}
+                              onOpenDetail={handleOpenBrowseDetail}
                               onOpenSeries={handleOpenSeries}
                               onToggleFavorite={toggleFavorite}
                               onToggleStreamingList={handleToggleStreamingList}
@@ -911,37 +1006,24 @@ function AppContent() {
                   activeNav !== "manage" &&
                   activeNav !== "settings" &&
                   activeNav !== "streaming" && (
-                  <>
-                    <div className="page-px pt-24 sm:pt-28">
-                      <span className="font-display text-[11px] tabular-nums text-text-muted sm:text-xs">
-                        —
-                      </span>
-                      <h2 className="font-display mt-2 text-3xl font-semibold tracking-[-0.03em] text-text-primary sm:text-4xl">
-                        {sectionInfo?.title ?? activeNav}
-                      </h2>
-                      {sectionSubtitle && (
-                        <p className="mt-2 text-[14px] text-text-secondary sm:text-[15px]">
-                          {sectionSubtitle}
-                          {syncingIndex && (
-                            <span className="ml-2 text-text-muted">
-                              · Aggiornamento catalogo…
-                            </span>
-                          )}
-                        </p>
-                      )}
-                    </div>
-                    <MediaGrid
-                      items={sectionBrowseItems}
-                      onPlay={handlePlay}
-                      onPlayStreaming={handlePlayStreaming}
-                      onOpenSeries={handleOpenSeries}
-                      onToggleFavorite={toggleFavorite}
-                      onToggleStreamingList={handleToggleStreamingList}
-                      onEdit={
-                        isParent ? (id) => setEditingId(id) : undefined
-                      }
-                    />
-                  </>
+                  <SectionBrowsePage
+                    sectionId={activeNav}
+                    title={sectionInfo?.title ?? activeNav}
+                    subtitle={sectionBrowseSubtitle}
+                    syncing={syncingIndex}
+                    loading={streamingLoading && sectionBrowseItems.length === 0}
+                    cardVariant={activeNav === "cartoni" ? "portrait" : undefined}
+                    items={sectionBrowseItems}
+                    onPlay={handlePlayNow}
+                    onPlayStreaming={handlePlayStreaming}
+                    onOpenDetail={handleOpenBrowseDetail}
+                    onOpenSeries={handleOpenSeries}
+                    onToggleFavorite={toggleFavorite}
+                    onToggleStreamingList={handleToggleStreamingList}
+                    onEdit={
+                      isParent ? (id) => setEditingId(id) : undefined
+                    }
+                  />
                 )}
               </motion.div>
             </AnimatePresence>
@@ -988,12 +1070,8 @@ function AppGate() {
   } = useProfile();
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => setCatalogReady(true), 10_000);
-    void prefetchBootCatalog().finally(() => {
-      window.clearTimeout(timeout);
-      setCatalogReady(true);
-    });
-    return () => window.clearTimeout(timeout);
+    void prefetchBootCatalog();
+    setCatalogReady(true);
   }, []);
 
   const bootDone = bootPhase === "done";

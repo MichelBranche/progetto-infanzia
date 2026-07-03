@@ -100,6 +100,8 @@ export function createDevProfile(input: CreateProfileInput): Profile {
     name: input.name.trim(),
     role: input.role,
     avatarColor: input.avatarColor,
+    accentColor: input.accentColor,
+    avatarStyle: input.avatarStyle ?? "emoji",
     avatarEmoji: input.avatarEmoji,
     createdAt: new Date().toISOString(),
     hasPin: false,
@@ -124,7 +126,15 @@ export function updateDevProfile(
     name: input.name?.trim() || current.name,
     role: input.role ?? current.role,
     avatarColor: input.avatarColor ?? current.avatarColor,
-    avatarEmoji: input.avatarEmoji ?? current.avatarEmoji,
+    accentColor:
+      input.accentColor !== undefined
+        ? (input.accentColor ?? undefined)
+        : current.accentColor,
+    avatarStyle: input.avatarStyle ?? current.avatarStyle,
+    avatarEmoji:
+      input.avatarEmoji !== undefined
+        ? (input.avatarEmoji ?? undefined)
+        : current.avatarEmoji,
     hasPin: Boolean(readPins()[id]),
   };
 

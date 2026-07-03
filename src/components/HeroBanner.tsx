@@ -1,28 +1,30 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Play, Plus, Check, Info } from "lucide-react";
 import type { MediaItem } from "../types/media";
 import { formatDuration, mediaTypeLabel } from "../types/media";
 import { episodeDisplayTitle } from "../lib/browse";
 import {
-  isScStreamingMediaId,
   isStreamingMediaId,
-  scPreviewTarget,
+  parseStreamingMediaId,
 } from "../lib/streamingBrowse";
 import { mediaItemToStreamingPreview } from "../lib/myList";
 import type { StremioMetaPreview } from "../types/stremio";
 import { HERO_POSTER_MS, HERO_PREVIEW_SEC } from "../lib/preview";
 import { prefetchStreamUrl } from "../lib/streamCache";
-import { prefetchScPreview } from "../lib/streamingPreviewCache";
+import { prefetchStreamingPreview } from "../lib/streamingPreviewCache";
+import { supportsStreamingPreview } from "../lib/streamingHeroPreview";
 import { useProfile } from "../context/ProfileContext";
 import { usePreviewAudio } from "../context/PreviewAudioContext";
 import { PosterImage } from "./PosterImage";
 import { PreviewAudioToggle } from "./PreviewAudioToggle";
 import { VideoPreview } from "./VideoPreview";
 import { StreamingVideoPreview } from "./StreamingVideoPreview";
+import { useHeroScrollParallax } from "../hooks/useHeroScrollParallax";
 
 interface HeroBannerProps {
   items: MediaItem[];
+  scrollContainerRef?: RefObject<HTMLElement | null>;
   onPlay: (id: string) => void;
   onOpenSeries?: (media: MediaItem) => void;
   onToggleFavorite?: (id: string) => void;
@@ -39,6 +41,7 @@ const textMotion = {
 
 export function HeroBanner({
   items,
+  scrollContainerRef,
   onPlay,
   onOpenSeries,
   onToggleFavorite,
@@ -50,12 +53,23 @@ export function HeroBanner({
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState<"poster" | "video">("poster");
   const slideTimerRef = useRef<number | null>(null);
+  const heroRef = useRef<HTMLDivElement>(null);
+  const mediaLayerRef = useRef<HTMLDivElement>(null);
+  const contentLayerRef = useRef<HTMLDivElement>(null);
+
+  useHeroScrollParallax(
+    heroRef,
+    mediaLayerRef,
+    contentLayerRef,
+    scrollContainerRef ?? { current: null },
+    Boolean(scrollContainerRef),
+  );
 
   const safeIndex = items.length > 0 ? index % items.length : 0;
   const media = items[safeIndex];
   const isStreaming = media ? isStreamingMediaId(media.id) : false;
-  const isScStreaming = media ? isScStreamingMediaId(media.id) : false;
-  const scPreview = media ? scPreviewTarget(media.id) : null;
+  const streamTarget = media ? parseStreamingMediaId(media.id) : null;
+  const canStreamPreview = supportsStreamingPreview(streamTarget);
 
   const clearSlideTimer = () => {
     if (slideTimerRef.current != null) {
@@ -71,8 +85,8 @@ export function HeroBanner({
 
   useEffect(() => {
     if (!activeProfile || !media) return;
-    if (isScStreaming && scPreview) {
-      prefetchScPreview(scPreview.titleId, scPreview.slug);
+    if (canStreamPreview && streamTarget) {
+      prefetchStreamingPreview(streamTarget, HERO_PREVIEW_SEC);
       return;
     }
     if (isStreaming) return;
@@ -80,22 +94,24 @@ export function HeroBanner({
     const next = items[(safeIndex + 1) % items.length];
     if (next && !isStreamingMediaId(next.id)) {
       prefetchStreamUrl(activeProfile.id, next.id);
-    } else if (next && isScStreamingMediaId(next.id)) {
-      const nextPreview = scPreviewTarget(next.id);
-      if (nextPreview) prefetchScPreview(nextPreview.titleId, nextPreview.slug);
+    } else if (next) {
+      const nextTarget = parseStreamingMediaId(next.id);
+      if (supportsStreamingPreview(nextTarget)) {
+        prefetchStreamingPreview(nextTarget!, HERO_PREVIEW_SEC);
+      }
     }
-  }, [activeProfile, media, isStreaming, isScStreaming, scPreview, safeIndex, items]);
+  }, [activeProfile, media, isStreaming, canStreamPreview, streamTarget, safeIndex, items]);
 
   useEffect(() => {
     if (!media || items.length === 0) return;
 
     clearSlideTimer();
 
-    if (isStreaming && !isScStreaming) {
+    if (isStreaming && !canStreamPreview) {
       slideTimerRef.current = window.setTimeout(() => {
         setPhase("poster");
         setIndex((current) => (current + 1) % items.length);
-      }, HERO_POSTER_MS + HERO_PREVIEW_SEC * 1000);
+      }, HERO_POSTER_MS);
       return clearSlideTimer;
     }
 
@@ -112,7 +128,7 @@ export function HeroBanner({
     }
 
     return clearSlideTimer;
-  }, [phase, media?.id, isStreaming, isScStreaming, items.length]);
+  }, [phase, media?.id, isStreaming, canStreamPreview, items.length]);
 
   const goToSlide = (dotIndex: number) => {
     clearSlideTimer();
@@ -137,22 +153,27 @@ export function HeroBanner({
         title: media.seriesTitle,
         season: undefined,
         episode: undefined,
-        posterUrl: undefined,
+        posterUrl: media.seriesPosterUrl ?? media.posterUrl,
       }
     : media;
   const resume =
     media.watchPosition != null && media.watchPosition > 10;
   const hasVideoPreview = items.some(
     (item) =>
-      !isStreamingMediaId(item.id) || isScStreamingMediaId(item.id),
+      !isStreamingMediaId(item.id) ||
+      supportsStreamingPreview(parseStreamingMediaId(item.id)),
   );
 
   return (
-    <div className="relative h-[52vh] min-h-[320px] max-h-[720px] w-full shrink-0 overflow-hidden bg-black sm:h-[58vh] sm:min-h-[360px] lg:h-[64vh] lg:min-h-[400px]">
+    <div
+      ref={heroRef}
+      className="relative h-[52vh] min-h-[320px] max-h-[720px] w-full shrink-0 overflow-hidden bg-black sm:h-[58vh] sm:min-h-[360px] lg:h-[64vh] lg:min-h-[400px]"
+    >
+      <div ref={mediaLayerRef} className="absolute inset-0 will-change-transform">
       <AnimatePresence mode="popLayout" initial={false}>
         <motion.div
           key={`${media.id}-poster`}
-          className="absolute inset-0"
+          className="absolute inset-0 ken-burns"
           initial={{ opacity: 0, scale: 1.04 }}
           animate={{
             opacity: phase === "poster" ? 1 : 0,
@@ -182,9 +203,9 @@ export function HeroBanner({
             />
           </motion.div>
         )}
-        {isScStreaming && scPreview && (
+        {canStreamPreview && streamTarget && (
           <motion.div
-            key={`${media.id}-sc-video`}
+            key={`${media.id}-stream-video`}
             className="absolute inset-0"
             initial={{ opacity: 0 }}
             animate={{ opacity: phase === "video" ? 1 : 0 }}
@@ -192,21 +213,23 @@ export function HeroBanner({
             transition={{ duration: 0.9, ease: "easeInOut" }}
           >
             <StreamingVideoPreview
-              titleId={scPreview.titleId}
-              slug={scPreview.slug}
+              target={streamTarget}
               active={phase === "video"}
               maxDurationSec={HERO_PREVIEW_SEC}
               muted={isPreviewMuted("hero", phase === "video")}
               className="absolute inset-0 h-full w-full object-cover"
               onEnded={advanceSlide}
+              onUnavailable={advanceSlide}
             />
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
 
       <div className="absolute inset-0 bg-gradient-to-t from-void via-void/70 to-void/10" />
       <div className="absolute inset-0 bg-gradient-to-r from-void/95 via-void/35 to-transparent" />
-      <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-void to-transparent" />
+      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-void to-transparent" />
+      <div className="hero-vignette absolute inset-0" />
 
       {hasVideoPreview && (
         <PreviewAudioToggle
@@ -216,7 +239,10 @@ export function HeroBanner({
         />
       )}
 
-      <div className="page-px relative flex h-full flex-col justify-end pb-24 pt-24 sm:pb-32 sm:pt-28">
+      <div
+        ref={contentLayerRef}
+        className="page-px relative flex h-full flex-col justify-end pb-24 pt-24 will-change-transform sm:pb-32 sm:pt-28"
+      >
         <AnimatePresence mode="wait" initial={false}>
           <motion.div key={media.id} {...textMotion} className="max-w-[40rem]">
             <p className="mb-3 text-[12px] font-medium uppercase tracking-[0.2em] text-white/55">

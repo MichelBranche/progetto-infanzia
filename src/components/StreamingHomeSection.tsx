@@ -12,6 +12,8 @@ interface StreamingHomeSectionProps {
   hasStreaming: boolean;
   rowIndexOffset: number;
   onPlayStreaming: (preview: StremioMetaPreview) => void;
+  onOpenDetail?: (browse: import("../lib/browse").BrowseItem) => void;
+  onToggleStreamingList?: (preview: StremioMetaPreview) => void;
 }
 
 export function StreamingHomeSection({
@@ -22,6 +24,8 @@ export function StreamingHomeSection({
   hasStreaming,
   rowIndexOffset,
   onPlayStreaming,
+  onOpenDetail,
+  onToggleStreamingList,
 }: StreamingHomeSectionProps) {
   if (!hasStreaming) return null;
 
@@ -58,13 +62,14 @@ export function StreamingHomeSection({
         <MediaRow
           key="sc-continue"
           index={String(rowIndexOffset + 1).padStart(2, "0")}
-          title="Riprendi a guardare"
-          subtitle="Streaming in app"
+          title="Continua a guardare"
           items={continueItems.map((item) =>
             streamingBrowseItem(continueToPreview(item)),
           )}
           onPlay={() => {}}
           onPlayStreaming={onPlayStreaming}
+          onOpenDetail={onOpenDetail}
+          onToggleStreamingList={onToggleStreamingList}
         />
       )}
       {rows.map((row, i) => (
@@ -76,6 +81,8 @@ export function StreamingHomeSection({
           items={row.items.map(streamingBrowseItem)}
           onPlay={() => {}}
           onPlayStreaming={onPlayStreaming}
+          onOpenDetail={onOpenDetail}
+          onToggleStreamingList={onToggleStreamingList}
         />
       ))}
     </div>

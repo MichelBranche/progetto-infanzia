@@ -25,6 +25,39 @@ create table if not exists public.friend_requests (
   unique (requester_id, addressee_id)
 );
 
+-- Presenza online amici (heartbeat client)
+create table if not exists public.user_presence (
+  user_id uuid primary key references public.cloud_profiles (id) on delete cascade,
+  status text not null default 'online' check (status in ('online', 'away', 'offline')),
+  last_seen_at timestamptz not null default now(),
+  activity text,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists user_presence_last_seen_idx on public.user_presence (last_seen_at desc);
+
+alter table public.user_presence enable row level security;
+
+drop policy if exists "presence read authenticated" on public.user_presence;
+create policy "presence read authenticated"
+  on public.user_presence for select
+  to authenticated
+  using (true);
+
+drop policy if exists "presence insert own" on public.user_presence;
+create policy "presence insert own"
+  on public.user_presence for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists "presence update own" on public.user_presence;
+create policy "presence update own"
+  on public.user_presence for update
+  to authenticated
+  using (auth.uid() = user_id);
+
+alter table public.user_presence replica identity full;
+
 -- Stanze watch party (sync online)
 create table if not exists public.watch_party_rooms (
   code text primary key,
@@ -145,5 +178,14 @@ begin
       and tablename = 'friend_requests'
   ) then
     alter publication supabase_realtime add table public.friend_requests;
+  end if;
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'user_presence'
+  ) then
+    alter publication supabase_realtime add table public.user_presence;
   end if;
 end $$;

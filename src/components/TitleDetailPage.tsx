@@ -42,6 +42,7 @@ export interface TitleDetailPageProps {
   ) => Promise<{ url: string; isHls: boolean } | null>;
   seasonNumbers?: number[];
   onLoadSeason?: (season: number) => Promise<TitleDetailEpisode[] | void>;
+  footer?: ReactNode;
 }
 
 function RatingBadge({ rating }: { rating: string }) {
@@ -235,6 +236,12 @@ function useSeasonSelection(
   }, [allEpisodes, detail.isSeries, seasons, activeSeason]);
 
   const primaryEpisodeInSeason = useMemo(() => {
+    if (detail.preferredEpisodeId) {
+      const preferred = filteredEpisodes.find(
+        (ep) => ep.id === detail.preferredEpisodeId,
+      );
+      if (preferred) return preferred;
+    }
     const resume = filteredEpisodes.find((ep) => (ep.progressPercent ?? 0) > 2);
     if (resume) return resume;
     if (detail.primaryEpisodeId) {
@@ -244,7 +251,7 @@ function useSeasonSelection(
       if (preferred) return preferred;
     }
     return filteredEpisodes[0];
-  }, [filteredEpisodes, detail.primaryEpisodeId]);
+  }, [filteredEpisodes, detail.primaryEpisodeId, detail.preferredEpisodeId]);
 
   return {
     seasons,
@@ -400,6 +407,7 @@ export function TitleDetailPage({
   resolveEpisodeStream,
   seasonNumbers,
   onLoadSeason,
+  footer,
 }: TitleDetailPageProps) {
   const [activeTab, setActiveTab] = useState<DetailTab>("overview");
   const [expandedPlot, setExpandedPlot] = useState(false);
@@ -430,10 +438,8 @@ export function TitleDetailPage({
 
   const playPrimary = () => {
     if (!primaryEpisodeId) return;
-    onPlay(
-      primaryEpisodeId,
-      detail.isSeries ? detail.name : primaryEpisode?.title ?? detail.name,
-    );
+    const episodeTitle = primaryEpisode?.title?.trim() || detail.name;
+    onPlay(primaryEpisodeId, episodeTitle);
   };
 
   const detailFields = [
@@ -747,6 +753,8 @@ export function TitleDetailPage({
           </div>
         )}
       </div>
+
+      {footer}
     </div>
   );
 }

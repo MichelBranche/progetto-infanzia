@@ -209,6 +209,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const base = `saturn:${remotePlayback.contentType}:${remotePlayback.slug}`;
       return remotePlayback.videoId ? `${base}:${remotePlayback.videoId}` : base;
     }
+    if (
+      remotePlayback?.catalogPrefix === "loonex" &&
+      remotePlayback.slug
+    ) {
+      const base = `loonex:${remotePlayback.contentType}:${remotePlayback.slug}`;
+      return remotePlayback.videoId ? `${base}:${remotePlayback.videoId}` : base;
+    }
     return media.id;
   }, [media.id, remotePlayback]);
 
@@ -227,9 +234,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const persist = async () => {
         if (
           (remotePlayback?.catalogPrefix === "sc" ||
-            remotePlayback?.catalogPrefix === "saturn") &&
+            remotePlayback?.catalogPrefix === "saturn" ||
+            remotePlayback?.catalogPrefix === "loonex") &&
           remotePlayback.slug &&
-          (remotePlayback.titleId || remotePlayback.catalogPrefix === "saturn")
+          (remotePlayback.titleId ||
+            remotePlayback.catalogPrefix === "saturn" ||
+            remotePlayback.catalogPrefix === "loonex")
         ) {
           try {
             await saveStreamingWatchProgress(profileId, {

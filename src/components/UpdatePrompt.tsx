@@ -1,6 +1,7 @@
 import { Download, Loader2, Sparkles, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { UpdaterPhase, UpdaterProgress } from "../lib/appUpdater";
+import { parseUpdateNotes } from "../lib/updateNotes";
 import type { Update } from "@tauri-apps/plugin-updater";
 
 interface UpdatePromptProps {
@@ -28,6 +29,7 @@ export function UpdatePrompt({
   onDismiss,
 }: UpdatePromptProps) {
   const busy = phase === "downloading" || phase === "installing";
+  const noteSections = parseUpdateNotes(update?.body);
   const percent =
     progress.total && progress.total > 0
       ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
@@ -70,11 +72,36 @@ export function UpdatePrompt({
                 <h3 className="mt-1 font-display text-xl font-semibold text-text-primary">
                   Branchefy {update.version}
                 </h3>
-                {update.body && (
+                {noteSections.length > 0 ? (
+                  <div className="mt-3 max-h-52 space-y-3 overflow-y-auto pr-1">
+                    {noteSections.map((section) => (
+                      <div key={section.title ?? section.items[0]}>
+                        {section.title && (
+                          <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-text-muted">
+                            {section.title}
+                          </p>
+                        )}
+                        <ul
+                          className={`space-y-1.5 ${section.title ? "mt-1.5" : ""}`}
+                        >
+                          {section.items.map((item) => (
+                            <li
+                              key={item}
+                              className="flex gap-2 text-[13px] leading-snug text-text-secondary"
+                            >
+                              <span className="mt-[0.45em] h-1 w-1 shrink-0 rounded-full bg-accent/80" />
+                              <span>{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                ) : update.body ? (
                   <p className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-text-secondary">
                     {update.body}
                   </p>
-                )}
+                ) : null}
               </div>
             </div>
 

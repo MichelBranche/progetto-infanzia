@@ -8,6 +8,7 @@ export interface BootCatalogPayload {
   syncedAt: number;
   totalCount: number;
   error: string | null;
+  needsBackgroundSync?: boolean;
 }
 
 const MIN_CATALOG_COUNT = 800;
@@ -33,6 +34,7 @@ function payloadFromResponse(response: {
   index: StremioMetaPreview[];
   syncedAt: number;
   totalCount: number;
+  needsBackgroundSync?: boolean;
 }): BootCatalogPayload {
   return {
     rows: response.rows,
@@ -40,6 +42,7 @@ function payloadFromResponse(response: {
     syncedAt: response.syncedAt,
     totalCount: response.totalCount,
     error: null,
+    needsBackgroundSync: response.needsBackgroundSync,
   };
 }
 
@@ -58,6 +61,8 @@ export function mergeCatalogPayload(
     syncedAt: Math.max(current.syncedAt, incoming.syncedAt),
     totalCount: Math.max(current.totalCount, incoming.totalCount),
     error: incoming.error ?? current.error,
+    needsBackgroundSync:
+      incoming.needsBackgroundSync ?? current.needsBackgroundSync,
   };
 }
 
@@ -118,9 +123,19 @@ export function scheduleCatalogRefresh(): Promise<BootCatalogPayload | null> {
   return refreshInflight;
 }
 
+function indexNeedsGenreMetadata(index: StremioMetaPreview[]): boolean {
+  if (index.length < 100) return false;
+  const tagged = index.filter(
+    (item) => (item.genres?.length ?? 0) > 0 || Boolean(item.sourceRowKey),
+  ).length;
+  return tagged < 20;
+}
+
 export function needsCatalogRefresh(payload: BootCatalogPayload | null): boolean {
   if (!payload) return true;
+  if (payload.needsBackgroundSync) return true;
   if (payload.error) return true;
+  if (indexNeedsGenreMetadata(payload.index)) return true;
   return !isCacheFresh(payload);
 }
 

@@ -56,6 +56,15 @@ pub struct StremioMetaPreview {
     pub catalog_prefix: Option<String>,
     #[serde(default)]
     pub slug: Option<String>,
+    #[serde(default)]
+    pub genres: Vec<String>,
+    #[serde(default)]
+    pub source_row_key: Option<String>,
+    #[serde(default)]
+    pub source_row_title: Option<String>,
+    /// Episodio da riprodurre (slider «ultimi episodi», continua a guardare, ecc.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_video_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

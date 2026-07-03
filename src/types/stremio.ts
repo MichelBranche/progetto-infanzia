@@ -30,6 +30,7 @@ export interface ScCatalogResponse {
   index: StremioMetaPreview[];
   syncedAt: number;
   totalCount: number;
+  needsBackgroundSync?: boolean;
 }
 
 export interface SaturnBrowsePage {
@@ -58,6 +59,7 @@ export interface StremioMetaPreview {
   slug?: string;
   /** film | serie | cartone — assegnato in unificazione catalogo */
   mediaType?: string;
+  genres?: string[];
   sourceRowKey?: string;
   sourceRowTitle?: string;
   watchPosition?: number;

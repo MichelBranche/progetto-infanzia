@@ -1,26 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
-import { getCachedScPreview } from "../lib/streamingPreviewCache";
+import { getCachedStreamingPreview } from "../lib/streamingPreviewCache";
+import type { AddonWatchTarget } from "../lib/streamingBrowse";
 import { PreviewLoadingOverlay } from "./VideoPreviewShell";
 
 interface StreamingVideoPreviewProps {
-  titleId: string;
-  slug: string;
+  target: AddonWatchTarget;
   active: boolean;
   maxDurationSec: number;
   className?: string;
   muted?: boolean;
   onEnded?: () => void;
+  onUnavailable?: () => void;
 }
 
 export function StreamingVideoPreview({
-  titleId,
-  slug,
+  target,
   active,
   maxDurationSec,
   className = "",
   muted = true,
   onEnded,
+  onUnavailable,
 }: StreamingVideoPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -33,7 +34,7 @@ export function StreamingVideoPreview({
       setReady(false);
       setResolving(false);
     }
-  }, [active, titleId, slug]);
+  }, [active, target.metaId, target.slug, target.catalogPrefix]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -43,11 +44,14 @@ export function StreamingVideoPreview({
     setResolving(true);
     setReady(false);
 
-    void getCachedScPreview(titleId, slug).then((stream) => {
+    void getCachedStreamingPreview(target, maxDurationSec).then((clip) => {
       if (cancelled || !video) return;
       setResolving(false);
 
-      if (!stream) return;
+      if (!clip) {
+        onUnavailable?.();
+        return;
+      }
 
       const cleanup = () => {
         if (hlsRef.current) {
@@ -58,7 +62,15 @@ export function StreamingVideoPreview({
 
       const onLoaded = () => {
         try {
-          video.currentTime = 0;
+          const duration =
+            Number.isFinite(video.duration) && video.duration > 0
+              ? video.duration
+              : 0;
+          const safeStart =
+            duration > 1
+              ? Math.min(Math.max(0, clip.startTimeSec), duration - 1)
+              : Math.max(0, clip.startTimeSec);
+          video.currentTime = safeStart;
         } catch {
           // ignore seek errors
         }
@@ -69,18 +81,18 @@ export function StreamingVideoPreview({
 
       cleanup();
 
-      if (stream.isHls && Hls.isSupported()) {
+      if (clip.isHls && Hls.isSupported()) {
         const hls = new Hls({ enableWorker: true, maxBufferLength: 15 });
         hlsRef.current = hls;
-        hls.loadSource(stream.url);
+        hls.loadSource(clip.url);
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, onLoaded);
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = stream.url;
+        video.src = clip.url;
         if (video.readyState >= 1) onLoaded();
         else video.addEventListener("loadedmetadata", onLoaded, { once: true });
       } else {
-        video.src = stream.url;
+        video.src = clip.url;
         if (video.readyState >= 1) onLoaded();
         else video.addEventListener("loadedmetadata", onLoaded, { once: true });
       }
@@ -97,7 +109,7 @@ export function StreamingVideoPreview({
       video.load();
       startedAtRef.current = null;
     };
-  }, [titleId, slug, active]);
+  }, [target, active, maxDurationSec, onUnavailable]);
 
   useEffect(() => {
     const video = videoRef.current;

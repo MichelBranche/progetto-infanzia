@@ -7,6 +7,10 @@ pub struct Profile {
     pub name: String,
     pub role: String,
     pub avatar_color: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accent_color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_style: Option<String>,
     pub avatar_emoji: Option<String>,
     pub created_at: String,
     pub has_pin: bool,
@@ -18,6 +22,8 @@ pub struct UpdateProfileInput {
     pub name: Option<String>,
     pub role: Option<String>,
     pub avatar_color: Option<String>,
+    pub accent_color: Option<String>,
+    pub avatar_style: Option<String>,
     pub avatar_emoji: Option<String>,
 }
 
@@ -27,6 +33,8 @@ pub struct CreateProfileInput {
     pub name: String,
     pub role: String,
     pub avatar_color: String,
+    pub accent_color: Option<String>,
+    pub avatar_style: Option<String>,
     pub avatar_emoji: Option<String>,
 }
 

@@ -56,18 +56,6 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     try {
       const data = await fetchProfiles();
       setProfiles(data);
-
-      const storedId = sessionStorage.getItem(ACTIVE_PROFILE_KEY);
-      if (storedId) {
-        const found = data.find((p) => p.id === storedId);
-        if (found) {
-          if (found.role === "parent" && found.hasPin) {
-            setPendingProfile(found);
-          } else {
-            setActiveProfile(found);
-          }
-        }
-      }
     } finally {
       setLoading(false);
     }
