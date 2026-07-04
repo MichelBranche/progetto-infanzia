@@ -231,6 +231,43 @@ create policy "rooms delete host"
   to authenticated
   using (auth.uid() = host_id);
 
+-- Pulizia stanze watch party: elimina stanze chiuse o senza heartbeat
+-- dell'host da più di 15 minuti (il client host aggiorna updated_at ~ogni
+-- 45 secondi anche in pausa). Così nessuna stanza resta attiva per sempre.
+create or replace function public.purge_stale_watch_party_rooms()
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  delete from public.watch_party_rooms
+  where is_active = false
+     or updated_at < now() - interval '15 minutes';
+$$;
+
+revoke all on function public.purge_stale_watch_party_rooms() from public;
+
+-- Pianificazione ogni 10 minuti con pg_cron (Supabase Cron).
+-- Se l'estensione non è abilitabile via SQL, attivala da
+-- Dashboard > Integrations > Cron: il blocco sotto riproverà alla prossima
+-- esecuzione dello schema. Nel frattempo la pulizia lazy nel join copre i casi.
+do $$
+begin
+  begin
+    create extension if not exists pg_cron with schema pg_catalog;
+  exception when others then
+    null;
+  end;
+
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule(
+      'purge-stale-watch-party-rooms',
+      '*/10 * * * *',
+      'select public.purge_stale_watch_party_rooms();'
+    );
+  end if;
+end $$;
+
 -- Join stanza cloud: registra membership e restituisce la stanza attiva.
 drop function if exists public.join_watch_party_room(text);
 create function public.join_watch_party_room(lookup_code text)
@@ -246,6 +283,9 @@ begin
   if auth.uid() is null then
     raise exception 'Non autenticato';
   end if;
+
+  -- Pulizia lazy: rimuove stanze chiuse o abbandonate prima della ricerca.
+  perform public.purge_stale_watch_party_rooms();
 
   select * into v_room
   from public.watch_party_rooms

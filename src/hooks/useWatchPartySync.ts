@@ -20,6 +20,7 @@ import type {
 
 export const DRIFT_THRESHOLD_SEC = 0.75;
 const HOST_HEARTBEAT_MS = 1500;
+const CLOUD_KEEPALIVE_MS = 45_000;
 const SYNC_THROTTLE_MS = 350;
 const MAX_EXTRAPOLATE_SEC = 4;
 const LAN_RECONNECT_BASE_MS = 1200;
@@ -204,6 +205,15 @@ export function useWatchPartySync({
       let realtimeOk = false;
       let stopPoll: (() => void) | null = null;
 
+      const handleClosed = () => {
+        if (session.role === "guest") {
+          setError("La stanza è stata chiusa dall'host");
+          setConnected(false);
+          stopPoll?.();
+          stopPoll = null;
+        }
+      };
+
       const unsubscribeRealtime = subscribeCloudWatchParty(
         session.room.code,
         applyRoom,
@@ -222,21 +232,30 @@ export function useWatchPartySync({
               "Sync live non disponibile — uso aggiornamento periodico",
             );
             if (!stopPoll) {
-              stopPoll = pollCloudWatchParty(session.room.code, (room) => {
-                setConnected(true);
-                applyRoom(room);
-              });
+              stopPoll = pollCloudWatchParty(
+                session.room.code,
+                (room) => {
+                  setConnected(true);
+                  applyRoom(room);
+                },
+                handleClosed,
+              );
             }
           }
         },
+        handleClosed,
       );
 
       const pollFallbackTimer = window.setTimeout(() => {
         if (!realtimeOk && !stopPoll) {
-          stopPoll = pollCloudWatchParty(session.room.code, (room) => {
-            setConnected(true);
-            applyRoom(room);
-          });
+          stopPoll = pollCloudWatchParty(
+            session.room.code,
+            (room) => {
+              setConnected(true);
+              applyRoom(room);
+            },
+            handleClosed,
+          );
         }
       }, 4000);
 
@@ -374,6 +393,16 @@ export function useWatchPartySync({
     }, HOST_HEARTBEAT_MS);
     return () => window.clearInterval(timer);
   }, [session, sendSync]);
+
+  // Keepalive cloud: mantiene updated_at fresco anche in pausa, così la
+  // pulizia server (stanze senza heartbeat da 15 min) non tocca stanze in uso.
+  useEffect(() => {
+    if (!session || session.role !== "host" || !isCloud) return;
+    const timer = window.setInterval(() => {
+      if (!playingRef.current) void pushCloudSync(true);
+    }, CLOUD_KEEPALIVE_MS);
+    return () => window.clearInterval(timer);
+  }, [session, isCloud, pushCloudSync]);
 
   const notifySeek = useCallback(
     (position: number, nextPlaying?: boolean) => {

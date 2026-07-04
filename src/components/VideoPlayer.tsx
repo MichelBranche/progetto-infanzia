@@ -724,6 +724,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     updatePartySession(null);
   }, [partySession, profileId, cloudProfile, updatePartySession]);
 
+  const cloudProfileRef = useRef(cloudProfile);
+  cloudProfileRef.current = cloudProfile;
+
+  // Se l'host esce dal player senza chiudere la party, elimina la stanza cloud
+  // per non lasciarla attiva per sempre.
+  useEffect(() => {
+    return () => {
+      const session = partySessionRef.current;
+      const profile = cloudProfileRef.current;
+      if (session?.role === "host" && session.relay === "cloud" && profile) {
+        void closeCloudWatchParty(session.room.code, profile.id);
+      }
+    };
+  }, []);
+
   const seek = useCallback(
     async (time: number) => {
       if (partySession?.role === "guest") return;

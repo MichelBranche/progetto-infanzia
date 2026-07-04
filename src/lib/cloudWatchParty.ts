@@ -69,6 +69,9 @@ export async function createCloudWatchParty(
   const supabase = getSupabase();
   if (!supabase) throw new Error("Cloud non configurato");
 
+  // Un host ha al massimo una stanza: rimuovi eventuali stanze precedenti.
+  await supabase.from("watch_party_rooms").delete().eq("host_id", hostId);
+
   for (let attempt = 0; attempt < 8; attempt++) {
     const code = randomCode(6);
     const { data, error } = await supabase
@@ -152,7 +155,7 @@ export async function closeCloudWatchParty(
 
   await supabase
     .from("watch_party_rooms")
-    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .delete()
     .eq("code", code.toUpperCase())
     .eq("host_id", hostId);
 }
@@ -161,6 +164,7 @@ export function subscribeCloudWatchParty(
   code: string,
   onUpdate: (room: WatchPartyRoom) => void,
   onStatus?: (status: string) => void,
+  onClosed?: () => void,
 ): () => void {
   const supabase = getSupabase();
   if (!supabase) return () => {};
@@ -184,8 +188,28 @@ export function subscribeCloudWatchParty(
           playing: boolean;
           position_secs: number;
           updated_at: string;
+          is_active?: boolean;
         };
+        if (row.is_active === false) {
+          onClosed?.();
+          return;
+        }
         onUpdate(mapRoom(row));
+      },
+    )
+    .on(
+      "postgres_changes",
+      {
+        // I filtri non vengono applicati agli eventi DELETE: confronto manuale.
+        event: "DELETE",
+        schema: "public",
+        table: "watch_party_rooms",
+      },
+      (payload) => {
+        const old = payload.old as { code?: string } | null;
+        if (old?.code === code.toUpperCase()) {
+          onClosed?.();
+        }
       },
     )
     .subscribe((status) => {
@@ -203,14 +227,23 @@ const CLOUD_POLL_MS = 2000;
 export function pollCloudWatchParty(
   code: string,
   onUpdate: (room: WatchPartyRoom) => void,
+  onClosed?: () => void,
 ): () => void {
   let cancelled = false;
+  let missing = 0;
 
   const tick = async () => {
     if (cancelled) return;
     try {
       const room = await fetchCloudWatchParty(code);
-      if (room) onUpdate(room);
+      if (room) {
+        missing = 0;
+        onUpdate(room);
+      } else {
+        // Dopo qualche giro a vuoto la stanza è stata chiusa/eliminata.
+        missing += 1;
+        if (missing >= 3) onClosed?.();
+      }
     } catch {
       // ignora errori transitori di rete
     }
