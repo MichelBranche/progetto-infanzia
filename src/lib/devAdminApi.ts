@@ -68,6 +68,8 @@ function mapCloudUser(row: Record<string, unknown>): DevCloudUser {
     presenceActivity: row.presence_activity
       ? String(row.presence_activity)
       : undefined,
+    appVersion: row.app_version ? String(row.app_version) : undefined,
+    platform: row.platform ? String(row.platform) : undefined,
     friends,
     recentWatches: recent,
     topTitles: top,
@@ -89,6 +91,14 @@ export async function fetchDevCloudUsers(): Promise<DevCloudUser[]> {
 
   const rows = Array.isArray(data) ? data : [];
   return rows.map((row) => mapCloudUser(row as Record<string, unknown>));
+}
+
+export async function deleteDevCloudUser(userId: string): Promise<void> {
+  const supabase = await assertDevAdmin();
+  const { error } = await supabase.rpc("dev_delete_user_account", {
+    target_user_id: userId,
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function fetchDevLocalDashboard(): Promise<DevLocalDashboard> {

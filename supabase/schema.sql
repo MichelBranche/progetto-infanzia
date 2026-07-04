@@ -31,8 +31,13 @@ create table if not exists public.user_presence (
   status text not null default 'online' check (status in ('online', 'away', 'offline')),
   last_seen_at timestamptz not null default now(),
   activity text,
+  app_version text,
+  platform text,
   updated_at timestamptz not null default now()
 );
+
+alter table public.user_presence add column if not exists app_version text;
+alter table public.user_presence add column if not exists platform text;
 
 create index if not exists user_presence_last_seen_idx on public.user_presence (last_seen_at desc);
 
@@ -98,18 +103,11 @@ create index if not exists watch_party_members_user_idx
 alter table public.watch_party_members enable row level security;
 
 drop policy if exists "party members read own or host" on public.watch_party_members;
-create policy "party members read own or host"
+drop policy if exists "party members read own" on public.watch_party_members;
+create policy "party members read own"
   on public.watch_party_members for select
   to authenticated
-  using (
-    user_id = (select auth.uid())
-    or exists (
-      select 1
-      from public.watch_party_rooms r
-      where r.code = room_code
-        and r.host_id = (select auth.uid())
-    )
-  );
+  using (user_id = (select auth.uid()));
 
 alter table public.cloud_profiles enable row level security;
 alter table public.friend_requests enable row level security;
@@ -449,6 +447,28 @@ begin
         pr.status as presence_status,
         pr.last_seen_at,
         pr.activity as presence_activity,
+        coalesce(
+          pr.app_version,
+          (
+            select af.app_version
+            from public.app_feedback af
+            where af.user_id = p.id
+              and af.app_version is not null
+            order by af.created_at desc
+            limit 1
+          )
+        ) as app_version,
+        coalesce(
+          pr.platform,
+          (
+            select af.platform
+            from public.app_feedback af
+            where af.user_id = p.id
+              and af.platform is not null
+            order by af.created_at desc
+            limit 1
+          )
+        ) as platform,
         (
           select coalesce(json_agg(f order by f.display_name), '[]'::json)
           from (
@@ -513,6 +533,38 @@ $$;
 
 revoke all on function public.dev_users_overview() from public;
 grant execute on function public.dev_users_overview() to authenticated;
+
+-- Elimina account cloud (auth + profilo e dati collegati). Solo dev admin.
+drop function if exists public.dev_delete_user_account(uuid);
+create function public.dev_delete_user_account(target_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+begin
+  if not public.is_dev_admin() then
+    raise exception 'Accesso negato';
+  end if;
+
+  if target_user_id is null then
+    raise exception 'Utente non valido';
+  end if;
+
+  if target_user_id = auth.uid() then
+    raise exception 'Non puoi eliminare il tuo account da qui';
+  end if;
+
+  if not exists (select 1 from auth.users u where u.id = target_user_id) then
+    raise exception 'Utente non trovato';
+  end if;
+
+  delete from auth.users where id = target_user_id;
+end;
+$$;
+
+revoke all on function public.dev_delete_user_account(uuid) from public;
+grant execute on function public.dev_delete_user_account(uuid) to authenticated;
 
 -- Feedback utenti: bug, suggerimenti, richieste funzioni e titoli
 create table if not exists public.app_feedback (
@@ -633,3 +685,4 @@ grant execute on function public.dev_feedback_purge_trash() to authenticated;
 --
 -- 4) watch_party_rooms: GET senza codice non deve elencare stanze altrui.
 --    join_watch_party_room('CODICE') registra membership e abilita SELECT/Realtime.
+--    La policy su watch_party_members NON deve leggere watch_party_rooms (ricorsione RLS).

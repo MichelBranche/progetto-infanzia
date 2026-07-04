@@ -1,7 +1,21 @@
 import { getSupabase } from "./supabaseClient";
 import type { FriendPresence } from "../types/cloud";
+import { fetchAppVersion } from "./appUpdater";
+import { detectPlatform } from "./feedbackApi";
 
 export const PRESENCE_ONLINE_MS = 90_000;
+
+let cachedAppVersion: string | null = null;
+
+async function resolveAppVersion(): Promise<string> {
+  if (cachedAppVersion) return cachedAppVersion;
+  try {
+    cachedAppVersion = await fetchAppVersion();
+  } catch {
+    cachedAppVersion = "unknown";
+  }
+  return cachedAppVersion;
+}
 
 export function isPresenceOnline(lastSeenAt: string | undefined): boolean {
   if (!lastSeenAt) return false;
@@ -20,6 +34,7 @@ export async function upsertMyPresence(activity?: string): Promise<void> {
 
   const now = new Date().toISOString();
   const status = document.hidden ? "away" : "online";
+  const appVersion = await resolveAppVersion();
 
   const { error } = await supabase.from("user_presence").upsert(
     {
@@ -27,6 +42,8 @@ export async function upsertMyPresence(activity?: string): Promise<void> {
       status,
       last_seen_at: now,
       activity: activity ?? null,
+      app_version: appVersion,
+      platform: detectPlatform(),
       updated_at: now,
     },
     { onConflict: "user_id" },

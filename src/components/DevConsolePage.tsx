@@ -18,6 +18,7 @@ import {
   fetchDevCloudUsers,
   fetchDevFeedback,
   fetchDevLocalDashboard,
+  deleteDevCloudUser,
   moveFeedbackToTrash,
   restoreFeedbackFromTrash,
   setFeedbackStatus,
@@ -53,7 +54,15 @@ function presenceLabel(user: DevCloudUser) {
   return "Offline";
 }
 
-function CloudUserDetail({ user }: { user: DevCloudUser }) {
+function CloudUserDetail({
+  user,
+  deleteBusy,
+  onDelete,
+}: {
+  user: DevCloudUser;
+  deleteBusy: boolean;
+  onDelete: () => void;
+}) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-5 py-4">
@@ -91,7 +100,34 @@ function CloudUserDetail({ user }: { user: DevCloudUser }) {
               <dd className="font-mono text-text-primary">{user.friendCode}</dd>
             </div>
           )}
+          {user.appVersion && (
+            <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2">
+              <dt className="text-text-muted">Versione app</dt>
+              <dd className="font-mono text-text-primary">v{user.appVersion}</dd>
+            </div>
+          )}
+          {user.platform && (
+            <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2">
+              <dt className="text-text-muted">Piattaforma</dt>
+              <dd className="capitalize text-text-primary">{user.platform}</dd>
+            </div>
+          )}
         </dl>
+        <div className="mt-5 border-t border-white/[0.06] pt-4">
+          <button
+            type="button"
+            disabled={deleteBusy}
+            onClick={onDelete}
+            className="inline-flex items-center gap-2 rounded-full border border-red-500/30 bg-red-500/10 px-4 py-2 text-[12px] font-medium text-red-300 transition-colors hover:bg-red-500/15 disabled:opacity-50"
+          >
+            {deleteBusy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+            Elimina account
+          </button>
+        </div>
       </div>
 
       <section>
@@ -479,6 +515,7 @@ export function DevConsolePage() {
   );
   const [feedbackBucket, setFeedbackBucket] = useState<FeedbackBucket>("inbox");
   const [feedbackActionBusy, setFeedbackActionBusy] = useState(false);
+  const [deleteUserBusy, setDeleteUserBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cloudUsers, setCloudUsers] = useState<DevCloudUser[]>([]);
@@ -649,6 +686,32 @@ export function DevConsolePage() {
       }
     },
     [feedbackBucket],
+  );
+
+  const handleDeleteCloudUser = useCallback(
+    async (user: DevCloudUser) => {
+      const label = user.displayName ?? user.email;
+      const confirmed = window.confirm(
+        `Eliminare definitivamente l'account di ${label}?\n\nVerranno rimossi profilo, amici, presenza e dati cloud collegati. L'azione non è reversibile.`,
+      );
+      if (!confirmed) return;
+
+      setDeleteUserBusy(true);
+      try {
+        await deleteDevCloudUser(user.userId);
+        const cloud = await fetchDevCloudUsers();
+        setCloudUsers(cloud);
+        setSelectedCloudId((prev) => {
+          if (prev && cloud.some((u) => u.userId === prev)) return prev;
+          return cloud[0]?.userId ?? null;
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setDeleteUserBusy(false);
+      }
+    },
+    [],
   );
 
   const stats =
@@ -850,6 +913,7 @@ export function DevConsolePage() {
                         <p className="mt-1 text-[10px] text-text-secondary">
                           {user.friends.length} amici · {user.recentWatches.length}{" "}
                           visioni
+                          {user.appVersion ? ` · v${user.appVersion}` : ""}
                         </p>
                       </button>
                     </li>
@@ -861,7 +925,11 @@ export function DevConsolePage() {
 
           <div className="min-h-0 rounded-2xl border border-white/[0.07] bg-white/[0.01] p-4 sm:p-5">
             {selectedCloudUser ? (
-              <CloudUserDetail user={selectedCloudUser} />
+              <CloudUserDetail
+                user={selectedCloudUser}
+                deleteBusy={deleteUserBusy}
+                onDelete={() => void handleDeleteCloudUser(selectedCloudUser)}
+              />
             ) : (
               <p className="flex min-h-[240px] items-center justify-center text-[14px] text-text-muted">
                 Seleziona un utente dalla lista

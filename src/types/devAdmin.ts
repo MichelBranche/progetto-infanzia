@@ -33,6 +33,8 @@ export interface DevCloudUser {
   presenceStatus?: string;
   lastSeenAt?: string;
   presenceActivity?: string;
+  appVersion?: string;
+  platform?: string;
   friends: DevCloudFriend[];
   recentWatches: DevCloudWatchEvent[];
   topTitles: DevCloudTopTitle[];
