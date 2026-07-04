@@ -1,10 +1,13 @@
-import { useRef } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { motion } from "framer-motion";
 import { MediaCard } from "./MediaCard";
 import { StreamingMediaCard } from "./StreamingMediaCard";
 import type { BrowseItem } from "../lib/browse";
 import { browseItemId } from "../lib/browse";
+import {
+  RowInteractionContext,
+  useRowScrollContainer,
+} from "../hooks/useRowScrollContainer";
 
 interface MediaRowProps {
   index: string;
@@ -65,7 +68,7 @@ export function MediaRow({
   actionLabel,
   onActionClick,
 }: MediaRowProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const { scrollRef, collapseEpoch, scrollProps } = useRowScrollContainer();
   const usePremiumCards =
     cardVariant === "premium" ||
     (cardVariant !== "default" &&
@@ -102,6 +105,7 @@ export function MediaRow({
   const cardWrapProps = animateEntrance ? { variants: cardMotion } : {};
 
   return (
+    <RowInteractionContext.Provider value={{ collapseEpoch }}>
     <Section
       className={`group/row page-px relative overflow-visible ${
         usePremiumCards || hasStreamingCards
@@ -195,6 +199,7 @@ export function MediaRow({
               ? "stream-row-scroll"
               : "items-end gap-2.5 pb-5 pt-1 sm:gap-3 sm:pb-6"
           }`}
+          {...scrollProps}
         >
           {items.map((browse, i) => (
             <CardWrap
@@ -237,5 +242,6 @@ export function MediaRow({
         )}
       </div>
     </Section>
+    </RowInteractionContext.Provider>
   );
 }

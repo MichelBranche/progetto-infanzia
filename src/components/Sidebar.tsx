@@ -11,6 +11,8 @@ import {
   Settings,
   Sparkles,
   Terminal,
+  MessageSquare,
+  Share2,
   Tv,
   Wifi,
   User,
@@ -40,6 +42,8 @@ const iconMap: Record<string, LucideIcon> = {
   User,
   Anime: Clapperboard,
   Terminal,
+  MessageSquare,
+  Share2,
 };
 
 interface SidebarProps {
@@ -52,11 +56,6 @@ interface SidebarProps {
   alertDots?: readonly string[];
 }
 
-type IndexedItem = { item: NavItem; index: number };
-
-function formatIndex(n: number) {
-  return String(n).padStart(2, "0");
-}
 
 function SectionLabel({ children }: { children: string }) {
   return (
@@ -71,7 +70,6 @@ function SectionLabel({ children }: { children: string }) {
 
 function NavEntry({
   item,
-  index,
   isActive,
   expanded,
   onNavigate,
@@ -79,7 +77,6 @@ function NavEntry({
   showAlertDot,
 }: {
   item: NavItem;
-  index: number;
   isActive: boolean;
   expanded: boolean;
   onNavigate: (id: string) => void;
@@ -113,12 +110,17 @@ function NavEntry({
     >
       {expanded ? (
         <>
-          <span
-            className={`w-[18px] shrink-0 text-left text-[10px] tabular-nums transition-colors ${
-              isActive ? "text-text-secondary" : "text-text-muted/40 group-hover:text-text-muted/70"
-            }`}
-          >
-            {formatIndex(index)}
+          <span className="relative flex w-[18px] shrink-0 items-center justify-center">
+            <Icon
+              className={`h-4 w-4 ${accent && !isActive ? "text-accent/80" : ""}`}
+              strokeWidth={isActive ? 2 : 1.5}
+            />
+            {showBadge && (
+              <span className="absolute -right-1.5 -top-1.5 h-1.5 w-1.5 rounded-full bg-accent" />
+            )}
+            {showAlertDot && !showBadge && (
+              <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-warm" />
+            )}
           </span>
           <span className="flex min-w-0 flex-1 items-baseline gap-2">
             <span
@@ -267,20 +269,6 @@ export function Sidebar({
       utilityItems: dedupe(utility),
     };
   }, [sections]);
-
-  const { primaryIndexed, browseIndexed, utilityIndexed } = useMemo(() => {
-    let n = 0;
-    const index = (items: NavItem[]): IndexedItem[] =>
-      items.map((item) => {
-        n += 1;
-        return { item, index: n };
-      });
-    return {
-      primaryIndexed: index(primaryItems),
-      browseIndexed: index(browseItems),
-      utilityIndexed: index(utilityItems),
-    };
-  }, [primaryItems, browseItems, utilityItems]);
 
   useEffect(() => {
     try {
@@ -450,14 +438,13 @@ export function Sidebar({
             </button>
           )}
 
-          {primaryIndexed.length > 0 && (
+          {primaryItems.length > 0 && (
             <div className={contentExpanded ? "" : "mt-1"}>
               {contentExpanded && <SectionLabel>Principale</SectionLabel>}
-              {primaryIndexed.map(({ item, index }) => (
+              {primaryItems.map((item) => (
                 <NavEntry
                   key={item.id}
                   item={item}
-                  index={index}
                   isActive={activeId === item.id}
                   expanded={contentExpanded}
                   onNavigate={onNavigate}
@@ -468,7 +455,7 @@ export function Sidebar({
             </div>
           )}
 
-          {browseIndexed.length > 0 && (
+          {browseItems.length > 0 && (
             <div
               className={
                 contentExpanded
@@ -477,11 +464,10 @@ export function Sidebar({
               }
             >
               {contentExpanded && <SectionLabel>Esplora</SectionLabel>}
-              {browseIndexed.map(({ item, index }) => (
+              {browseItems.map((item) => (
                 <NavEntry
                   key={item.id}
                   item={item}
-                  index={index}
                   isActive={activeId === item.id}
                   expanded={contentExpanded}
                   onNavigate={onNavigate}
@@ -490,7 +476,7 @@ export function Sidebar({
             </div>
           )}
 
-          {utilityIndexed.length > 0 && (
+          {utilityItems.length > 0 && (
             <div
               className={
                 contentExpanded
@@ -499,11 +485,10 @@ export function Sidebar({
               }
             >
               {contentExpanded && <SectionLabel>Account</SectionLabel>}
-              {utilityIndexed.map(({ item, index }) => (
+              {utilityItems.map((item) => (
                 <NavEntry
                   key={item.id}
                   item={item}
-                  index={index}
                   isActive={activeId === item.id}
                   expanded={contentExpanded}
                   onNavigate={onNavigate}

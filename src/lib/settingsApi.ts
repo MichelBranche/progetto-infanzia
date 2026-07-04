@@ -20,6 +20,8 @@ export interface AppSettings {
 
   castTranscodeEnabled: boolean;
 
+  preferredAudioLanguage: string;
+
 }
 
 
@@ -35,6 +37,8 @@ export interface UpdateSettingsInput {
   tmdbEnrichOnScan?: boolean;
 
   castTranscodeEnabled?: boolean;
+
+  preferredAudioLanguage?: string;
 
 }
 
@@ -57,6 +61,8 @@ const DEFAULT_BROWSER_SETTINGS: AppSettings = {
   tmdbEnrichOnScan: false,
 
   castTranscodeEnabled: false,
+
+  preferredAudioLanguage: "auto",
 
 };
 

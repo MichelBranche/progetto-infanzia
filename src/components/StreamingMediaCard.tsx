@@ -14,6 +14,9 @@ import type { StremioMetaPreview } from "../types/stremio";
 import { watchProgressPercent } from "../types/media";
 import { PosterImage } from "./PosterImage";
 import { StreamingProviderBadge } from "./StreamingProviderBadge";
+import { useRowInteraction, isRowDragging } from "../hooks/useRowScrollContainer";
+
+const STREAM_DRAG_THRESHOLD_PX = 8;
 
 /** Ritardo hover allineato a Max (~400ms). */
 const STREAM_HOVER_DELAY_MS = 400;
@@ -59,7 +62,9 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
 
   const preview = browse.preview;
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointerDragRef = useRef({ active: false, x: 0, y: 0 });
   const [expanded, setExpanded] = useState(false);
+  const { collapseEpoch } = useRowInteraction();
   const dims = useStreamCardDimensions();
 
   const item = previewToMediaItem(preview);
@@ -88,6 +93,10 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
     preview.catalogPrefix === "saturn";
 
   const handleOpenDetail = () => {
+    if (pointerDragRef.current.active || isRowDragging()) {
+      pointerDragRef.current.active = false;
+      return;
+    }
     if (onOpenDetail) {
       onOpenDetail(browse);
       return;
@@ -101,7 +110,9 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
   };
 
   const handleEnter = () => {
+    if (isRowDragging()) return;
     hoverTimer.current = window.setTimeout(() => {
+      if (isRowDragging()) return;
       setExpanded(true);
     }, STREAM_HOVER_DELAY_MS);
   };
@@ -112,7 +123,49 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
       hoverTimer.current = null;
     }
     setExpanded(false);
+    pointerDragRef.current.active = false;
   };
+
+  const handlePointerDown = (event: React.PointerEvent) => {
+    pointerDragRef.current = {
+      active: false,
+      x: event.clientX,
+      y: event.clientY,
+    };
+    if (hoverTimer.current) {
+      window.clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+  };
+
+  const handlePointerMove = (event: React.PointerEvent) => {
+    const pointer = pointerDragRef.current;
+    if (
+      Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) >=
+      STREAM_DRAG_THRESHOLD_PX
+    ) {
+      pointer.active = true;
+      setExpanded(false);
+      if (hoverTimer.current) {
+        window.clearTimeout(hoverTimer.current);
+        hoverTimer.current = null;
+      }
+    }
+  };
+
+  const handlePointerUp = () => {
+    window.setTimeout(() => {
+      pointerDragRef.current.active = false;
+    }, 0);
+  };
+
+  useEffect(() => {
+    if (hoverTimer.current) {
+      window.clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    setExpanded(false);
+  }, [collapseEpoch]);
 
   useEffect(
     () => () => {
@@ -140,6 +193,10 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
       }}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
       onClick={handleOpenDetail}
     >
       <div

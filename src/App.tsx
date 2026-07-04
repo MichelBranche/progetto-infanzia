@@ -20,10 +20,18 @@ import { LibraryProvider, useLibrary } from "./context/LibraryContext";
 import { AddonsProvider, useAddons } from "./context/AddonsContext";
 import { CloudAccountProvider, useCloudAccount } from "./context/CloudAccountContext";
 import { usePresenceHeartbeat } from "./hooks/useFriendPresence";
-import { NotificationProvider } from "./context/NotificationContext";
+import { NotificationProvider, useNotifications } from "./context/NotificationContext";
 import { CloudFriendAlertsProvider, useCloudFriendAlertsContext } from "./context/CloudFriendAlertsContext";
 import { ProfileProvider, useProfile } from "./context/ProfileContext";
+import {
+  AppAccessProvider,
+  useAppAccess,
+} from "./context/AppAccessContext";
+import { tryGrandfatherExistingInstall } from "./lib/appAccess";
+import { AppAccessBootstrap, AppAccessScreen } from "./components/AppAccessScreen";
+import { GuestUsageBanner } from "./components/GuestUsageBanner";
 import { PreviewAudioProvider } from "./context/PreviewAudioContext";
+import { shareBranchefyApp } from "./lib/shareApp";
 import { sectionMeta } from "./data/nav";
 import {
   type SeriesRef,
@@ -91,6 +99,11 @@ const DevConsolePage = lazy(() =>
     default: m.DevConsolePage,
   })),
 );
+const FeedbackPage = lazy(() =>
+  import("./components/FeedbackPage").then((m) => ({
+    default: m.FeedbackPage,
+  })),
+);
 const StreamingPage = lazy(() =>
   import("./components/StreamingPage").then((m) => ({ default: m.StreamingPage })),
 );
@@ -125,7 +138,9 @@ function SuspenseRoute({ children }: { children: React.ReactNode }) {
 
 function AppContent() {
   const { activeProfile, clearProfile, isParent } = useProfile();
-  const { profile: cloudProfile } = useCloudAccount();
+  const { profile: cloudProfile, user, signOut } = useCloudAccount();
+  const { isGuest, guestLimitReached, logoutAccess } = useAppAccess();
+  const { notify } = useNotifications();
   const devMode = isDevAdminEmail(cloudProfile?.email);
   usePresenceHeartbeat(Boolean(cloudProfile));
   const { pendingCount: pendingFriendRequests, refreshFriendAlerts } =
@@ -236,9 +251,35 @@ function AppContent() {
     }
   }, [isParent, activeNav]);
 
+  const ensureGuestCanPlay = useCallback(() => {
+    if (isGuest && guestLimitReached) {
+      notify({
+        kind: "info",
+        title: "Limite ospite raggiunto",
+        message:
+          "Hai usato le 2 ore giornaliere. Registrati dalle Impostazioni per continuare.",
+      });
+      return false;
+    }
+    return true;
+  }, [isGuest, guestLimitReached, notify]);
+
+  const handleLogout = useCallback(async () => {
+    if (user) {
+      try {
+        await signOut();
+      } catch {
+        // ignore cloud sign-out errors
+      }
+    }
+    clearProfile();
+    logoutAccess();
+  }, [user, signOut, clearProfile, logoutAccess]);
+
   if (!activeProfile) return null;
 
   const handlePlay = (id: string) => {
+    if (!ensureGuestCanPlay()) return;
     const target = parseStreamingMediaId(id);
     if (target) {
       if (!STREMIO_ADDONS_ENABLED && !isBuiltinStreamingCatalog(target.catalogPrefix)) {
@@ -255,6 +296,7 @@ function AppContent() {
   };
 
   const handlePlayNow = (id: string) => {
+    if (!ensureGuestCanPlay()) return;
     const target = parseStreamingMediaId(id);
     if (target) {
       if (!STREMIO_ADDONS_ENABLED && !isBuiltinStreamingCatalog(target.catalogPrefix)) {
@@ -279,6 +321,18 @@ function AppContent() {
   };
 
   const handleNav = (id: string) => {
+    if (id === "invite") {
+      void shareBranchefyApp().then(({ copied }) => {
+        notify({
+          kind: "success",
+          title: "Invita i tuoi amici",
+          message: copied
+            ? "Aperta la pagina download su GitHub. Link copiato negli appunti."
+            : "Aperta la pagina download su GitHub.",
+        });
+      });
+      return;
+    }
     if ((id === "add" || id === "manage" || id === "settings" || id === "activity") && !isParent) return;
     if (id === "dev" && !devMode) return;
     setSeriesKey(null);
@@ -524,6 +578,7 @@ function AppContent() {
       const action = browseDetailAction(browse);
       if (!action) return;
       if (action.type === "watch") {
+        if (!ensureGuestCanPlay()) return;
         setWatchAutoplay(false);
         setWatchingId(action.mediaId);
         return;
@@ -532,9 +587,18 @@ function AppContent() {
         setSeriesKey(action.seriesKey);
         return;
       }
+      if (!ensureGuestCanPlay()) return;
       setAddonWatch(action.target);
     },
-    [browsePool],
+    [browsePool, ensureGuestCanPlay],
+  );
+
+  const handleStartAddonWatch = useCallback(
+    (target: AddonWatchTarget) => {
+      if (!ensureGuestCanPlay()) return;
+      setAddonWatch(target);
+    },
+    [ensureGuestCanPlay],
   );
 
   const handleOpenSeries = useCallback(
@@ -562,6 +626,7 @@ function AppContent() {
   }, [activeNav, seriesKey]);
 
   const handlePlayStreaming = (preview: StremioMetaPreview) => {
+    if (!ensureGuestCanPlay()) return;
     if (!STREMIO_ADDONS_ENABLED && !isBuiltinStreamingCatalog(preview.catalogPrefix)) {
       return;
     }
@@ -706,7 +771,7 @@ function AppContent() {
   ]);
   const showEmptyLibraryOnly =
     isEmpty &&
-    !["add", "settings", "manage", "activity", "profile", "anime", "streaming", "dev"].includes(
+    !["add", "settings", "manage", "activity", "profile", "anime", "streaming", "dev", "feedback"].includes(
       activeNav,
     ) &&
     !(hasStreaming && streamingBrowseNav.has(activeNav));
@@ -740,9 +805,12 @@ function AppContent() {
           searchActive={searchOpen}
           onRescan={rescan}
           onSwitchProfile={clearProfile}
+          onLogout={() => void handleLogout()}
           scanning={scanning}
           scrolled={mainScrolled}
         />
+
+        <GuestUsageBanner onUpgrade={() => handleNav("settings")} />
 
         <SuspenseRoute>
           <SearchOverlay
@@ -849,7 +917,7 @@ function AppContent() {
                   <SuspenseRoute>
                     <StreamingPage
                     profileId={activeProfile.id}
-                    onStartWatch={setAddonWatch}
+                    onStartWatch={handleStartAddonWatch}
                     />
                   </SuspenseRoute>
                 )}
@@ -895,6 +963,18 @@ function AppContent() {
                 {!seriesKey && activeNav === "dev" && devMode && (
                   <SuspenseRoute>
                     <DevConsolePage />
+                  </SuspenseRoute>
+                )}
+
+                {!seriesKey && activeNav === "feedback" && (
+                  <SuspenseRoute>
+                    <FeedbackPage
+                      profile={activeProfile}
+                      activeNav={activeNav}
+                      onOpenSettings={
+                        isParent ? () => setActiveNav("settings") : undefined
+                      }
+                    />
                   </SuspenseRoute>
                 )}
 
@@ -1022,7 +1102,8 @@ function AppContent() {
                   activeNav !== "settings" &&
                   activeNav !== "streaming" &&
                   activeNav !== "activity" &&
-                  activeNav !== "dev" && (
+                  activeNav !== "dev" &&
+                  activeNav !== "feedback" && (
                   <SectionBrowsePage
                     sectionId={activeNav}
                     title={sectionInfo?.title ?? activeNav}
@@ -1084,17 +1165,41 @@ function AppGate() {
     completePinUnlock,
     cancelPinUnlock,
     verifyPin,
+    profiles,
+    loading: profilesLoading,
   } = useProfile();
+  const { setupComplete, loading: accessLoading, syncFromStorage } = useAppAccess();
 
   useEffect(() => {
     void prefetchBootCatalog();
     setCatalogReady(true);
   }, []);
 
+  useEffect(() => {
+    if (!profilesLoading && profiles.length > 0) {
+      tryGrandfatherExistingInstall(true);
+      syncFromStorage();
+    }
+  }, [profilesLoading, profiles.length, syncFromStorage]);
+
   const bootDone = bootPhase === "done";
+  const gateReady = !profilesLoading && !accessLoading;
+  const showAccess =
+    gateReady &&
+    bootDone &&
+    !activeProfile &&
+    !pendingProfile &&
+    !setupComplete;
+  const showProfileSelect =
+    gateReady &&
+    bootDone &&
+    !activeProfile &&
+    !pendingProfile &&
+    !showAccess;
 
   return (
     <>
+      <AppAccessBootstrap />
       <AnimatePresence>
         {!bootDone && (
           <LoadingScreen
@@ -1107,7 +1212,9 @@ function AppGate() {
         )}
       </AnimatePresence>
 
-      {bootDone && !activeProfile && !pendingProfile && <ProfileSelectScreen />}
+      {showAccess && <AppAccessScreen />}
+
+      {showProfileSelect && <ProfileSelectScreen />}
 
       {bootDone && pendingProfile && !activeProfile && (
         <ProfilePinModal
@@ -1139,13 +1246,15 @@ function AppGate() {
 function App() {
   return (
     <CloudAccountProvider>
-      <NotificationProvider>
-        <ProfileProvider>
-          <PreviewAudioProvider>
-            <AppGate />
-          </PreviewAudioProvider>
-        </ProfileProvider>
-      </NotificationProvider>
+      <AppAccessProvider>
+        <NotificationProvider>
+          <ProfileProvider>
+            <PreviewAudioProvider>
+              <AppGate />
+            </PreviewAudioProvider>
+          </ProfileProvider>
+        </NotificationProvider>
+      </AppAccessProvider>
     </CloudAccountProvider>
   );
 }

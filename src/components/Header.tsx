@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Bell, RefreshCw, X } from "lucide-react";
+import { Search, Bell, RefreshCw, X, LogOut, Users } from "lucide-react";
 import { ProfileAvatar } from "./ProfileAvatar";
 import type { Profile } from "../types/profile";
 import { isParentProfile, roleLabel } from "../types/profile";
@@ -14,6 +14,7 @@ interface HeaderProps {
   searchActive: boolean;
   onRescan: () => void;
   onSwitchProfile: () => void;
+  onLogout: () => void;
   scanning: boolean;
   scrolled?: boolean;
 }
@@ -31,11 +32,14 @@ export function Header({
   searchActive,
   onRescan,
   onSwitchProfile,
+  onLogout,
   scanning,
   scrolled = false,
 }: HeaderProps) {
   const isParent = isParentProfile(profile);
   const inputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
   const openSearch = () => {
     onOpenSearch();
@@ -47,6 +51,24 @@ export function Header({
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [searchActive]);
+
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setProfileMenuOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProfileMenuOpen(false);
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [profileMenuOpen]);
 
   return (
     <header
@@ -162,22 +184,64 @@ export function Header({
 
                 <ToolbarDivider />
 
-                <button
-                  type="button"
-                  onClick={onSwitchProfile}
-                  title="Cambia profilo"
-                  className="group flex items-center gap-2.5 py-0.5 text-left transition-opacity hover:opacity-85"
-                >
-                  <ProfileAvatar profile={profile} size="sm" />
-                  <div className="hidden min-w-0 sm:block">
-                    <p className="truncate font-display text-[13px] font-medium tracking-[-0.02em] text-text-primary">
-                      {profile.name}
-                    </p>
-                    <p className="truncate text-[9px] uppercase tracking-[0.18em] text-text-muted">
-                      {roleLabel(profile.role)}
-                    </p>
-                  </div>
-                </button>
+                <div ref={menuRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setProfileMenuOpen((open) => !open)}
+                    aria-expanded={profileMenuOpen}
+                    aria-haspopup="menu"
+                    title="Menu profilo"
+                    className="group flex items-center gap-2.5 rounded-lg py-0.5 pl-0.5 pr-1 text-left transition-opacity hover:opacity-85"
+                  >
+                    <ProfileAvatar profile={profile} size="sm" />
+                    <div className="hidden min-w-0 sm:block">
+                      <p className="truncate font-display text-[13px] font-medium tracking-[-0.02em] text-text-primary">
+                        {profile.name}
+                      </p>
+                      <p className="truncate text-[9px] uppercase tracking-[0.18em] text-text-muted">
+                        {roleLabel(profile.role)}
+                      </p>
+                    </div>
+                  </button>
+
+                  <AnimatePresence>
+                    {profileMenuOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                        className="absolute right-0 top-[calc(100%+8px)] z-50 min-w-[200px] overflow-hidden rounded-xl border border-white/[0.08] bg-[#0c0c0f] py-1 shadow-[0_20px_60px_rgba(0,0,0,0.55)]"
+                        role="menu"
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setProfileMenuOpen(false);
+                            onSwitchProfile();
+                          }}
+                          className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-text-primary"
+                        >
+                          <Users className="h-4 w-4 shrink-0" strokeWidth={1.5} />
+                          Cambia profilo
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setProfileMenuOpen(false);
+                            onLogout();
+                          }}
+                          className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-warm"
+                        >
+                          <LogOut className="h-4 w-4 shrink-0" strokeWidth={1.5} />
+                          Logout
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
             </motion.div>
           )}

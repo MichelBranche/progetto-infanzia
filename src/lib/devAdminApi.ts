@@ -2,6 +2,19 @@ import { invoke } from "@tauri-apps/api/core";
 import { getSupabase } from "./supabaseClient";
 import { isDevAdminEmail } from "./devAdmin";
 import type { DevCloudUser, DevLocalDashboard } from "../types/devAdmin";
+import type { AppFeedbackRecord, FeedbackStatus, FeedbackType } from "../types/feedback";
+
+async function assertDevAdmin() {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("Cloud non configurato");
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  const email = sessionData.session?.user?.email;
+  if (!isDevAdminEmail(email)) {
+    throw new Error("Accesso riservato allo sviluppatore");
+  }
+  return supabase;
+}
 
 function mapCloudUser(row: Record<string, unknown>): DevCloudUser {
   const recent = Array.isArray(row.recent_watches)
@@ -80,6 +93,91 @@ export async function fetchDevCloudUsers(): Promise<DevCloudUser[]> {
 
 export async function fetchDevLocalDashboard(): Promise<DevLocalDashboard> {
   return invoke<DevLocalDashboard>("dev_local_dashboard_cmd");
+}
+
+function mapFeedbackRow(row: Record<string, unknown>): AppFeedbackRecord {
+  const context = row.context_json;
+  return {
+    id: String(row.id ?? ""),
+    userId: row.user_id ? String(row.user_id) : undefined,
+    profileName: String(row.profile_name ?? ""),
+    profileRole: String(row.profile_role ?? ""),
+    type: String(row.feedback_type ?? "feedback") as FeedbackType,
+    status: (row.status === "resolved" ? "resolved" : "open") as FeedbackStatus,
+    subject: row.subject ? String(row.subject) : undefined,
+    message: String(row.message ?? ""),
+    context:
+      context && typeof context === "object"
+        ? (context as AppFeedbackRecord["context"])
+        : undefined,
+    appVersion: row.app_version ? String(row.app_version) : undefined,
+    platform: row.platform ? String(row.platform) : undefined,
+    createdAt: String(row.created_at ?? ""),
+    resolvedAt: row.resolved_at ? String(row.resolved_at) : undefined,
+    deletedAt: row.deleted_at ? String(row.deleted_at) : undefined,
+  };
+}
+
+const FEEDBACK_SELECT =
+  "id, user_id, profile_name, profile_role, feedback_type, status, subject, message, context_json, app_version, platform, created_at, resolved_at, deleted_at";
+
+export async function purgeExpiredFeedbackTrash(): Promise<number> {
+  const supabase = await assertDevAdmin();
+  const { data, error } = await supabase.rpc("dev_feedback_purge_trash");
+  if (error) {
+    if (error.message.includes("dev_feedback_purge_trash")) return 0;
+    throw new Error(error.message);
+  }
+  return Number(data ?? 0);
+}
+
+export async function fetchDevFeedback(): Promise<AppFeedbackRecord[]> {
+  const supabase = await assertDevAdmin();
+  await purgeExpiredFeedbackTrash().catch(() => 0);
+
+  const { data, error } = await supabase
+    .from("app_feedback")
+    .select(FEEDBACK_SELECT)
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) =>
+    mapFeedbackRow(row as Record<string, unknown>),
+  );
+}
+
+export async function setFeedbackStatus(
+  id: string,
+  status: FeedbackStatus,
+): Promise<void> {
+  const supabase = await assertDevAdmin();
+  const { error } = await supabase
+    .from("app_feedback")
+    .update({
+      status,
+      resolved_at: status === "resolved" ? new Date().toISOString() : null,
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function moveFeedbackToTrash(id: string): Promise<void> {
+  const supabase = await assertDevAdmin();
+  const { error } = await supabase
+    .from("app_feedback")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function restoreFeedbackFromTrash(id: string): Promise<void> {
+  const supabase = await assertDevAdmin();
+  const { error } = await supabase
+    .from("app_feedback")
+    .update({ deleted_at: null })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
 export async function checkDevAdminAccess(): Promise<boolean> {

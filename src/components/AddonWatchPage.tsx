@@ -15,6 +15,8 @@ import {
   resolveScPreview,
   resolveTorrentSource,
 } from "../lib/addonsApi";
+import { readPlayerAudioLanguage } from "../lib/playerAudioLanguage";
+import type { PlayerStreamAudioLanguage } from "../lib/playerAudioLanguage";
 import {
   metaVideoToMediaItem,
   metaVideosToMediaItems,
@@ -224,7 +226,7 @@ export function AddonWatchPage({
       if (!isBuiltin || !slug) return null;
       try {
         const stream = isSc
-          ? await resolveScStream(metaId, slug, videoId)
+          ? await resolveScStream(metaId, slug, videoId, readPlayerAudioLanguage())
           : isLoonex
             ? await resolveLoonexStream(slug, videoId)
             : await resolveSaturnStream(slug, videoId);
@@ -356,8 +358,16 @@ export function AddonWatchPage({
       setStreamPick(null);
       setError(null);
       try {
+        const audioLang = readPlayerAudioLanguage();
         const streams = isSc
-          ? [await resolveScStream(metaId, slug!, isMovie ? undefined : episodeId)]
+          ? [
+              await resolveScStream(
+                metaId,
+                slug!,
+                isMovie ? undefined : episodeId,
+                audioLang,
+              ),
+            ]
           : isLoonex
             ? [await resolveLoonexStream(slug!, episodeId)]
             : isSaturn
@@ -387,6 +397,17 @@ export function AddonWatchPage({
       }
     },
     [meta, profileId, playStream, isSc, isSaturn, isLoonex, metaId, slug],
+  );
+
+  const handleStreamAudioLanguage = useCallback(
+    async (lang: PlayerStreamAudioLanguage) => {
+      if (!isSc || !slug || !meta || !playback) return;
+      const isMovie = meta.type === "movie";
+      const episodeId = isMovie ? undefined : playback.videoId;
+      const stream = await resolveScStream(metaId, slug, episodeId, lang);
+      setPlayback((prev) => (prev ? { ...prev, stream } : prev));
+    },
+    [isSc, slug, meta, metaId, playback],
   );
 
   const startPreview = useCallback(async () => {
@@ -508,6 +529,9 @@ export function AddonWatchPage({
         }}
         watchPartySession={watchPartySession}
         onWatchPartySessionChange={onWatchPartySessionChange}
+        onStreamAudioLanguageChange={
+          isSc ? handleStreamAudioLanguage : undefined
+        }
         onBack={async () => {
           if (watchPartySession) {
             onWatchPartySessionChange?.(null);

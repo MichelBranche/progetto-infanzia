@@ -13,12 +13,14 @@ import {
   RotateCcw,
   RotateCw,
   ListVideo,
+  Loader2,
   SkipForward,
   SkipBack,
   X,
   Subtitles,
   Settings2,
   Users,
+  Languages,
 } from "lucide-react";
 import { castTransport, getCastPosition, saveWatchProgress } from "../lib/api";
 import { saveStreamingWatchProgress } from "../lib/addonsApi";
@@ -32,6 +34,8 @@ import {
 import { compareEpisodes, episodeCodeLabel, episodeDisplayTitle, nextEpisode, prevEpisode } from "../lib/browse";
 import { useProfile } from "../context/ProfileContext";
 import { useCloudAccount } from "../context/CloudAccountContext";
+import { useAppAccess } from "../context/AppAccessContext";
+import { GUEST_DAILY_LIMIT_SECONDS } from "../lib/guestUsage";
 import type { CastDevice, MediaItem } from "../types/media";
 import { formatDuration, mediaTypeLabel } from "../types/media";
 import { PosterImage } from "./PosterImage";
@@ -43,6 +47,16 @@ import { closeCloudWatchParty } from "../lib/cloudWatchParty";
 import { closeWatchParty } from "../lib/watchPartyApi";
 import type { WatchPartySession } from "../types/watchParty";
 import { parseRemoteProxyId } from "../lib/cast";
+import {
+  formatAudioTrackLabel,
+  pickAudioTrackIndex,
+} from "../lib/audioLanguage";
+import {
+  PLAYER_STREAM_AUDIO_OPTIONS,
+  readPlayerAudioLanguage,
+  savePlayerAudioLanguage,
+  type PlayerStreamAudioLanguage,
+} from "../lib/playerAudioLanguage";
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -63,6 +77,9 @@ interface VideoPlayerProps {
   onPlayEpisode?: (id: string) => void;
   watchPartySession?: WatchPartySession | null;
   onWatchPartySessionChange?: (session: WatchPartySession | null) => void;
+  onStreamAudioLanguageChange?: (
+    lang: PlayerStreamAudioLanguage,
+  ) => void | Promise<void>;
 }
 
 export interface VideoPlayerHandle {
@@ -86,6 +103,11 @@ interface QualityOption {
 }
 
 interface SubtitleOption {
+  track: number;
+  label: string;
+}
+
+interface AudioOption {
   track: number;
   label: string;
 }
@@ -118,6 +140,13 @@ function buildSubtitleOptions(tracks: MediaPlaylist[]): SubtitleOption[] {
   return options;
 }
 
+function buildAudioOptions(tracks: MediaPlaylist[]): AudioOption[] {
+  return tracks.map((track, index) => ({
+    track: index,
+    label: formatAudioTrackLabel(track, index),
+  }));
+}
+
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(
     {
@@ -130,6 +159,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       onPlayEpisode,
       watchPartySession: watchPartySessionProp,
       onWatchPartySessionChange,
+      onStreamAudioLanguageChange,
     },
     ref,
   ) {
@@ -153,6 +183,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     null,
   );
   const pendingGuestSeekRef = useRef<number | null>(null);
+  const guestPlaybackRef = useRef<number | null>(null);
+  const { isGuest, guestLimitReached, recordGuestPlayback } = useAppAccess();
 
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(false);
@@ -163,6 +195,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showVolume, setShowVolume] = useState(false);
+  const [guestBlocked, setGuestBlocked] = useState(false);
   const [showEpisodes, setShowEpisodes] = useState(false);
   const [showUpNext, setShowUpNext] = useState(false);
   const [autoplaySeconds, setAutoplaySeconds] = useState<number | null>(null);
@@ -180,8 +213,19 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const [selectedQuality, setSelectedQuality] = useState(-1);
   const [subtitleOptions, setSubtitleOptions] = useState<SubtitleOption[]>([]);
   const [selectedSubtitle, setSelectedSubtitle] = useState(-1);
+  const [audioOptions, setAudioOptions] = useState<AudioOption[]>([]);
+  const [selectedAudio, setSelectedAudio] = useState(0);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [showSubtitleMenu, setShowSubtitleMenu] = useState(false);
+  const [showAudioMenu, setShowAudioMenu] = useState(false);
+  const [streamAudioLang, setStreamAudioLang] = useState<PlayerStreamAudioLanguage>(
+    () => readPlayerAudioLanguage(),
+  );
+  const [audioSwitching, setAudioSwitching] = useState(false);
+  const streamAudioLangRef = useRef<PlayerStreamAudioLanguage>(streamAudioLang);
+  streamAudioLangRef.current = streamAudioLang;
+  const canShowAudioMenu =
+    audioOptions.length > 1 || Boolean(onStreamAudioLanguageChange);
   const [activeCueText, setActiveCueText] = useState<string | null>(null);
   const castingTo = castDevice?.name ?? null;
   const effectiveStreamUrl =
@@ -372,7 +416,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     setShowUpNext(false);
     setAutoplaySeconds(null);
     setLoading(true);
-    setPlaying(true);
+    setGuestBlocked(isGuest && guestLimitReached);
+    setPlaying(!(isGuest && guestLimitReached));
     setCastDevice(null);
     setQualityOptions([]);
     setSelectedQuality(-1);
@@ -381,7 +426,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     setShowQualityMenu(false);
     setShowSubtitleMenu(false);
     setActiveCueText(null);
-  }, [media.id, effectiveStreamUrl, effectiveIsHls]);
+  }, [media.id, effectiveStreamUrl, effectiveIsHls, isGuest, guestLimitReached]);
 
   useEffect(() => {
     if (!profileId) return;
@@ -427,8 +472,48 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   }, [profileId, media.id, media.title, remotePlayback]);
 
   useEffect(() => {
+    if (!isGuest) {
+      setGuestBlocked(false);
+      return;
+    }
+    if (guestLimitReached) {
+      setGuestBlocked(true);
+      setPlaying(false);
+      videoRef.current?.pause();
+    }
+  }, [isGuest, guestLimitReached]);
+
+  useEffect(() => {
+    if (!isGuest || !playing || guestBlocked) {
+      guestPlaybackRef.current = null;
+      return;
+    }
+
+    guestPlaybackRef.current = Date.now();
+    const interval = window.setInterval(() => {
+      const started = guestPlaybackRef.current;
+      if (!started) return;
+      const now = Date.now();
+      const delta = Math.floor((now - started) / 1000);
+      if (delta <= 0) return;
+      guestPlaybackRef.current = now;
+      const used = recordGuestPlayback(delta);
+      if (used >= GUEST_DAILY_LIMIT_SECONDS) {
+        setGuestBlocked(true);
+        setPlaying(false);
+        videoRef.current?.pause();
+      }
+    }, 5000);
+
+    return () => window.clearInterval(interval);
+  }, [isGuest, playing, guestBlocked, recordGuestPlayback]);
+
+  useEffect(() => {
     const video = videoRef.current;
     if (!video || castDevice || !effectiveStreamUrl) return;
+
+    setAudioOptions([]);
+    setSelectedAudio(0);
 
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -456,10 +541,31 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         }
       };
 
+      const syncAudioOptions = () => {
+        const tracks = hls.audioTracks;
+        if (tracks.length <= 1) {
+          setAudioOptions([]);
+          setSelectedAudio(0);
+          return;
+        }
+        setAudioOptions(buildAudioOptions(tracks));
+        const preferred = pickAudioTrackIndex(
+          tracks,
+          streamAudioLangRef.current === "en" ? "en" : "it",
+        );
+        const nextIndex =
+          preferred != null && preferred >= 0 ? preferred : hls.audioTrack;
+        if (nextIndex >= 0 && nextIndex < tracks.length) {
+          hls.audioTrack = nextIndex;
+          setSelectedAudio(nextIndex);
+        }
+      };
+
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setLoading(false);
         syncQualityOptions();
         syncSubtitleOptions();
+        syncAudioOptions();
         hls.subtitleDisplay = false;
         hls.subtitleTrack = -1;
         setSelectedSubtitle(-1);
@@ -467,8 +573,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       });
       hls.on(Hls.Events.LEVELS_UPDATED, syncQualityOptions);
       hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, syncSubtitleOptions);
+      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, syncAudioOptions);
       hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (_event, data) => {
         setSelectedSubtitle(data.id);
+      });
+      hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_event, data) => {
+        setSelectedAudio(data.id);
       });
       hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
         setSelectedQuality(data.level);
@@ -948,6 +1058,32 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     resetHideTimer();
   }, [resetHideTimer]);
 
+  const selectAudio = useCallback((track: number) => {
+    const hls = hlsRef.current;
+    if (!hls || track < 0 || track >= hls.audioTracks.length) return;
+    hls.audioTrack = track;
+    setSelectedAudio(track);
+    setShowAudioMenu(false);
+    resetHideTimer();
+  }, [resetHideTimer]);
+
+  const selectStreamAudio = useCallback(
+    async (lang: PlayerStreamAudioLanguage) => {
+      if (!onStreamAudioLanguageChange) return;
+      savePlayerAudioLanguage(lang);
+      setStreamAudioLang(lang);
+      setShowAudioMenu(false);
+      resetHideTimer();
+      setAudioSwitching(true);
+      try {
+        await onStreamAudioLanguageChange(lang);
+      } finally {
+        setAudioSwitching(false);
+      }
+    },
+    [onStreamAudioLanguageChange, resetHideTimer],
+  );
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !isHls || selectedSubtitle < 0 || castDevice) {
@@ -988,6 +1124,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       ? "Off"
       : subtitleOptions.find((option) => option.track === selectedSubtitle)
           ?.label ?? "On";
+  const activeAudioLabel =
+    onStreamAudioLanguageChange
+      ? (PLAYER_STREAM_AUDIO_OPTIONS.find((option) => option.id === streamAudioLang)
+          ?.label ?? "Audio")
+      : (audioOptions.find((option) => option.track === selectedAudio)?.label ??
+        "Audio");
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const bufferPct = duration > 0 ? (buffered / duration) * 100 : 0;
@@ -1020,6 +1162,27 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       {loading && !castDevice && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="h-12 w-12 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+        </div>
+      )}
+
+      {guestBlocked && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 px-6 backdrop-blur-sm">
+          <div className="max-w-md text-center">
+            <p className="font-display text-2xl font-semibold text-white">
+              Limite giornaliero raggiunto
+            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-white/75">
+              Come ospite puoi guardare fino a 2 ore al giorno. Registrati dalle
+              Impostazioni per accesso illimitato.
+            </p>
+            <button
+              type="button"
+              onClick={() => void handleBack()}
+              className="mt-6 rounded-full bg-white px-5 py-2.5 text-[13px] font-semibold text-black"
+            >
+              Torna indietro
+            </button>
+          </div>
         </div>
       )}
 
@@ -1304,6 +1467,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                       e.stopPropagation();
                       setShowQualityMenu((open) => !open);
                       setShowSubtitleMenu(false);
+                      setShowAudioMenu(false);
                       resetHideTimer();
                     }}
                     className={`flex h-9 items-center gap-1.5 rounded-full px-3 text-white/80 transition-colors hover:bg-white/10 hover:text-white ${
@@ -1352,6 +1516,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                       e.stopPropagation();
                       setShowSubtitleMenu((open) => !open);
                       setShowQualityMenu(false);
+                      setShowAudioMenu(false);
                       resetHideTimer();
                     }}
                     className={`flex h-9 items-center gap-1.5 rounded-full px-3 text-white/80 transition-colors hover:bg-white/10 hover:text-white ${
@@ -1389,6 +1554,79 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                           {option.label}
                         </button>
                       ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {canShowAudioMenu && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    disabled={audioSwitching}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowAudioMenu((open) => !open);
+                      setShowQualityMenu(false);
+                      setShowSubtitleMenu(false);
+                      resetHideTimer();
+                    }}
+                    className={`flex h-9 items-center gap-1.5 rounded-full px-3 text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50 ${
+                      showAudioMenu ? "bg-white/10 text-white" : ""
+                    }`}
+                    title="Lingua audio"
+                    aria-label="Lingua audio"
+                  >
+                    {audioSwitching ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Languages className="h-4 w-4" />
+                    )}
+                    <span className="hidden max-w-[108px] truncate text-[12px] font-medium md:inline">
+                      {activeAudioLabel}
+                    </span>
+                  </button>
+                  {showAudioMenu && (
+                    <div
+                      className="absolute bottom-full right-0 z-40 mb-2 max-h-[min(320px,50vh)] min-w-[220px] overflow-y-auto rounded-lg border border-white/10 bg-black/95 py-1 shadow-2xl backdrop-blur-md"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
+                        Lingua audio
+                      </p>
+                      {onStreamAudioLanguageChange &&
+                        PLAYER_STREAM_AUDIO_OPTIONS.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() => void selectStreamAudio(option.id)}
+                            className={`flex w-full px-3 py-2 text-left text-[13px] transition-colors hover:bg-white/10 ${
+                              streamAudioLang === option.id
+                                ? "text-mint"
+                                : "text-white/85"
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      {onStreamAudioLanguageChange && audioOptions.length > 1 && (
+                        <div className="my-1 border-t border-white/10" />
+                      )}
+                      {audioOptions.length > 1 &&
+                        audioOptions.map((option) => (
+                          <button
+                            key={option.track}
+                            type="button"
+                            onClick={() => selectAudio(option.track)}
+                            className={`flex w-full px-3 py-2 text-left text-[13px] transition-colors hover:bg-white/10 ${
+                              selectedAudio === option.track
+                                ? "text-mint"
+                                : "text-white/85"
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
                     </div>
                   )}
                 </div>

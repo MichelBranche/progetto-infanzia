@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, memo } from "react";
+import { useEffect, useRef, useState, memo, type PointerEvent } from "react";
 import { motion } from "framer-motion";
 import { Play, Plus, Check, Layers, Pencil, Wifi } from "lucide-react";
 import type { BrowseItem } from "../lib/browse";
@@ -27,6 +27,9 @@ import { VideoPreview } from "./VideoPreview";
 import { StreamingVideoPreview } from "./StreamingVideoPreview";
 import { StreamingBadges } from "./StreamingBadges";
 import { useLibrary } from "../context/LibraryContext";
+import { useRowInteraction, isRowDragging } from "../hooks/useRowScrollContainer";
+
+const CARD_DRAG_THRESHOLD_PX = 8;
 
 interface MediaCardProps {
   browse: BrowseItem;
@@ -54,7 +57,9 @@ export const MediaCard = memo(function MediaCard({
   onEdit,
 }: MediaCardProps) {
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointerDragRef = useRef({ active: false, x: 0, y: 0 });
   const [expanded, setExpanded] = useState(false);
+  const { collapseEpoch } = useRowInteraction();
   const dims = useCardDimensions();
   const { subscribedServices } = useLibrary();
   const { previewAudio, togglePreviewAudio, claimCardPreviewFocus, releaseCardPreviewFocus, isPreviewMuted } =
@@ -110,6 +115,10 @@ export const MediaCard = memo(function MediaCard({
   const durationLabel = formatDuration(previewMedia.watchDuration);
 
   const handleClick = () => {
+    if (pointerDragRef.current.active || isRowDragging()) {
+      pointerDragRef.current.active = false;
+      return;
+    }
     if (onOpenDetail) {
       onOpenDetail(browse);
       return;
@@ -130,7 +139,9 @@ export const MediaCard = memo(function MediaCard({
   };
 
   const handleEnter = () => {
+    if (isRowDragging()) return;
     hoverTimer.current = window.setTimeout(() => {
+      if (isRowDragging()) return;
       setExpanded(true);
     }, CARD_HOVER_DELAY_MS);
   };
@@ -141,7 +152,49 @@ export const MediaCard = memo(function MediaCard({
       hoverTimer.current = null;
     }
     setExpanded(false);
+    pointerDragRef.current.active = false;
   };
+
+  const handlePointerDown = (event: PointerEvent) => {
+    pointerDragRef.current = {
+      active: false,
+      x: event.clientX,
+      y: event.clientY,
+    };
+    if (hoverTimer.current) {
+      window.clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+  };
+
+  const handlePointerMove = (event: PointerEvent) => {
+    const pointer = pointerDragRef.current;
+    if (
+      Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) >=
+      CARD_DRAG_THRESHOLD_PX
+    ) {
+      pointer.active = true;
+      setExpanded(false);
+      if (hoverTimer.current) {
+        window.clearTimeout(hoverTimer.current);
+        hoverTimer.current = null;
+      }
+    }
+  };
+
+  const handlePointerUp = () => {
+    window.setTimeout(() => {
+      pointerDragRef.current.active = false;
+    }, 0);
+  };
+
+  useEffect(() => {
+    if (hoverTimer.current) {
+      window.clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    setExpanded(false);
+  }, [collapseEpoch]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -169,6 +222,10 @@ export const MediaCard = memo(function MediaCard({
       <motion.article
         className="group relative w-full cursor-pointer"
         onClick={handleClick}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         whileHover={{ scale: 1.06, y: -4 }}
         transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
       >
@@ -227,6 +284,10 @@ export const MediaCard = memo(function MediaCard({
       }}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
       onClick={handleClick}
     >
       <div

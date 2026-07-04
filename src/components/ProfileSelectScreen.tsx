@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Pencil, ArrowLeft, Trash2, Lock } from "lucide-react";
 import { useProfile } from "../context/ProfileContext";
+import { useAppAccess } from "../context/AppAccessContext";
 import { isBrowserDevMode } from "../lib/tauriEnv";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { roleLabel, type Profile } from "../types/profile";
@@ -14,9 +15,9 @@ import {
 } from "./profile/ProfileCustomizeForm";
 import { PROFILE_COLORS, PROFILE_EMOJIS } from "../types/profile";
 
-const defaultCreateValue = (): ProfileCustomizeValue => ({
+const defaultCreateValue = (guest = false): ProfileCustomizeValue => ({
   name: "",
-  role: "child",
+  role: guest ? "other" : "child",
   avatarColor: PROFILE_COLORS[0],
   accentColor: PROFILE_COLORS[1],
   avatarStyle: "emoji",
@@ -35,12 +36,19 @@ export function ProfileSelectScreen() {
     updateExistingProfile,
     removeProfile,
   } = useProfile();
+  const { isGuest } = useAppAccess();
 
   const [creating, setCreating] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const browserDev = isBrowserDevMode();
+
+  useEffect(() => {
+    if (!loading && profiles.length === 0 && !creating && !editingProfile) {
+      setCreating(true);
+    }
+  }, [loading, profiles.length, creating, editingProfile]);
 
   if (loading) {
     return (
@@ -78,7 +86,9 @@ export function ProfileSelectScreen() {
               {browserDev
                 ? "Modalità browser dev: profili salvati in localStorage"
                 : profiles.length === 0
-                  ? "Crea il primo profilo per iniziare"
+                  ? isGuest
+                    ? "Crea il tuo profilo ospite per iniziare"
+                    : "Crea il primo profilo per iniziare"
                   : isManaging
                     ? "Modifica o elimina i profili"
                     : "Scegli il tuo profilo per continuare"}
@@ -90,7 +100,7 @@ export function ProfileSelectScreen() {
           {creating ? (
             <ProfileCustomizeForm
               key="create"
-              initial={defaultCreateValue()}
+              initial={defaultCreateValue(isGuest)}
               submitLabel="Crea profilo"
               submitting={submitting}
               error={error}

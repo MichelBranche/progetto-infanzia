@@ -1407,6 +1407,11 @@ impl Database {
             .get_meta(crate::settings::META_CAST_TRANSCODE)?
             .map(|v| v != "false")
             .unwrap_or(true);
+        let preferred_audio_language = self
+            .get_meta(crate::settings::META_PREFERRED_AUDIO_LANG)?
+            .or_else(|| self.get_meta("sc_lang").ok().flatten())
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| "auto".to_string());
 
         Ok(crate::settings::AppSettings {
             intro_sound_enabled,
@@ -1417,6 +1422,7 @@ impl Database {
             tmdb_api_key,
             tmdb_enrich_on_scan,
             cast_transcode_enabled,
+            preferred_audio_language,
         })
     }
 
@@ -1450,6 +1456,21 @@ impl Database {
                 crate::settings::META_CAST_TRANSCODE,
                 if transcode { "true" } else { "false" },
             )?;
+        }
+        if let Some(lang) = &input.preferred_audio_language {
+            let normalized = lang.trim().to_lowercase();
+            let stored = if normalized.is_empty() || normalized == "auto" {
+                "auto"
+            } else {
+                lang.trim()
+            };
+            self.set_meta(crate::settings::META_PREFERRED_AUDIO_LANG, stored)?;
+            if stored != "auto" {
+                self.set_meta(
+                    "sc_lang",
+                    if stored == "en" { "en" } else { "it" },
+                )?;
+            }
         }
         Ok(())
     }

@@ -13,6 +13,7 @@ import type {
   StreamingWatchProgressInput,
 } from "../types/stremio";
 import type { CanPlayResult } from "./parentalApi";
+import type { PlayerStreamAudioLanguage } from "./playerAudioLanguage";
 import type { StreamingListInput } from "./myList";
 
 export const CINEMETA_MANIFEST =
@@ -131,11 +132,13 @@ export async function resolveScStream(
   titleId: string,
   slug: string,
   episodeId?: string,
+  audioLang?: PlayerStreamAudioLanguage,
 ): Promise<PlayableStream> {
   return invoke<PlayableStream>("resolve_sc_stream_cmd", {
     titleId: Number(titleId),
     slug,
     episodeId: episodeId ? Number(episodeId) : null,
+    audioLang: audioLang ?? null,
   });
 }
 

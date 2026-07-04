@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 pub const META_INTRO_SOUND: &str = "intro_sound_enabled";
 pub const META_SUBSCRIBED_SERVICES: &str = "subscribed_services";
 pub const META_CAST_TRANSCODE: &str = "cast_transcode_enabled";
+pub const META_PREFERRED_AUDIO_LANG: &str = "preferred_audio_lang";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,6 +16,7 @@ pub struct AppSettings {
     pub tmdb_api_key: Option<String>,
     pub tmdb_enrich_on_scan: bool,
     pub cast_transcode_enabled: bool,
+    pub preferred_audio_language: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -25,6 +27,7 @@ pub struct UpdateSettingsInput {
     pub tmdb_api_key: Option<String>,
     pub tmdb_enrich_on_scan: Option<bool>,
     pub cast_transcode_enabled: Option<bool>,
+    pub preferred_audio_language: Option<String>,
 }
 
 pub const STREAMING_SERVICE_IDS: &[&str] =

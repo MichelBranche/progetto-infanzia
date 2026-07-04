@@ -20,12 +20,21 @@ function mapProfile(row: {
 export async function sendFriendRequestByEmail(
   email: string,
 ): Promise<CloudFriendRequest> {
+  return sendFriendRequestToUser(await resolveFriendUserIdByEmail(email));
+}
+
+export async function sendFriendRequestByFriendCode(
+  friendCode: string,
+): Promise<CloudFriendRequest> {
+  return sendFriendRequestToUser(await resolveFriendUserIdByCode(friendCode));
+}
+
+async function resolveFriendUserIdByEmail(email: string): Promise<string> {
   const supabase = getSupabase();
   if (!supabase) throw new Error("Cloud non configurato");
 
   const { data: sessionData } = await supabase.auth.getSession();
-  const myId = sessionData.session?.user?.id;
-  if (!myId) throw new Error("Accedi al tuo account cloud");
+  if (!sessionData.session?.user?.id) throw new Error("Accedi al tuo account cloud");
 
   const { data: found, error: lookupError } = await supabase.rpc(
     "lookup_friend_by_email",
@@ -37,8 +46,47 @@ export async function sendFriendRequestByEmail(
   if (!target?.user_id) {
     throw new Error("Nessun utente trovato con questa email");
   }
+  return target.user_id;
+}
 
+async function resolveFriendUserIdByCode(friendCode: string): Promise<string> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("Cloud non configurato");
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  const myId = sessionData.session?.user?.id;
+  if (!myId) throw new Error("Accedi al tuo account cloud");
+
+  const normalized = friendCode.trim().toUpperCase();
+  if (!normalized) throw new Error("Inserisci un codice amico");
+
+  const { data: found, error: lookupError } = await supabase.rpc(
+    "lookup_friend_by_code",
+    { lookup_code: normalized },
+  );
+
+  if (lookupError) throw new Error(lookupError.message);
+  const target = (found as { user_id: string }[] | null)?.[0];
+  if (!target?.user_id) {
+    throw new Error("Nessun utente trovato con questo codice amico");
+  }
   if (target.user_id === myId) {
+    throw new Error("Non puoi aggiungere te stesso");
+  }
+  return target.user_id;
+}
+
+async function sendFriendRequestToUser(
+  targetUserId: string,
+): Promise<CloudFriendRequest> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("Cloud non configurato");
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  const myId = sessionData.session?.user?.id;
+  if (!myId) throw new Error("Accedi al tuo account cloud");
+
+  if (targetUserId === myId) {
     throw new Error("Non puoi aggiungere te stesso");
   }
 
@@ -46,7 +94,7 @@ export async function sendFriendRequestByEmail(
     .from("friend_requests")
     .select("*")
     .or(
-      `and(requester_id.eq.${myId},addressee_id.eq.${target.user_id}),and(requester_id.eq.${target.user_id},addressee_id.eq.${myId})`,
+      `and(requester_id.eq.${myId},addressee_id.eq.${targetUserId}),and(requester_id.eq.${targetUserId},addressee_id.eq.${myId})`,
     )
     .maybeSingle();
 
@@ -61,7 +109,7 @@ export async function sendFriendRequestByEmail(
     .from("friend_requests")
     .insert({
       requester_id: myId,
-      addressee_id: target.user_id,
+      addressee_id: targetUserId,
       status: "pending",
     })
     .select("*")

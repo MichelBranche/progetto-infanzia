@@ -11,6 +11,11 @@ import { streamingPreviewDisplayName } from "../lib/streamingBrowse";
 import { usePreviewAudio } from "../context/PreviewAudioContext";
 import { PreviewAudioToggle } from "./PreviewAudioToggle";
 import { StreamingVideoPreview } from "./StreamingVideoPreview";
+import {
+  RowInteractionContext,
+  useRowScrollContainer,
+  isRowDragging,
+} from "../hooks/useRowScrollContainer";
 
 interface NetflixTop10RowProps {
   title: string;
@@ -25,8 +30,9 @@ export function NetflixTop10Row({
   onPlayStreaming,
   onOpenDetail,
 }: NetflixTop10RowProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const { scrollRef, collapseEpoch, scrollProps } = useRowScrollContainer();
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointerDragRef = useRef({ active: false, x: 0, y: 0 });
   const [posterWidth, setPosterWidth] = useState(() =>
     top10PosterWidth(typeof window !== "undefined" ? window.innerWidth : 1024),
   );
@@ -39,6 +45,18 @@ export function NetflixTop10Row({
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  const clearHoverTimer = () => {
+    if (hoverTimer.current) {
+      window.clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+  };
+
+  useEffect(() => {
+    clearHoverTimer();
+    setHoveredId(null);
+  }, [collapseEpoch]);
 
   if (items.length === 0) return null;
 
@@ -55,14 +73,8 @@ export function NetflixTop10Row({
     });
   };
 
-  const clearHoverTimer = () => {
-    if (hoverTimer.current) {
-      window.clearTimeout(hoverTimer.current);
-      hoverTimer.current = null;
-    }
-  };
-
   const handleItemEnter = (preview: StremioMetaPreview) => {
+    if (isRowDragging()) return;
     const previewId = `top10:${preview.id}`;
     const streamTarget = previewToStreamingTarget(preview);
     const canPreview = streamTarget != null;
@@ -84,6 +96,7 @@ export function NetflixTop10Row({
   };
 
   return (
+    <RowInteractionContext.Provider value={{ collapseEpoch }}>
     <section className="group/top10 relative z-10 -mt-2 overflow-visible py-3 hover:z-30 sm:-mt-4 sm:py-4">
       <div className="page-px">
         <div className="mb-4 flex flex-col items-center gap-3 sm:mb-5">
@@ -115,6 +128,7 @@ export function NetflixTop10Row({
         <div
           ref={scrollRef}
           className="scrollbar-hide flex items-end gap-3 overflow-x-auto overflow-y-visible pb-2 pt-1 sm:gap-4"
+          {...scrollProps}
         >
           {visibleItems.map((preview, index) => {
             const rank = index + 1;
@@ -129,11 +143,41 @@ export function NetflixTop10Row({
                 key={`${preview.type}:${preview.id}`}
                 type="button"
                 onClick={() => {
+                  if (pointerDragRef.current.active || isRowDragging()) {
+                    pointerDragRef.current.active = false;
+                    return;
+                  }
                   if (onOpenDetail) {
                     onOpenDetail(streamingBrowseItem(preview));
                     return;
                   }
                   onPlayStreaming(preview);
+                }}
+                onPointerDown={(event) => {
+                  pointerDragRef.current = {
+                    active: false,
+                    x: event.clientX,
+                    y: event.clientY,
+                  };
+                  clearHoverTimer();
+                }}
+                onPointerMove={(event) => {
+                  const pointer = pointerDragRef.current;
+                  if (
+                    Math.hypot(
+                      event.clientX - pointer.x,
+                      event.clientY - pointer.y,
+                    ) >= 8
+                  ) {
+                    pointer.active = true;
+                    clearHoverTimer();
+                    setHoveredId(null);
+                  }
+                }}
+                onPointerUp={() => {
+                  window.setTimeout(() => {
+                    pointerDragRef.current.active = false;
+                  }, 0);
                 }}
                 onMouseEnter={() => handleItemEnter(preview)}
                 onMouseLeave={() => handleItemLeave(preview)}
@@ -210,5 +254,6 @@ export function NetflixTop10Row({
         </div>
       </div>
     </section>
+    </RowInteractionContext.Provider>
   );
 }

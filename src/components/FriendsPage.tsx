@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Check,
   Copy,
-  Mail,
+  Cloud,
   RefreshCw,
   Trash2,
   UserPlus,
@@ -25,7 +25,7 @@ import {
   listPendingFriendRequests,
   removeCloudFriend,
   respondFriendRequest,
-  sendFriendRequestByEmail,
+  sendFriendRequestByFriendCode,
 } from "../lib/cloudFriends";
 import {
   addFriend,
@@ -79,8 +79,8 @@ export function FriendsPage({
     import("../types/cloud").CloudFriendRequest[]
   >([]);
   const [friendCode, setFriendCode] = useState("");
+  const [cloudFriendCode, setCloudFriendCode] = useState("");
   const [friendName, setFriendName] = useState("");
-  const [friendEmail, setFriendEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [partyPanelOpen, setPartyPanelOpen] = useState(false);
@@ -137,17 +137,17 @@ export function FriendsPage({
   };
 
   const handleAddCloud = async () => {
-    const email = friendEmail.trim();
-    if (!email) return;
+    const code = cloudFriendCode.trim();
+    if (!code) return;
     setSaving(true);
     setError(null);
     try {
-      await sendFriendRequestByEmail(email);
-      setFriendEmail("");
+      await sendFriendRequestByFriendCode(code);
+      setCloudFriendCode("");
       notify({
         kind: "success",
         title: "Richiesta inviata",
-        message: `Inviata a ${email}`,
+        message: `Inviata al codice ${code.toUpperCase()}`,
       });
       await refreshAll();
       setShowAddPanel(false);
@@ -155,6 +155,16 @@ export function FriendsPage({
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const copyCloudCode = async () => {
+    if (!cloudProfile?.friendCode) return;
+    try {
+      await navigator.clipboard.writeText(cloudProfile.friendCode);
+      notify({ kind: "success", title: "Codice cloud copiato" });
+    } catch {
+      // ignore
     }
   };
 
@@ -290,7 +300,9 @@ export function FriendsPage({
                         {req.requester?.displayName ?? "Utente"}
                       </p>
                       <p className="text-[11px] text-text-muted">
-                        {req.requester?.email}
+                        {req.requester?.friendCode
+                          ? `Codice ${req.requester.friendCode}`
+                          : req.requester?.displayName}
                       </p>
                     </div>
                     <div className="flex shrink-0 gap-1">
@@ -330,7 +342,10 @@ export function FriendsPage({
                     <FriendListRow
                       key={`cloud-off-${friend.userId}`}
                       name={friend.displayName}
-                      subtitle={formatPresenceLabel(friend.presence) ?? friend.email}
+                      subtitle={
+                        formatPresenceLabel(friend.presence) ??
+                        `Codice ${friend.friendCode}`
+                      }
                       online={false}
                       trailing={
                         <button
@@ -388,7 +403,7 @@ export function FriendsPage({
             <ProfileCard>
               <ProfileSectionLabel>Aggiungi amico</ProfileSectionLabel>
               <p className="mb-4 text-[13px] leading-relaxed text-text-muted">
-                Email cloud o codice LAN sulla stessa rete.
+                Codice amico cloud o codice LAN sulla stessa rete.
               </p>
               <button
                 type="button"
@@ -406,24 +421,38 @@ export function FriendsPage({
               {cloudProfile && (
                 <div className="mb-6">
                   <div className="mb-3 flex items-center gap-2">
-                    <Mail className="h-4 w-4 text-text-muted" strokeWidth={1.5} />
-                    <p className="text-[13px] font-medium text-text-primary">Via email</p>
+                    <Cloud className="h-4 w-4 text-text-muted" strokeWidth={1.5} />
+                    <p className="text-[13px] font-medium text-text-primary">Cloud</p>
+                  </div>
+                  <div className="mb-4 flex flex-wrap items-center gap-3">
+                    <span className="font-display text-xl font-semibold tracking-[0.16em] text-text-primary">
+                      {cloudProfile.friendCode}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void copyCloudCode()}
+                      className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-text-muted hover:text-text-secondary"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      Il tuo codice
+                    </button>
                   </div>
                   <div className="flex flex-wrap gap-3">
                     <input
-                      type="email"
-                      value={friendEmail}
-                      onChange={(e) => setFriendEmail(e.target.value)}
-                      placeholder="email@esempio.it"
-                      className="min-w-[200px] flex-1 border-b border-white/10 bg-transparent py-2 text-[13px] outline-none focus:border-white/30"
+                      value={cloudFriendCode}
+                      onChange={(e) =>
+                        setCloudFriendCode(e.target.value.toUpperCase())
+                      }
+                      placeholder="Codice amico"
+                      className="min-w-[200px] flex-1 border-b border-white/10 bg-transparent py-2 text-[13px] uppercase outline-none focus:border-white/30"
                     />
                     <button
                       type="button"
-                      disabled={saving || !friendEmail.trim()}
+                      disabled={saving || !cloudFriendCode.trim()}
                       onClick={() => void handleAddCloud()}
                       className="rounded-full bg-text-primary px-4 py-2 text-[11px] font-medium uppercase tracking-[0.1em] text-void disabled:opacity-50"
                     >
-                      Invia
+                      Invia richiesta
                     </button>
                   </div>
                 </div>
@@ -444,7 +473,7 @@ export function FriendsPage({
                     className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-text-muted hover:text-text-secondary"
                   >
                     <Copy className="h-3.5 w-3.5" />
-                    Il tuo codice
+                    Codice LAN
                   </button>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">

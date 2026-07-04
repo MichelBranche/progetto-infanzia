@@ -17,7 +17,9 @@ export type NavIcon =
   | "Users"
   | "Anime"
   | "User"
-  | "Terminal";
+  | "Terminal"
+  | "MessageSquare"
+  | "Share2";
 
 export interface NavItem {
   id: string;
@@ -62,6 +64,11 @@ const systemItems: NavItem[] = [
   { id: "activity", label: "Attività bambini", icon: "Activity" },
 ];
 
+const supportItems: NavItem[] = [
+  { id: "feedback", label: "Feedback e richieste", icon: "MessageSquare" },
+  { id: "invite", label: "Invita amici", icon: "Share2" },
+];
+
 function filterItems(items: NavItem[], hasStreaming: boolean) {
   return items.filter((item) => {
     if (item.id === "streaming") return STREMIO_ADDONS_ENABLED && hasStreaming;
@@ -101,6 +108,12 @@ export function getNavSections(
       items: systemItems,
     });
   }
+
+  sections.push({
+    id: "support",
+    label: "Supporto",
+    items: supportItems,
+  });
 
   if (devMode) {
     sections.push({
@@ -143,7 +156,7 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
     },
     friends: {
       title: "Amici",
-      subtitle: "Codice amico e guarda insieme sulla stessa rete",
+      subtitle: "Codice amico cloud, LAN e guarda insieme",
     },
     settings: {
       title: "Impostazioni",
@@ -156,6 +169,14 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
     dev: {
       title: "Dev console",
       subtitle: "Utenti, cronologia e analytics (solo sviluppatore)",
+    },
+    feedback: {
+      title: "Feedback e richieste",
+      subtitle: "Bug, suggerimenti, nuove funzioni e titoli da aggiungere",
+    },
+    invite: {
+      title: "Invita amici",
+      subtitle: "Condividi Branchefy e scarica l'app da GitHub",
     },
     search: {
       title: "Cerca",

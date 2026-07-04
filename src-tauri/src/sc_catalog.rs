@@ -1185,6 +1185,21 @@ pub fn cdn_url(db: &crate::db::Database) -> String {
 }
 
 pub fn lang(db: &crate::db::Database) -> String {
+    let preferred = db
+        .get_meta(crate::settings::META_PREFERRED_AUDIO_LANG)
+        .ok()
+        .flatten()
+        .filter(|s| !s.trim().is_empty());
+    if let Some(value) = preferred {
+        let normalized = value.trim().to_lowercase();
+        if normalized == "auto" {
+            return DEFAULT_LANG.to_string();
+        }
+        if normalized == "en" {
+            return "en".to_string();
+        }
+        return DEFAULT_LANG.to_string();
+    }
     db.get_meta("sc_lang")
         .ok()
         .flatten()

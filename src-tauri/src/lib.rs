@@ -959,12 +959,19 @@ async fn resolve_sc_stream_cmd(
     title_id: i64,
     slug: String,
     episode_id: Option<i64>,
+    audio_lang: Option<String>,
 ) -> Result<PlayableStream, String> {
     if !sc_catalog::catalog_enabled(&state.db) {
         return Err("Catalogo Streaming Community disabilitato".into());
     }
     let db = Arc::clone(&state.db);
-    let locale = sc_catalog::lang(&state.db);
+    let locale = audio_lang
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| if s.eq_ignore_ascii_case("en") { "en" } else { "it" })
+        .map(str::to_string)
+        .unwrap_or_else(|| sc_catalog::lang(&state.db));
     let proxy = state.addon_proxy.clone();
     tokio::task::spawn_blocking(move || {
         let app = sc_catalog::resolve_app_url(db.as_ref())?;
