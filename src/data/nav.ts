@@ -16,6 +16,7 @@ export type NavIcon =
   | "Wifi"
   | "Users"
   | "Anime"
+  | "Manga"
   | "User"
   | "Terminal"
   | "MessageSquare"
@@ -37,6 +38,7 @@ export interface NavSection {
 const primaryItems: NavItem[] = [
   { id: "home", label: "Home", icon: "Home" },
   { id: "anime", label: "Anime", icon: "Anime" },
+  { id: "manga", label: "Manga", icon: "Manga" },
   { id: "profile", label: "Profilo", icon: "User" },
   ...(STREMIO_ADDONS_ENABLED
     ? [{ id: "streaming", label: "In streaming", icon: "Wifi" as const }]
@@ -186,6 +188,10 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
     anime: {
       title: "Anime",
       subtitle: "Catalogo AnimeSaturn · Sub ITA e ITA",
+    },
+    manga: {
+      title: "Manga",
+      subtitle: "Tabloid MangaDex · Novità, popolari e lettura online",
     },
     cartoni: { title: "Cartoni", subtitle: "Animazione, avventure e Loonex" },
     serie: { title: "Serie TV", subtitle: "Stagioni, episodi e binge watching" },

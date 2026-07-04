@@ -1,9 +1,12 @@
-## Watch party
+## Manga (MangaDex)
 
-- **Stanze che non restano più attive per sempre**: quando l'host esce dal player o chiude la party, la stanza viene eliminata dal server
-- **Pulizia automatica**: stanze abbandonate (crash, chiusura app) vengono rimosse dopo 15 minuti senza attività
-- Gli ospiti vedono un messaggio quando la stanza viene chiusa dall'host
+- **Nuova sezione Manga** nella sidebar, con catalogo da MangaDex (IT e EN)
+- **Home per categorie**: novità, popolari, completati, generi e lista personale
+- **Ricerca**, scheda dettaglio con capitoli e **lettore** a scroll o modalità libro 3D
+- **Salva nella lista** con il tasto +; progresso di lettura memorizzato per profilo
+- **Contenuti 18+** opzionali per i profili genitore
+- Layout centrato e caricamento ottimizzato (miniature, una riga alla volta)
 
 ## Note
 
-- Esegui anche l'aggiornamento SQL in `supabase/schema.sql` per attivare la pulizia automatica lato server
+- I manga sono serviti dall'API pubblica MangaDex; serve connessione internet per sfogliare e leggere

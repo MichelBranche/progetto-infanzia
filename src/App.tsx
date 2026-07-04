@@ -67,6 +67,8 @@ import {
 } from "./lib/browseDetail";
 import type { StremioMetaPreview } from "./types/stremio";
 import type { WatchPartySession } from "./types/watchParty";
+import type { MangaBrowseItem } from "./types/mangadex";
+import { getMangaProgress } from "./lib/mangaProgress";
 
 const WatchPage = lazy(() =>
   import("./components/WatchPage").then((m) => ({ default: m.WatchPage })),
@@ -110,6 +112,15 @@ const StreamingPage = lazy(() =>
 );
 const AnimePage = lazy(() =>
   import("./components/AnimePage").then((m) => ({ default: m.AnimePage })),
+);
+const MangaPage = lazy(() =>
+  import("./components/MangaPage").then((m) => ({ default: m.MangaPage })),
+);
+const MangaDetailPage = lazy(() =>
+  import("./components/MangaDetailPage").then((m) => ({ default: m.MangaDetailPage })),
+);
+const MangaReaderPage = lazy(() =>
+  import("./components/MangaReaderPage").then((m) => ({ default: m.MangaReaderPage })),
 );
 const SearchOverlay = lazy(() =>
   import("./components/SearchOverlay").then((m) => ({ default: m.SearchOverlay })),
@@ -170,6 +181,13 @@ function AppContent() {
   const [addonWatch, setAddonWatch] = useState<AddonWatchTarget | null>(null);
   const [detailSimilar, setDetailSimilar] = useState<BrowseItem[]>([]);
   const [partyGuestSession, setPartyGuestSession] = useState<WatchPartySession | null>(null);
+  const [mangaDetail, setMangaDetail] = useState<MangaBrowseItem | null>(null);
+  const [mangaReader, setMangaReader] = useState<{
+    mangaId: string;
+    chapterId: string;
+    mangaTitle: string;
+    initialPage?: number;
+  } | null>(null);
   const [heroItems, setHeroItems] = useState<MediaItem[]>([]);
   const heroSeededRef = useRef(false);
   const mainScrollRef = useRef<HTMLElement>(null);
@@ -337,6 +355,8 @@ function AppContent() {
     if ((id === "add" || id === "manage" || id === "settings" || id === "activity") && !isParent) return;
     if (id === "dev" && !devMode) return;
     setSeriesKey(null);
+    setMangaDetail(null);
+    setMangaReader(null);
     if (id === "mylist") {
       setProfileTab("list");
       setSearchOpen(false);
@@ -381,6 +401,35 @@ function AppContent() {
     setAddPresetSeries(null);
     setActiveNav("home");
   };
+
+  const handleOpenManga = useCallback((item: MangaBrowseItem) => {
+    setMangaReader(null);
+    setMangaDetail(item);
+  }, []);
+
+  const handleReadMangaChapter = useCallback(
+    (mangaId: string, chapterId: string, _chapterLabel: string | null) => {
+      const progress = getMangaProgress(activeProfile.id, mangaId);
+      const initialPage =
+        progress?.chapterId === chapterId ? progress.page : 0;
+      setMangaReader({
+        mangaId,
+        chapterId,
+        mangaTitle: mangaDetail?.title ?? "Manga",
+        initialPage,
+      });
+    },
+    [activeProfile.id, mangaDetail?.title],
+  );
+
+  const handleMangaReaderChapterChange = useCallback(
+    (chapterId: string, initialPage = 0) => {
+      setMangaReader((prev) =>
+        prev ? { ...prev, chapterId, initialPage } : null,
+      );
+    },
+    [],
+  );
 
   const editingMedia = useMemo(() => {
     if (!editingId || !library) return null;
@@ -804,7 +853,7 @@ function AppContent() {
   ]);
   const showEmptyLibraryOnly =
     isEmpty &&
-    !["add", "settings", "manage", "activity", "profile", "anime", "streaming", "dev", "feedback"].includes(
+    !["add", "settings", "manage", "activity", "profile", "anime", "manga", "streaming", "dev", "feedback"].includes(
       activeNav,
     ) &&
     !(hasStreaming && streamingBrowseNav.has(activeNav));
@@ -942,6 +991,29 @@ function AppContent() {
                     seedPreviews={saturnSeedPreviews}
                     onPlayStreaming={handlePlayStreaming}
                     enrichStreamingPreview={enrichListedPreview}
+                    />
+                  </SuspenseRoute>
+                )}
+
+                {!seriesKey && activeNav === "manga" && !mangaDetail && (
+                  <SuspenseRoute>
+                    <MangaPage
+                      profileId={activeProfile.id}
+                      onOpenManga={handleOpenManga}
+                      allowAdult={isParent}
+                    />
+                  </SuspenseRoute>
+                )}
+
+                {!seriesKey && activeNav === "manga" && mangaDetail && !mangaReader && (
+                  <SuspenseRoute>
+                    <MangaDetailPage
+                      mangaId={mangaDetail.id}
+                      profileId={activeProfile.id}
+                      initialItem={mangaDetail}
+                      allowAdult={isParent}
+                      onBack={() => setMangaDetail(null)}
+                      onReadChapter={handleReadMangaChapter}
                     />
                   </SuspenseRoute>
                 )}
@@ -1149,6 +1221,7 @@ function AppContent() {
                 {!seriesKey &&
                   activeNav !== "home" &&
                   activeNav !== "anime" &&
+                  activeNav !== "manga" &&
                   activeNav !== "profile" &&
                   activeNav !== "add" &&
                   activeNav !== "manage" &&
@@ -1204,6 +1277,21 @@ function AppContent() {
             return updated;
           }}
         />
+      )}
+
+      {mangaReader && (
+        <SuspenseRoute>
+          <MangaReaderPage
+            mangaId={mangaReader.mangaId}
+            chapterId={mangaReader.chapterId}
+            mangaTitle={mangaReader.mangaTitle}
+            profileId={activeProfile.id}
+            initialPage={mangaReader.initialPage}
+            allowAdult={isParent}
+            onBack={() => setMangaReader(null)}
+            onChapterChange={handleMangaReaderChapterChange}
+          />
+        </SuspenseRoute>
       )}
     </motion.div>
   );

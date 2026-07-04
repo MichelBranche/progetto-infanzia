@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ArrowUpRight,
+  BookOpen,
   Clapperboard,
   Clock,
   Film,
@@ -41,6 +42,7 @@ const iconMap: Record<string, LucideIcon> = {
   Wifi,
   User,
   Anime: Clapperboard,
+  Manga: BookOpen,
   Terminal,
   MessageSquare,
   Share2,
@@ -240,6 +242,7 @@ export function Sidebar({
       "serie",
       "capsula",
       "anime",
+      "manga",
     ]);
     const primary: NavItem[] = [];
     const browse: NavItem[] = [];
