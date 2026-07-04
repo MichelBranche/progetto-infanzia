@@ -439,11 +439,44 @@ export function mergeContinueBrowseItems(
   localItems: MediaItem[],
   continueItems: StreamingContinueItem[],
 ): BrowseItem[] {
-  const streaming = continueItems.map((item) =>
-    streamingBrowseItem(enrichStreamingPreview(continueToPreview(item))),
-  );
+  const progressMap = buildStreamingProgressMap(continueItems);
+  const streaming = continueItems
+    .filter((item) => item.positionSecs > 5)
+    .map((item) =>
+      streamingBrowseItem(enrichStreamingPreview(continueToPreview(item))),
+    );
   const local = toBrowseItems(localItems);
-  return dedupeContinueBrowseItems([...streaming, ...local]);
+  const merged = dedupeContinueBrowseItems([...streaming, ...local]);
+  return merged.sort((a, b) =>
+    continueBrowseUpdatedAt(b, progressMap).localeCompare(
+      continueBrowseUpdatedAt(a, progressMap),
+    ),
+  );
+}
+
+function continueBrowseUpdatedAt(
+  item: BrowseItem,
+  progressMap: Map<string, StreamingContinueItem>,
+): string {
+  if (item.kind === "streaming") {
+    const key = streamingProgressKey(item.preview);
+    return progressMap.get(key)?.updatedAt ?? "";
+  }
+  if (item.kind === "media") {
+    return item.item.watchUpdatedAt ?? "";
+  }
+  return item.representative.watchUpdatedAt ?? "";
+}
+
+export function buildContinueBrowseItems(
+  collections: MediaCollection[],
+  continueItems: StreamingContinueItem[],
+  allLocalItems: MediaItem[] = [],
+): BrowseItem[] {
+  return mergeContinueBrowseItems(
+    getLocalContinueItems(collections, allLocalItems),
+    continueItems,
+  );
 }
 
 function continueItemScore(item: BrowseItem): number {
@@ -551,9 +584,10 @@ export function buildUnifiedHomeRows(
   allLocalItems: MediaItem[] = [],
   streamingListPreviews: StremioMetaPreview[] = [],
   catalogIndex: StremioMetaPreview[] = [],
-  options?: { mergeStreaming?: boolean },
+  options?: { mergeStreaming?: boolean; includeContinue?: boolean },
 ): UnifiedHomeRow[] {
   const mergeStreaming = options?.mergeStreaming ?? true;
+  const includeContinue = options?.includeContinue ?? true;
   const progressMap = buildStreamingProgressMap(continueItems);
   const enriched = mergeStreaming
     ? flattenEnrichedStreaming(streamingRows, progressMap)
@@ -572,13 +606,11 @@ export function buildUnifiedHomeRows(
   };
 
   const rows: UnifiedHomeRow[] = [];
-  const localContinue = getLocalContinueItems(collections, allLocalItems);
-  const continueRowItems = mergeContinueBrowseItems(
-    localContinue,
-    continueItems,
-  );
+  const continueRowItems = includeContinue
+    ? buildContinueBrowseItems(collections, continueItems, allLocalItems)
+    : [];
 
-  if (continueRowItems.length > 0) {
+  if (includeContinue && continueRowItems.length > 0) {
     markUsed(continueRowItems);
     rows.push({
       key: "continue",

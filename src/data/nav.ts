@@ -176,7 +176,7 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
     },
     invite: {
       title: "Invita amici",
-      subtitle: "Condividi Branchefy e scarica l'app da GitHub",
+      subtitle: "Condividi Branchefy e scarica l'ultima versione",
     },
     search: {
       title: "Cerca",

@@ -55,6 +55,7 @@ import type { BrowseItem } from "./lib/browse";
 import { STREMIO_ADDONS_ENABLED, isBuiltinStreamingCatalog } from "./lib/features";
 import { isDevAdminEmail } from "./lib/devAdmin";
 import {
+  buildContinueBrowseItems,
   buildUnifiedHomeRows,
   buildRandomHeroItems,
   enrichStreamingPreview,
@@ -327,8 +328,8 @@ function AppContent() {
           kind: "success",
           title: "Invita i tuoi amici",
           message: copied
-            ? "Aperta la pagina download su GitHub. Link copiato negli appunti."
-            : "Aperta la pagina download su GitHub.",
+            ? "Aperta la pagina download. Link copiato negli appunti."
+            : "Aperta la pagina download.",
         });
       });
       return;
@@ -393,10 +394,16 @@ function AppContent() {
   }, [watchingId, addonWatch, refreshStreamingContinue]);
 
   useEffect(() => {
-    if (activeNav === "home") {
+    if (activeNav === "home" && activeProfile?.id) {
       void refreshStreamingContinue();
     }
-  }, [activeNav, refreshStreamingContinue]);
+  }, [activeNav, activeProfile?.id, refreshStreamingContinue]);
+
+  useEffect(() => {
+    if (!loading && activeProfile?.id) {
+      void refreshStreamingContinue();
+    }
+  }, [loading, activeProfile?.id, refreshStreamingContinue]);
 
   const heroStreamingPreviews = useMemo(() => {
     if (streamingPreviews.length > 0) return streamingPreviews;
@@ -479,6 +486,26 @@ function AppContent() {
     return out.slice(0, 36);
   }, [streamingPreviews, streamingRows]);
 
+  const continueHomeRow = useMemo(() => {
+    const items = buildContinueBrowseItems(
+      library?.collections ?? [],
+      streamingContinue,
+      library?.items ?? [],
+    );
+    if (items.length === 0) return null;
+    return {
+      key: "continue",
+      title: "Continua a guardare",
+      subtitle: "Riprendi da dove eri rimasto · Locale e streaming",
+      items: applyMyListToBrowseItems(items),
+    };
+  }, [
+    library?.collections,
+    library?.items,
+    streamingContinue,
+    applyMyListToBrowseItems,
+  ]);
+
   const unifiedHomeRows = useMemo(() => {
     const rows = buildUnifiedHomeRows(
       library?.collections ?? [],
@@ -487,7 +514,7 @@ function AppContent() {
       library?.items ?? [],
       streamingList.map(withMyListFlags),
       streamingPreviews,
-      { mergeStreaming: true },
+      { mergeStreaming: true, includeContinue: false },
     );
     return rows.map((row) => ({
       ...row,
@@ -506,7 +533,10 @@ function AppContent() {
 
   const homeContentReady = !loading;
   const homeStreamingPending =
-    streamingLoading && streamingRows.length === 0 && unifiedHomeRows.length === 0;
+    streamingLoading &&
+    streamingRows.length === 0 &&
+    unifiedHomeRows.length === 0 &&
+    !continueHomeRow;
 
   const saturnSeedPreviews = useMemo(() => {
     const seen = new Set<string>();
@@ -566,11 +596,14 @@ function AppContent() {
       if (!byId.has(key)) byId.set(key, item);
     };
     for (const item of sectionBrowseItems) push(item);
+    if (continueHomeRow) {
+      for (const item of continueHomeRow.items) push(item);
+    }
     for (const row of unifiedHomeRows) {
       for (const item of row.items) push(item);
     }
     return [...byId.values()];
-  }, [sectionBrowseItems, unifiedHomeRows]);
+  }, [sectionBrowseItems, continueHomeRow, unifiedHomeRows]);
 
   const handleOpenBrowseDetail = useCallback(
     (browse: BrowseItem, pool?: BrowseItem[]) => {
@@ -994,7 +1027,7 @@ function AppContent() {
 
                 {!seriesKey && activeNav === "home" && (
                   <>
-                    {!homeContentReady ? (
+                    {!homeContentReady && !continueHomeRow ? (
                       <div className="pb-16">
                         <div className="h-[52vh] min-h-[320px] shimmer-bg sm:min-h-[360px]" />
                         <RowSkeleton />
@@ -1034,6 +1067,26 @@ function AppContent() {
                             : undefined
                         }
                       />
+                    )}
+                    {continueHomeRow && (
+                      <div className="relative z-20 -mt-2 sm:-mt-3">
+                        <MediaRow
+                          key={continueHomeRow.key}
+                          index="01"
+                          title={continueHomeRow.title}
+                          subtitle={continueHomeRow.subtitle}
+                          items={continueHomeRow.items}
+                          animateEntrance
+                          onPlay={handlePlayNow}
+                          onPlayStreaming={handlePlayStreaming}
+                          onOpenSeries={handleOpenSeries}
+                          onToggleFavorite={toggleFavorite}
+                          onToggleStreamingList={handleToggleStreamingList}
+                          onEdit={
+                            isParent ? (id) => setEditingId(id) : undefined
+                          }
+                        />
+                      </div>
                     )}
                     <StreamHubRow onNavigate={handleNav} />
                     {top10Row && (
