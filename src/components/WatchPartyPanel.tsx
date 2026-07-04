@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useCloudAccount } from "../context/CloudAccountContext";
 import { isCloudEnabled } from "../lib/cloudConfig";
-import { createCloudWatchParty, fetchCloudWatchParty } from "../lib/cloudWatchParty";
+import { createCloudWatchParty, joinCloudWatchParty } from "../lib/cloudWatchParty";
 import { isPrivateOrLanHost } from "../lib/watchPartyNetwork";
 import {
   createWatchParty,
@@ -188,7 +188,7 @@ export function WatchPartyPanel({
       setLoading(true);
       setError(null);
       try {
-        const room = await fetchCloudWatchParty(code);
+        const room = await joinCloudWatchParty(code);
         if (room) {
           onSessionReady({ role: "guest", room, relay: "cloud" });
           onClose();

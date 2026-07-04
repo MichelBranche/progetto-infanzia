@@ -1,9 +1,12 @@
-## Novità
+## Sicurezza
 
-- **Continua a guardare in homepage**: riga dedicata subito sotto l'hero, con ripresa diretta al click
-- **Invita amici**: il link di condivisione apre la pagina download [download-branchefy.vercel.app](https://download-branchefy.vercel.app/)
+- **Protezione dati account rafforzata**: i profili cloud (email, nome, codice amico) sono ora visibili solo a te e ai tuoi amici, non più a tutti gli utenti registrati
+- **Richieste di amicizia**: solo chi riceve la richiesta può accettarla
+- **Watch party**: le stanze online sono visibili solo all'host e a chi entra con il codice
 
-## Miglioramenti
+Aggiornamento fortemente consigliato per tutti.
 
-- Progressi streaming aggiornati più spesso (ritorno dal player, apertura home, fine caricamento libreria)
-- Ordine «Continua a guardare» per ultimo titolo visto
+## Note
+
+- Per unirsi ai watch party online serve questa versione o successiva
+- Nessun logout necessario: le nuove protezioni sono attive lato server

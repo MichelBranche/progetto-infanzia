@@ -17,36 +17,10 @@ function mapProfile(row: {
   };
 }
 
-export async function sendFriendRequestByEmail(
-  email: string,
-): Promise<CloudFriendRequest> {
-  return sendFriendRequestToUser(await resolveFriendUserIdByEmail(email));
-}
-
 export async function sendFriendRequestByFriendCode(
   friendCode: string,
 ): Promise<CloudFriendRequest> {
   return sendFriendRequestToUser(await resolveFriendUserIdByCode(friendCode));
-}
-
-async function resolveFriendUserIdByEmail(email: string): Promise<string> {
-  const supabase = getSupabase();
-  if (!supabase) throw new Error("Cloud non configurato");
-
-  const { data: sessionData } = await supabase.auth.getSession();
-  if (!sessionData.session?.user?.id) throw new Error("Accedi al tuo account cloud");
-
-  const { data: found, error: lookupError } = await supabase.rpc(
-    "lookup_friend_by_email",
-    { lookup_email: email.trim() },
-  );
-
-  if (lookupError) throw new Error(lookupError.message);
-  const target = (found as { user_id: string }[] | null)?.[0];
-  if (!target?.user_id) {
-    throw new Error("Nessun utente trovato con questa email");
-  }
-  return target.user_id;
 }
 
 async function resolveFriendUserIdByCode(friendCode: string): Promise<string> {

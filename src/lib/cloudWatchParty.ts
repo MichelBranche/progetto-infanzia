@@ -32,6 +32,35 @@ function mapRoom(row: {
   };
 }
 
+function mapRpcRoom(data: Record<string, unknown>): WatchPartyRoom {
+  return mapRoom({
+    code: String(data.code ?? ""),
+    host_id: String(data.host_id ?? ""),
+    host_name: String(data.host_name ?? ""),
+    content: data.content as WatchPartyContent,
+    playing: Boolean(data.playing),
+    position_secs: Number(data.position_secs ?? 0),
+    updated_at: data.updated_at ? String(data.updated_at) : undefined,
+  });
+}
+
+/** Registra membership e restituisce la stanza (ingresso ospite). */
+export async function joinCloudWatchParty(
+  code: string,
+): Promise<WatchPartyRoom | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase.rpc("join_watch_party_room", {
+    lookup_code: code.trim().toUpperCase(),
+  });
+
+  if (error) throw new Error(error.message);
+  if (!data || typeof data !== "object") return null;
+
+  return mapRpcRoom(data as Record<string, unknown>);
+}
+
 export async function createCloudWatchParty(
   hostId: string,
   hostName: string,

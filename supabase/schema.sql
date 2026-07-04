@@ -38,11 +38,24 @@ create index if not exists user_presence_last_seen_idx on public.user_presence (
 
 alter table public.user_presence enable row level security;
 
+-- SELECT: la propria presenza e quella degli amici accettati.
 drop policy if exists "presence read authenticated" on public.user_presence;
-create policy "presence read authenticated"
+drop policy if exists "presence read own or friends" on public.user_presence;
+create policy "presence read own or friends"
   on public.user_presence for select
   to authenticated
-  using (true);
+  using (
+    (select auth.uid()) = user_id
+    or exists (
+      select 1
+      from public.friend_requests fr
+      where fr.status = 'accepted'
+        and (
+          (fr.requester_id = (select auth.uid()) and fr.addressee_id = user_presence.user_id)
+          or (fr.addressee_id = (select auth.uid()) and fr.requester_id = user_presence.user_id)
+        )
+    )
+  );
 
 drop policy if exists "presence insert own" on public.user_presence;
 create policy "presence insert own"
@@ -54,7 +67,8 @@ drop policy if exists "presence update own" on public.user_presence;
 create policy "presence update own"
   on public.user_presence for update
   to authenticated
-  using (auth.uid() = user_id);
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 
 alter table public.user_presence replica identity full;
 
@@ -70,16 +84,65 @@ create table if not exists public.watch_party_rooms (
   updated_at timestamptz not null default now()
 );
 
+-- Membri che hanno effettuato join con il codice stanza (per RLS ristretta).
+create table if not exists public.watch_party_members (
+  room_code text not null references public.watch_party_rooms (code) on delete cascade,
+  user_id uuid not null references public.cloud_profiles (id) on delete cascade,
+  joined_at timestamptz not null default now(),
+  primary key (room_code, user_id)
+);
+
+create index if not exists watch_party_members_user_idx
+  on public.watch_party_members (user_id);
+
+alter table public.watch_party_members enable row level security;
+
+drop policy if exists "party members read own or host" on public.watch_party_members;
+create policy "party members read own or host"
+  on public.watch_party_members for select
+  to authenticated
+  using (
+    user_id = (select auth.uid())
+    or exists (
+      select 1
+      from public.watch_party_rooms r
+      where r.code = room_code
+        and r.host_id = (select auth.uid())
+    )
+  );
+
 alter table public.cloud_profiles enable row level security;
 alter table public.friend_requests enable row level security;
 alter table public.watch_party_rooms enable row level security;
 
 -- cloud_profiles
+-- SELECT: propria riga, amici accettati, o chi ti ha inviato una richiesta
+-- pendente (per mostrare nome in inbox). Chi invia una richiesta non vede
+-- email/codice del destinatario finché non è accettata (usa lookup_friend_by_code).
 drop policy if exists "profiles read authenticated" on public.cloud_profiles;
-create policy "profiles read authenticated"
+drop policy if exists "profiles read own or connected" on public.cloud_profiles;
+create policy "profiles read own or connected"
   on public.cloud_profiles for select
   to authenticated
-  using (true);
+  using (
+    (select auth.uid()) = id
+    or exists (
+      select 1
+      from public.friend_requests fr
+      where fr.status = 'accepted'
+        and (
+          (fr.requester_id = (select auth.uid()) and fr.addressee_id = cloud_profiles.id)
+          or (fr.addressee_id = (select auth.uid()) and fr.requester_id = cloud_profiles.id)
+        )
+    )
+    or exists (
+      select 1
+      from public.friend_requests fr
+      where fr.status = 'pending'
+        and fr.addressee_id = (select auth.uid())
+        and fr.requester_id = cloud_profiles.id
+    )
+  );
 
 drop policy if exists "profiles insert own" on public.cloud_profiles;
 create policy "profiles insert own"
@@ -91,7 +154,8 @@ drop policy if exists "profiles update own" on public.cloud_profiles;
 create policy "profiles update own"
   on public.cloud_profiles for update
   to authenticated
-  using (auth.uid() = id);
+  using (auth.uid() = id)
+  with check (auth.uid() = id);
 
 -- friend_requests
 drop policy if exists "friend_requests read involved" on public.friend_requests;
@@ -107,17 +171,46 @@ create policy "friend_requests insert self"
   with check (auth.uid() = requester_id);
 
 drop policy if exists "friend_requests update addressee" on public.friend_requests;
-create policy "friend_requests update addressee"
+drop policy if exists "friend_requests update addressee only" on public.friend_requests;
+create policy "friend_requests update addressee only"
   on public.friend_requests for update
+  to authenticated
+  using (auth.uid() = addressee_id)
+  with check (auth.uid() = addressee_id);
+
+-- Il richiedente annulla con DELETE, non UPDATE.
+-- Solo la colonna status è modificabile: impedisce di riassegnare
+-- requester_id/addressee_id e creare amicizie fittizie.
+revoke update on table public.friend_requests from authenticated;
+grant update (status) on table public.friend_requests to authenticated;
+
+-- DELETE: le parti coinvolte possono rimuovere l'amicizia / la richiesta.
+drop policy if exists "friend_requests delete involved" on public.friend_requests;
+create policy "friend_requests delete involved"
+  on public.friend_requests for delete
   to authenticated
   using (auth.uid() = addressee_id or auth.uid() = requester_id);
 
 -- watch_party_rooms
+-- SELECT: solo host o membri che hanno fatto join con il codice.
+-- L'ingresso ospite passa da join_watch_party_room (registra membership).
 drop policy if exists "rooms read authenticated" on public.watch_party_rooms;
-create policy "rooms read authenticated"
+drop policy if exists "rooms read host or member" on public.watch_party_rooms;
+create policy "rooms read host or member"
   on public.watch_party_rooms for select
   to authenticated
-  using (is_active = true);
+  using (
+    auth.uid() = host_id
+    or (
+      is_active = true
+      and exists (
+        select 1
+        from public.watch_party_members m
+        where m.room_code = watch_party_rooms.code
+          and m.user_id = (select auth.uid())
+      )
+    )
+  );
 
 drop policy if exists "rooms insert host" on public.watch_party_rooms;
 create policy "rooms insert host"
@@ -129,33 +222,61 @@ drop policy if exists "rooms update host" on public.watch_party_rooms;
 create policy "rooms update host"
   on public.watch_party_rooms for update
   to authenticated
+  using (auth.uid() = host_id)
+  with check (auth.uid() = host_id);
+
+drop policy if exists "rooms delete host" on public.watch_party_rooms;
+create policy "rooms delete host"
+  on public.watch_party_rooms for delete
+  to authenticated
   using (auth.uid() = host_id);
 
--- Cerca utente per email (solo se autenticato)
-create or replace function public.lookup_friend_by_email(lookup_email text)
-returns table (user_id uuid, display_name text, friend_code text)
+-- Join stanza cloud: registra membership e restituisce la stanza attiva.
+drop function if exists public.join_watch_party_room(text);
+create function public.join_watch_party_room(lookup_code text)
+returns json
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_code text := upper(trim(lookup_code));
+  v_room public.watch_party_rooms%rowtype;
 begin
   if auth.uid() is null then
     raise exception 'Non autenticato';
   end if;
-  return query
-  select p.id, p.display_name, p.friend_code
-  from public.cloud_profiles p
-  where lower(p.email) = lower(trim(lookup_email))
-    and p.id <> auth.uid()
+
+  select * into v_room
+  from public.watch_party_rooms
+  where code = v_code
+    and is_active = true
   limit 1;
+
+  if not found then
+    return null;
+  end if;
+
+  insert into public.watch_party_members (room_code, user_id)
+  values (v_code, auth.uid())
+  on conflict do nothing;
+
+  return row_to_json(v_room);
 end;
 $$;
 
-revoke all on function public.lookup_friend_by_email(text) from public;
-grant execute on function public.lookup_friend_by_email(text) to authenticated;
+revoke all on function public.join_watch_party_room(text) from public;
+grant execute on function public.join_watch_party_room(text) to authenticated;
 
-create or replace function public.lookup_friend_by_code(lookup_code text)
-returns table (user_id uuid, display_name text, friend_code text)
+-- Rimosso: lookup per email.
+-- registrata (enumerazione). La ricerca amici usa solo il codice amico.
+drop function if exists public.lookup_friend_by_email(text);
+
+-- Ricerca amico per codice: security definer per scavalcare la RLS in modo
+-- controllato — espone solo user_id e display_name a fronte del codice esatto.
+drop function if exists public.lookup_friend_by_code(text);
+create function public.lookup_friend_by_code(lookup_code text)
+returns table (user_id uuid, display_name text)
 language plpgsql
 security definer
 set search_path = public
@@ -165,7 +286,7 @@ begin
     raise exception 'Non autenticato';
   end if;
   return query
-  select p.id, p.display_name, p.friend_code
+  select p.id, p.display_name
   from public.cloud_profiles p
   where upper(p.friend_code) = upper(trim(lookup_code))
     and p.id <> auth.uid()
@@ -379,10 +500,11 @@ create index if not exists app_feedback_type_idx
 alter table public.app_feedback enable row level security;
 
 drop policy if exists "feedback insert authenticated" on public.app_feedback;
-create policy "feedback insert authenticated"
+drop policy if exists "feedback insert own" on public.app_feedback;
+create policy "feedback insert own"
   on public.app_feedback for insert
   to authenticated
-  with check (user_id is null or user_id = auth.uid());
+  with check (user_id = auth.uid());
 
 drop policy if exists "feedback read dev admin" on public.app_feedback;
 create policy "feedback read dev admin"
@@ -457,3 +579,17 @@ $$;
 
 revoke all on function public.dev_feedback_purge_trash() from public;
 grant execute on function public.dev_feedback_purge_trash() to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Verifica post-migrazione (esegui come utente autenticato via API o SQL Editor)
+-- ---------------------------------------------------------------------------
+-- 1) RLS attiva su tutte le tabelle public:
+--    select tablename, rowsecurity from pg_tables where schemaname = 'public';
+--
+-- 2) cloud_profiles: GET senza filtro id deve restituire solo la propria riga
+--    (più eventuali amici / richieste in entrata), mai l'intera user base.
+--
+-- 3) friend_requests: il requester NON può fare UPDATE status = 'accepted'.
+--
+-- 4) watch_party_rooms: GET senza codice non deve elencare stanze altrui.
+--    join_watch_party_room('CODICE') registra membership e abilita SELECT/Realtime.
