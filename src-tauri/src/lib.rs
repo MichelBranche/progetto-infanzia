@@ -1615,30 +1615,25 @@ fn start_addon_watch_session_cmd(
 }
 
 #[tauri::command]
-fn get_library(state: State<'_, AppState>, profile_id: String) -> Result<Library, String> {
-    build_library(
-        &state.db,
-        state.media_root.read().as_path(),
-        &profile_id,
-    )
+fn get_library(_state: State<'_, AppState>, _profile_id: String) -> Result<Library, String> {
+    Ok(Library {
+        items: vec![],
+        collections: vec![],
+        featured: None,
+        media_root: String::new(),
+        total_count: 0,
+        last_scan: None,
+    })
 }
 
 #[tauri::command]
-fn scan_library_cmd(state: State<'_, AppState>) -> Result<ScanResult, String> {
-    let result = scan_library(&state.db, state.media_root.read().as_path())?;
-    let enrich = state
-        .db
-        .get_meta(tmdb::META_ENRICH_ON_SCAN)?
-        .map(|v| v != "false")
-        .unwrap_or(false);
-    if enrich {
-        let _ = tmdb::enrich_pending_media(
-            &state.db,
-            state.media_root.read().as_path(),
-            25,
-        );
-    }
-    Ok(result)
+fn scan_library_cmd(_state: State<'_, AppState>) -> Result<ScanResult, String> {
+    Ok(ScanResult {
+        added: 0,
+        updated: 0,
+        removed: 0,
+        total: 0,
+    })
 }
 
 #[tauri::command]
@@ -2114,10 +2109,7 @@ fn init_app(handle: &AppHandle) -> Result<AppState, String> {
     let _ = loonex_catalog::ensure_defaults(&db);
     let _ = youtube_catalog::ensure_defaults(&db);
     let _ = db.sync_empty_child_allowlists();
-    let media_root = parking_lot::RwLock::new(resolve_media_root(handle, &db));
-    scan_library(&db, media_root.read().as_path())?;
-
-    watcher::start_media_watcher(media_root.read().clone(), db.clone());
+    let media_root = parking_lot::RwLock::new(std::path::PathBuf::new());
 
     let addon_proxy = Arc::new(AddonProxyRegistry::new());
 

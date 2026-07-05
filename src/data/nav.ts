@@ -58,10 +58,6 @@ function browseSectionItems(): NavItem[] {
   return browseItems;
 }
 
-const libraryItems: NavItem[] = [
-  { id: "add", label: "Aggiungi titolo", icon: "Plus", accent: true },
-];
-
 const systemItems: NavItem[] = [
   { id: "settings", label: "Impostazioni", icon: "Settings" },
   { id: "activity", label: "Attività bambini", icon: "Activity" },
@@ -101,11 +97,6 @@ export function getNavSections(
   ];
 
   if (isParent) {
-    sections.push({
-      id: "library",
-      label: "Libreria",
-      items: libraryItems,
-    });
     sections.push({
       id: "system",
       label: "Account",
@@ -160,7 +151,7 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
     },
     friends: {
       title: "Amici",
-      subtitle: "Codice amico cloud, LAN e guarda insieme",
+      subtitle: "Codice amico cloud e guarda insieme online",
     },
     settings: {
       title: "Impostazioni",

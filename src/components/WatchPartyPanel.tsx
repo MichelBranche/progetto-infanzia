@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useCloudAccount } from "../context/CloudAccountContext";
 import { isCloudEnabled } from "../lib/cloudConfig";
+import { isLanFeaturesEnabled } from "../lib/platform";
 import { ensureWatchPartyChat } from "../lib/cloudChat";
 import { createCloudWatchParty, joinCloudWatchParty } from "../lib/cloudWatchParty";
 import { isPrivateOrLanHost } from "../lib/watchPartyNetwork";
@@ -68,6 +69,7 @@ export function WatchPartyPanel({
 }: WatchPartyPanelProps) {
   const { profile: cloudProfile } = useCloudAccount();
   const cloudConfigured = isCloudEnabled();
+  const lanEnabled = isLanFeaturesEnabled();
   const canCreate = Boolean(mediaId && title && streamUrl);
   const [tab, setTab] = useState<PanelTab>(
     canCreate ? defaultTab : "join",
@@ -77,9 +79,9 @@ export function WatchPartyPanel({
   const [roomCode, setRoomCode] = useState("");
   const [hostIp, setHostIp] = useState("");
   const [joinRelay, setJoinRelay] = useState<"lan" | "cloud">(
-    cloudProfile ? "cloud" : "lan",
+    cloudProfile ? "cloud" : lanEnabled ? "lan" : "cloud",
   );
-  const [useCloudRelay, setUseCloudRelay] = useState(Boolean(cloudProfile));
+  const [useCloudRelay, setUseCloudRelay] = useState(Boolean(cloudProfile) || !lanEnabled);
   const [createdRoom, setCreatedRoom] = useState<WatchPartySession | null>(null);
   const [partyChatId, setPartyChatId] = useState<string | null>(null);
 
@@ -115,11 +117,11 @@ export function WatchPartyPanel({
   }, [open, defaultTab, canCreate, session]);
 
   useEffect(() => {
-    if (cloudProfile) {
+    if (cloudProfile || !lanEnabled) {
       setUseCloudRelay(true);
       setJoinRelay("cloud");
     }
-  }, [cloudProfile]);
+  }, [cloudProfile, lanEnabled]);
 
   useEffect(() => {
     if (session) setCreatedRoom(null);
@@ -162,6 +164,15 @@ export function WatchPartyPanel({
         return;
       }
 
+      if (!lanEnabled) {
+        setError(
+          cloudProfile
+            ? "Su mobile usa solo stanze online."
+            : "Accedi al tuo account Branchefy per guardare insieme su mobile.",
+        );
+        return;
+      }
+
       const room = await createWatchParty(profileId, {
         profileName,
         mediaId: content.mediaId,
@@ -196,6 +207,7 @@ export function WatchPartyPanel({
     onSessionReady,
     useCloudRelay,
     cloudProfile,
+    lanEnabled,
   ]);
 
   const handleJoin = useCallback(async () => {
@@ -236,6 +248,11 @@ export function WatchPartyPanel({
       }
     } else if (joinRelay === "cloud") {
       setError("Accedi al tuo account Branchefy per unirti online");
+      return;
+    }
+
+    if (!lanEnabled) {
+      setError("Le stanze LAN non sono disponibili su mobile. Usa modalità Online.");
       return;
     }
 
@@ -291,6 +308,7 @@ export function WatchPartyPanel({
     cloudConfigured,
     onSessionReady,
     onClose,
+    lanEnabled,
   ]);
 
   const copyInvite = async (room: WatchPartySession) => {
@@ -347,7 +365,7 @@ export function WatchPartyPanel({
                     Guarda insieme
                   </h2>
                   <p className="text-[12px] text-text-muted">
-                    Stanze LAN o online
+                    {lanEnabled ? "Stanze LAN o online" : "Stanze online"}
                   </p>
                 </div>
               </div>
@@ -499,14 +517,14 @@ export function WatchPartyPanel({
                         </label>
                       )}
 
-                      {cloudProfile && !useCloudRelay && (
+                      {cloudProfile && lanEnabled && !useCloudRelay && (
                         <p className="rounded-xl border border-warm/20 bg-warm/10 px-3 py-2 text-[12px] text-warm">
                           Senza «Stanza online» gli amici lontani non potranno
                           connettersi — serve la stessa rete Wi‑Fi.
                         </p>
                       )}
 
-                      {!cloudProfile && cloudConfigured && (
+                      {!cloudProfile && cloudConfigured && lanEnabled && (
                         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-3 text-[12px] text-text-muted">
                           <p>
                             Per guardare con amici lontani, accedi al tuo account
@@ -515,7 +533,7 @@ export function WatchPartyPanel({
                         </div>
                       )}
 
-                      {!cloudConfigured && (
+                      {!cloudConfigured && lanEnabled && (
                         <div className="flex items-start gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3 text-[12px] text-text-muted">
                           <Wifi className="mt-0.5 h-4 w-4 shrink-0" />
                           La stanza sarà in LAN: gli ospiti devono essere sulla
@@ -541,7 +559,7 @@ export function WatchPartyPanel({
 
                   {tab === "join" && (
                     <div className="space-y-4">
-                      {cloudProfile && (
+                      {cloudProfile && lanEnabled && (
                         <div className="flex gap-2">
                           <button
                             type="button"
@@ -584,7 +602,7 @@ export function WatchPartyPanel({
                         />
                       </label>
 
-                      {joinRelay === "lan" && (
+                      {joinRelay === "lan" && lanEnabled && (
                         <label className="block">
                           <span className="mb-1.5 block text-[12px] text-text-muted">
                             IP dell&apos;host (solo stessa rete)

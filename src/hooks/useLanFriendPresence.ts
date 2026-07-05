@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
+import { isLanFeaturesEnabled } from "../lib/platform";
 import { enrichLanFriendsWithCloudAvatars } from "../lib/cloudAvatar";
 import { syncLanFriendsPresence } from "../lib/watchPartyApi";
 import type { CloudFriend, LanFriendPresence } from "../types/cloud";
@@ -19,7 +20,7 @@ export function useLanFriendPresence(
 
   const refresh = useCallback(
     async (deepScan = false) => {
-      if (!isTauri() || !profileId) {
+      if (!isLanFeaturesEnabled() || !isTauri() || !profileId) {
         setFriends([]);
         return;
       }

@@ -12,11 +12,9 @@ import { CartoniBrowsePage } from "./components/CartoniBrowsePage";
 import { RowSkeleton } from "./components/RowSkeleton";
 import { StreamHubRow } from "./components/StreamHubRow";
 import { MangaPromoBanner } from "./components/MangaPromoBanner";
-import { EmptyLibrary } from "./components/EmptyLibrary";
 import { ProfilePage, type ProfileTab } from "./components/ProfilePage";
 import { AppUpdaterProvider } from "./context/AppUpdaterContext";
 import { ProfilePinModal } from "./components/ProfilePinModal";
-import { EditMediaModal } from "./components/EditMediaModal";
 import { LibraryProvider, useLibrary } from "./context/LibraryContext";
 import { AddonsProvider, useAddons } from "./context/AddonsContext";
 import { CloudAccountProvider, useCloudAccount } from "./context/CloudAccountContext";
@@ -38,14 +36,9 @@ import {
   isArchivioCartoniRow,
 } from "./lib/brandAssets";
 import { sectionMeta } from "./data/nav";
-import {
-  type SeriesRef,
-  getSeriesEpisodes,
-  parseSeriesKey,
-  toBrowseItems,
-} from "./lib/browse";
+import type { BrowseItem } from "./lib/browse";
 import type { MediaItem } from "./types/media";
-import { deleteMedia, updateMedia, enrichMetadata } from "./lib/api";
+import type { StremioMetaPreview } from "./types/stremio";
 import type { AddonWatchTarget } from "./lib/streamingBrowse";
 import {
   parseStreamingMediaId,
@@ -56,7 +49,6 @@ import { useStreamingCatalogs } from "./lib/useStreamingCatalogs";
 import { useMyList } from "./lib/useMyList";
 import { markStreamingInMyList } from "./lib/myList";
 import { splitTop10Row } from "./lib/streamingRows";
-import type { BrowseItem } from "./lib/browse";
 import { STREMIO_ADDONS_ENABLED, isBuiltinStreamingCatalog } from "./lib/features";
 import { isDevAdminEmail } from "./lib/devAdmin";
 import {
@@ -76,26 +68,12 @@ import {
   browseDetailAction,
   similarBrowseItems,
 } from "./lib/browseDetail";
-import type { StremioMetaPreview } from "./types/stremio";
 import type { WatchPartySession } from "./types/watchParty";
 import type { MangaBrowseItem } from "./types/mangadex";
 import { getMangaProgress } from "./lib/mangaProgress";
 
 const WatchPage = lazy(() =>
   import("./components/WatchPage").then((m) => ({ default: m.WatchPage })),
-);
-const AddMediaPage = lazy(() =>
-  import("./components/AddMediaPage").then((m) => ({ default: m.AddMediaPage })),
-);
-const SeriesDetailPage = lazy(() =>
-  import("./components/SeriesDetailPage").then((m) => ({
-    default: m.SeriesDetailPage,
-  })),
-);
-const ManageLibraryPage = lazy(() =>
-  import("./components/ManageLibraryPage").then((m) => ({
-    default: m.ManageLibraryPage,
-  })),
 );
 const VideoPlayer = lazy(() =>
   import("./components/VideoPlayer").then((m) => ({ default: m.VideoPlayer })),
@@ -181,9 +159,6 @@ function AppContent() {
     loading,
     searchQuery,
     setSearchQuery,
-    rescan,
-    scanning,
-    toggleFavorite,
     getItemsBySection,
     searchResults,
     refresh,
@@ -195,8 +170,6 @@ function AppContent() {
   const [watchingId, setWatchingId] = useState<string | null>(null);
   const [watchAutoplay, setWatchAutoplay] = useState(false);
   const [seriesKey, setSeriesKey] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [addPresetSeries, setAddPresetSeries] = useState<SeriesRef | null>(null);
   const [addonWatch, setAddonWatch] = useState<AddonWatchTarget | null>(null);
   const [detailSimilar, setDetailSimilar] = useState<BrowseItem[]>([]);
   const [partyGuestSession, setPartyGuestSession] = useState<WatchPartySession | null>(null);
@@ -285,7 +258,7 @@ function AppContent() {
   } = useStreamingSearch(searchQuery, searchableCatalog);
 
   useEffect(() => {
-    if (!isParent && (activeNav === "add" || activeNav === "manage" || activeNav === "settings" || activeNav === "activity")) {
+    if (!isParent && (activeNav === "settings" || activeNav === "activity")) {
       setActiveNav("home");
     }
   }, [isParent, activeNav]);
@@ -329,35 +302,27 @@ function AppContent() {
   const handlePlay = (id: string) => {
     if (!ensureGuestCanPlay()) return;
     const target = parseStreamingMediaId(id);
-    if (target) {
-      if (!STREMIO_ADDONS_ENABLED && !isBuiltinStreamingCatalog(target.catalogPrefix)) {
-        return;
-      }
-      setAddonWatch({
-        ...target,
-        videoId: target.videoId,
-      });
+    if (!target) return;
+    if (!STREMIO_ADDONS_ENABLED && !isBuiltinStreamingCatalog(target.catalogPrefix)) {
       return;
     }
-    setWatchAutoplay(false);
-    setWatchingId(id);
+    setAddonWatch({
+      ...target,
+      videoId: target.videoId,
+    });
   };
 
   const handlePlayNow = (id: string) => {
     if (!ensureGuestCanPlay()) return;
     const target = parseStreamingMediaId(id);
-    if (target) {
-      if (!STREMIO_ADDONS_ENABLED && !isBuiltinStreamingCatalog(target.catalogPrefix)) {
-        return;
-      }
-      setAddonWatch({
-        ...target,
-        videoId: target.videoId,
-      });
+    if (!target) return;
+    if (!STREMIO_ADDONS_ENABLED && !isBuiltinStreamingCatalog(target.catalogPrefix)) {
       return;
     }
-    setWatchAutoplay(true);
-    setWatchingId(id);
+    setAddonWatch({
+      ...target,
+      videoId: target.videoId,
+    });
   };
 
   const handleBackFromWatch = async () => {
@@ -422,11 +387,6 @@ function AppContent() {
     setActiveNav("home");
   };
 
-  const handleAddSuccess = async () => {
-    await refresh();
-    setAddPresetSeries(null);
-    setActiveNav("home");
-  };
 
   const handleOpenManga = useCallback((item: MangaBrowseItem) => {
     setMangaReader(null);
@@ -457,10 +417,6 @@ function AppContent() {
     [],
   );
 
-  const editingMedia = useMemo(() => {
-    if (!editingId || !library) return null;
-    return library.items.find((item) => item.id === editingId) ?? null;
-  }, [editingId, library]);
 
   useEffect(() => {
     if (!watchingId && !addonWatch) {
@@ -496,17 +452,14 @@ function AppContent() {
     prevActiveNavRef.current = activeNav;
 
     if (activeNav !== "home" || loading) return;
-    if (
-      heroStreamingPreviews.length === 0 &&
-      (library?.items.length ?? 0) === 0
-    ) {
+    if (heroStreamingPreviews.length === 0) {
       return;
     }
 
     setHeroItems((current) => {
       if (!enteredHome && current.length > 0) return current;
       return buildRandomHeroItems(
-        library?.items ?? [],
+        [],
         heroStreamingPreviews,
         (preview) =>
           previewToMediaItem(
@@ -526,14 +479,9 @@ function AppContent() {
     loading,
   ]);
 
-  const localFavorites = useMemo(
-    () => library?.items.filter((item) => item.isFavorite) ?? [],
-    [library?.items],
-  );
-
   const myListCount = useMemo(
-    () => localFavorites.length + streamingList.length,
-    [localFavorites.length, streamingList.length],
+    () => streamingList.length,
+    [streamingList.length],
   );
 
   const sidebarBadges = useMemo(() => {
@@ -751,20 +699,9 @@ function AppContent() {
     [ensureGuestCanPlay],
   );
 
-  const handleOpenSeries = useCallback(
-    (key: string) => {
-      const series = parseSeriesKey(key);
-      if (series && library?.items) {
-        const episodes = getSeriesEpisodes(library.items, series);
-        const [browse] = toBrowseItems(episodes);
-        if (browse?.kind === "series") {
-          setDetailSimilar(similarBrowseItems(browse, browsePool));
-        }
-      }
-      setSeriesKey(key);
-    },
-    [library?.items, browsePool],
-  );
+  const handleOpenSeries = useCallback((key: string) => {
+    setSeriesKey(key);
+  }, []);
 
   useEffect(() => {
     if (activeNav !== "home" || !activeProfile?.id) return;
@@ -897,9 +834,7 @@ function AppContent() {
           onPlayRelated={handlePlay}
           onPlayStreamingRelated={handlePlayStreaming}
           onOpenSeries={handleOpenSeries}
-          onToggleFavorite={toggleFavorite}
           onToggleStreamingList={handleToggleStreamingList}
-          onEdit={isParent ? (id) => setEditingId(id) : undefined}
           />
         </SuspenseRoute>
       </div>
@@ -924,21 +859,6 @@ function AppContent() {
     );
   }
 
-  const isEmpty = library && library.totalCount === 0;
-  const streamingBrowseNav = new Set([
-    "home",
-    "film",
-    "serie",
-    "cartoni",
-    "capsula",
-    "search",
-  ]);
-  const showEmptyLibraryOnly =
-    isEmpty &&
-    !["add", "settings", "manage", "activity", "profile", "anime", "manga", "streaming", "dev", "feedback", "invite", "chats"].includes(
-      activeNav,
-    ) &&
-    !(hasStreaming && streamingBrowseNav.has(activeNav));
   const sectionInfo = sectionMeta[activeNav];
 
   return (
@@ -961,10 +881,8 @@ function AppContent() {
         onOpenSearch={handleOpenSearch}
         onCloseSearch={handleCloseSearch}
         searchActive={searchOpen}
-        onRescan={rescan}
         onSwitchProfile={clearProfile}
         onLogout={() => void handleLogout()}
-        scanning={scanning}
         scrollContainerRef={mainScrollRef}
         immersive={
           activeNav === "home" && !seriesKey && !searchOpen
@@ -990,10 +908,8 @@ function AppContent() {
           onPlay={handlePlay}
           onPlayStreaming={handlePlayStreaming}
           onOpenSeries={handleOpenSeries}
-          onToggleFavorite={toggleFavorite}
           onToggleStreamingList={handleToggleStreamingList}
           enrichStreamingPreview={enrichListedPreview}
-          onEdit={isParent ? (id) => setEditingId(id) : undefined}
           />
         </SuspenseRoute>
 
@@ -1001,17 +917,10 @@ function AppContent() {
           ref={mainScrollRef}
           className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth"
         >
-          {loading && !library ? (
+          {loading ? (
             <div className="flex h-full items-center justify-center pt-20">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/10 border-t-accent" />
             </div>
-          ) : showEmptyLibraryOnly ? (
-            <EmptyLibrary
-              mediaRoot={library?.mediaRoot ?? ""}
-              onRescan={rescan}
-              scanning={scanning}
-              onAdd={isParent ? () => setActiveNav("add") : undefined}
-            />
           ) : (
             <AnimatePresence mode="wait">
               <motion.div
@@ -1028,50 +937,6 @@ function AppContent() {
                     aria-hidden
                   />
                 )}
-                {seriesKey && library && (
-                  <SuspenseRoute>
-                    <SeriesDetailPage
-                    seriesKey={seriesKey}
-                    items={library.items}
-                    isParent={isParent}
-                    relatedItems={detailSimilar}
-                    onBack={() => {
-                      setSeriesKey(null);
-                      setDetailSimilar([]);
-                    }}
-                    onPlay={handlePlayNow}
-                    onOpenDetail={handleOpenBrowseDetail}
-                    onPlayStreaming={handlePlayStreaming}
-                    onOpenSeries={handleOpenSeries}
-                    onToggleFavorite={toggleFavorite}
-                    onToggleStreamingList={handleToggleStreamingList}
-                    onEdit={setEditingId}
-                    onDelete={async (id) => {
-                      await deleteMedia(activeProfile.id, id);
-                      await refresh();
-                    }}
-                    onAddEpisode={(series) => {
-                      setAddPresetSeries(series);
-                      setSeriesKey(null);
-                      setActiveNav("add");
-                    }}
-                    />
-                  </SuspenseRoute>
-                )}
-
-                {!seriesKey && activeNav === "add" && isParent && (
-                  <SuspenseRoute>
-                    <AddMediaPage
-                    presetSeries={addPresetSeries}
-                    onSuccess={handleAddSuccess}
-                    onCancel={() => {
-                      setAddPresetSeries(null);
-                      setActiveNav("home");
-                    }}
-                    />
-                  </SuspenseRoute>
-                )}
-
                 {!seriesKey && activeNav === "anime" && (
                   <SuspenseRoute>
                     <AnimePage
@@ -1116,29 +981,20 @@ function AppContent() {
 
                 {!seriesKey && activeNav === "settings" && isParent && (
                   <SuspenseRoute>
-                    <SettingsPage
-                    profileId={activeProfile.id}
-                    onRescanComplete={() => void refresh()}
-                    onOpenManage={() => setActiveNav("manage")}
-                    />
+                    <SettingsPage profileId={activeProfile.id} />
                   </SuspenseRoute>
                 )}
 
-                {!seriesKey && activeNav === "profile" && library && (
+                {!seriesKey && activeNav === "profile" && (
                   <ProfilePage
                     profile={activeProfile}
                     profileId={activeProfile.id}
                     activeTab={profileTab}
                     onTabChange={setProfileTab}
-                    libraryItems={library.items}
-                    localFavorites={localFavorites}
                     streamingList={streamingList}
                     streamingListKeys={streamingListKeys}
-                    onPlay={handlePlay}
                     onPlayStreaming={handlePlayStreaming}
-                    onToggleFavorite={toggleFavorite}
                     onToggleStreamingList={handleToggleStreamingList}
-                    onEdit={isParent ? (id) => setEditingId(id) : undefined}
                     onJoinSession={(session) => {
                       setPartyGuestSession(session);
                     }}
@@ -1188,20 +1044,6 @@ function AppContent() {
                   </SuspenseRoute>
                 )}
 
-                {!seriesKey && activeNav === "manage" && isParent && library && (
-                  <SuspenseRoute>
-                    <ManageLibraryPage
-                    items={library.items}
-                    onPlay={handlePlay}
-                    onEdit={setEditingId}
-                    onDelete={async (id) => {
-                      await deleteMedia(activeProfile.id, id);
-                      await refresh();
-                    }}
-                    />
-                  </SuspenseRoute>
-                )}
-
                 {!seriesKey && activeNav === "home" && (
                   <>
                     {!homeContentReady && !continueHomeRow ? (
@@ -1233,13 +1075,7 @@ function AppContent() {
                             );
                           }
                         }}
-                        onToggleFavorite={toggleFavorite}
                         onToggleStreamingList={handleToggleStreamingList}
-                        onEdit={
-                          isParent
-                            ? (media) => setEditingId(media.id)
-                            : undefined
-                        }
                       />
                     )}
                     <div className="relative z-10 bg-void">
@@ -1255,11 +1091,7 @@ function AppContent() {
                           onPlay={handlePlayNow}
                           onPlayStreaming={handlePlayStreaming}
                           onOpenSeries={handleOpenSeries}
-                          onToggleFavorite={toggleFavorite}
                           onToggleStreamingList={handleToggleStreamingList}
-                          onEdit={
-                            isParent ? (id) => setEditingId(id) : undefined
-                          }
                         />
                       </div>
                     )}
@@ -1294,7 +1126,6 @@ function AppContent() {
                               onPlayStreaming={handlePlayStreaming}
                               onOpenDetail={handleOpenBrowseDetail}
                               onOpenSeries={handleOpenSeries}
-                              onToggleFavorite={toggleFavorite}
                               onToggleStreamingList={handleToggleStreamingList}
                               actionLabel={
                                 row.key === "favorites"
@@ -1312,9 +1143,6 @@ function AppContent() {
                                   : row.key === "home-cartoni"
                                     ? () => handleNav("cartoni")
                                     : undefined
-                              }
-                              onEdit={
-                                isParent ? (id) => setEditingId(id) : undefined
                               }
                             />
                           ))}
@@ -1379,11 +1207,7 @@ function AppContent() {
                     onPlayStreaming={handlePlayStreaming}
                     onOpenDetail={handleOpenBrowseDetail}
                     onOpenSeries={handleOpenSeries}
-                    onToggleFavorite={toggleFavorite}
                     onToggleStreamingList={handleToggleStreamingList}
-                    onEdit={
-                      isParent ? (id) => setEditingId(id) : undefined
-                    }
                   />
                 )}
               </motion.div>
@@ -1391,30 +1215,6 @@ function AppContent() {
           )}
         </main>
       </div>
-
-      {editingMedia && isParent && (
-        <EditMediaModal
-          media={editingMedia}
-          onClose={() => setEditingId(null)}
-          onSave={async (input) => {
-            await updateMedia(activeProfile.id, editingMedia.id, input);
-            await refresh();
-          }}
-          onDelete={async () => {
-            await deleteMedia(activeProfile.id, editingMedia.id);
-            await refresh();
-            setEditingId(null);
-          }}
-          onEnrichTmdb={async () => {
-            const updated = await enrichMetadata(
-              activeProfile.id,
-              editingMedia.id,
-            );
-            await refresh();
-            return updated;
-          }}
-        />
-      )}
 
       {mangaReader && (
         <SuspenseRoute>

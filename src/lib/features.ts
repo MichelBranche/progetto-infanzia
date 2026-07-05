@@ -1,3 +1,6 @@
+/** Local filesystem library removed — streaming catalogs only. */
+export const LOCAL_LIBRARY_ENABLED = false;
+
 /** Addon di terze parti (Cinemeta, stream torrent, ecc.) — disattivati. */
 export const STREMIO_ADDONS_ENABLED = false;
 

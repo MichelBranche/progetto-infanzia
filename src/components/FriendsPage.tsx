@@ -38,6 +38,7 @@ import {
 } from "../lib/watchPartyApi";
 import type { CloudFriend, LanFriendPresence } from "../types/cloud";
 import type { WatchPartySession } from "../types/watchParty";
+import { isLanFeaturesEnabled } from "../lib/platform";
 
 type EnrichedCloudFriend = CloudFriend & {
   presence?: import("../types/cloud").FriendPresence;
@@ -204,9 +205,13 @@ export function FriendsPage({
     }
   };
 
-  const presenceRefreshing = cloudPresenceLoading || lanPresenceLoading;
-  const totalOnline = cloudOnline.length + lanOnline.length;
-  const totalOffline = cloudOffline.length + lanOffline.length;
+  const showLan = isLanFeaturesEnabled();
+  const visibleLanOnline = showLan ? lanOnline : [];
+  const visibleLanOffline = showLan ? lanOffline : [];
+
+  const presenceRefreshing = cloudPresenceLoading || (showLan && lanPresenceLoading);
+  const totalOnline = cloudOnline.length + visibleLanOnline.length;
+  const totalOffline = cloudOffline.length + visibleLanOffline.length;
 
   return (
     <>
@@ -255,7 +260,9 @@ export function FriendsPage({
                 Nessun amico online al momento.
                 {cloudProfile
                   ? " Restano visibili qui appena aprono Branchefy."
-                  : " Accedi con email cloud o aggiungi amici LAN sulla stessa Wi‑Fi."}
+                  : showLan
+                    ? " Accedi con email cloud o aggiungi amici LAN sulla stessa Wi‑Fi."
+                    : " Accedi con email cloud per aggiungere amici."}
               </p>
             ) : (
               <ul>
@@ -283,7 +290,7 @@ export function FriendsPage({
                     }
                   />
                 ))}
-                {lanOnline.map((friend) => (
+                {visibleLanOnline.map((friend) => (
                   <FriendListRow
                     key={`lan-${friend.friendCode}`}
                     name={friend.displayName}
@@ -367,7 +374,7 @@ export function FriendsPage({
             </ProfileCard>
           )}
 
-          {(totalOffline > 0 || cloudProfile || lanOffline.length > 0) && (
+          {(totalOffline > 0 || cloudProfile || visibleLanOffline.length > 0) && (
             <ProfileCard>
               <ProfileSectionLabel>Offline</ProfileSectionLabel>
               {totalOffline === 0 ? (
@@ -400,7 +407,7 @@ export function FriendsPage({
                       }
                     />
                   ))}
-                  {lanOffline.map((friend) => (
+                  {visibleLanOffline.map((friend) => (
                     <FriendListRow
                       key={`lan-off-${friend.friendCode}`}
                       name={friend.displayName}
@@ -445,7 +452,9 @@ export function FriendsPage({
             <ProfileCard>
               <ProfileSectionLabel>Aggiungi amico</ProfileSectionLabel>
               <p className="mb-4 text-[13px] leading-relaxed text-text-muted">
-                Codice amico cloud o codice LAN sulla stessa rete.
+                {showLan
+                  ? "Codice amico cloud o codice LAN sulla stessa rete."
+                  : "Codice amico cloud."}
               </p>
               <button
                 type="button"
@@ -500,6 +509,7 @@ export function FriendsPage({
                 </div>
               )}
 
+              {showLan && (
               <div>
                 <div className="mb-3 flex items-center gap-2">
                   <Wifi className="h-4 w-4 text-text-muted" strokeWidth={1.5} />
@@ -541,6 +551,7 @@ export function FriendsPage({
                   Aggiungi LAN
                 </button>
               </div>
+              )}
             </ProfileCard>
           )}
         </div>

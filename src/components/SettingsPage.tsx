@@ -1,16 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  FolderOpen,
-  Library,
   Loader2,
-  RefreshCw,
-  Tv,
   Volume2,
 } from "lucide-react";
-import { open } from "@tauri-apps/plugin-dialog";
-import { scanLibrary } from "../lib/api";
 import { setProfilePin, removeProfilePin } from "../lib/profilesApi";
-import { fetchSettings, setMediaRoot, updateSettings } from "../lib/settingsApi";
+import { fetchSettings, updateSettings } from "../lib/settingsApi";
 import { STREAMING_SERVICES } from "../data/streaming";
 import { ParentalLimitsPanel } from "./ParentalLimitsPanel";
 import { AppUpdaterSection } from "./AppUpdaterSection";
@@ -24,25 +18,20 @@ import {
   SettingsGroupLabel,
   SettingsInput,
   SettingsSection,
-  SettingsToggle,
 } from "./settings/SettingsUi";
 
 interface SettingsPageProps {
   profileId: string;
-  onRescanComplete?: () => void;
-  onOpenManage?: () => void;
 }
 
-export function SettingsPage({ profileId, onRescanComplete, onOpenManage }: SettingsPageProps) {
+export function SettingsPage({ profileId }: SettingsPageProps) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
-  const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pin, setPin] = useState("");
   const [pinConfirm, setPinConfirm] = useState("");
   const [currentPin, setCurrentPin] = useState("");
   const [pinMessage, setPinMessage] = useState<string | null>(null);
-  const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -80,47 +69,6 @@ export function SettingsPage({ profileId, onRescanComplete, onOpenManage }: Sett
       ? settings.subscribedServices.filter((s) => s !== id)
       : [...settings.subscribedServices, id];
     void saveSettings({ subscribedServices: next });
-  };
-
-  const handleScan = async () => {
-    setScanning(true);
-    setScanMessage(null);
-    try {
-      const result = await scanLibrary();
-      setScanMessage(
-        `Scansione completata: ${result.added} aggiunti, ${result.updated} aggiornati, ${result.removed} rimossi (${result.total} totali)`,
-      );
-      await load();
-      onRescanComplete?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setScanning(false);
-    }
-  };
-
-  const handleChooseMediaFolder = async () => {
-    setScanMessage(null);
-    setError(null);
-    try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: "Scegli la cartella media",
-      });
-      if (!selected || typeof selected !== "string") return;
-      setScanning(true);
-      const result = await setMediaRoot(selected);
-      setScanMessage(
-        `Cartella collegata: ${result.added} aggiunti, ${result.updated} aggiornati (${result.total} totali)`,
-      );
-      await load();
-      onRescanComplete?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setScanning(false);
-    }
   };
 
   const handleSetPin = async () => {
@@ -173,7 +121,7 @@ export function SettingsPage({ profileId, onRescanComplete, onOpenManage }: Sett
             Impostazioni
           </h1>
           <p className="mx-auto mt-2 max-w-md text-[14px] leading-relaxed text-text-secondary">
-            Libreria, streaming, account e controllo genitori
+            Streaming, account e controllo genitori
           </p>
         </header>
 
@@ -230,98 +178,7 @@ export function SettingsPage({ profileId, onRescanComplete, onOpenManage }: Sett
             )}
           </SettingsSection>
 
-          <SettingsGroupLabel>Libreria</SettingsGroupLabel>
-
-          <SettingsSection
-            icon={FolderOpen}
-            title="Cartella media"
-            description="I file locali vengono letti da questa cartella. Puoi collegarne una personalizzata se i tuoi video sono altrove."
-          >
-            <p className="break-all rounded-xl bg-white/[0.03] px-4 py-3 font-mono text-[12px] text-text-secondary">
-              {settings.mediaRoot}
-            </p>
-            {settings.lastScan && (
-              <p className="mt-2 text-center text-[11px] text-text-muted sm:text-left">
-                Ultima scansione: {new Date(settings.lastScan).toLocaleString("it-IT")}
-              </p>
-            )}
-            <div className="mt-4 flex flex-wrap justify-center gap-2 sm:justify-start">
-              <SettingsButton
-                variant="accent"
-                disabled={scanning || saving}
-                onClick={() => void handleChooseMediaFolder()}
-              >
-                <FolderOpen className="h-3.5 w-3.5" />
-                Scegli cartella
-              </SettingsButton>
-              <SettingsButton
-                variant="secondary"
-                disabled={scanning || saving}
-                onClick={() => void handleScan()}
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${scanning ? "animate-spin" : ""}`} />
-                Scansiona
-              </SettingsButton>
-              {onOpenManage && (
-                <SettingsButton variant="secondary" onClick={onOpenManage}>
-                  <Library className="h-3.5 w-3.5" />
-                  Gestisci file
-                </SettingsButton>
-              )}
-            </div>
-            {scanMessage && (
-              <p className="mt-3 text-center text-[12px] text-mint sm:text-left">{scanMessage}</p>
-            )}
-          </SettingsSection>
-
-          <SettingsSection
-            title="Metadati TMDB"
-            description="Poster e descrizioni automatici. Chiave gratuita su themoviedb.org"
-          >
-            <SettingsInput
-              type="password"
-              value={settings.tmdbApiKey ?? ""}
-              onChange={(e) => setSettings({ ...settings, tmdbApiKey: e.target.value })}
-              onBlur={() => void saveSettings({ tmdbApiKey: settings.tmdbApiKey ?? "" })}
-              placeholder="Chiave API TMDB"
-            />
-            <div className="mt-3">
-              <SettingsToggle
-                label="Arricchisci alla scansione"
-                description="Scarica poster e sinossi per i nuovi titoli"
-                enabled={settings.tmdbEnrichOnScan}
-                disabled={saving}
-                onChange={() =>
-                  void saveSettings({ tmdbEnrichOnScan: !settings.tmdbEnrichOnScan })
-                }
-              />
-            </div>
-          </SettingsSection>
-
-          <SettingsSection
-            title="Cartelle cloud"
-            description="Monta Mega o altri cloud con rclone dentro media/serie/, poi scansiona la libreria."
-          />
-
-          <SettingsGroupLabel>Streaming e TV</SettingsGroupLabel>
-
-          <SettingsSection
-            icon={Tv}
-            title="Trasmissione TV"
-            description={`Porta LAN ${settings.streamPort}. Consenti Branchefy sul firewall per reti private.`}
-          >
-            <SettingsToggle
-              label="Transcodifica per TV"
-              description="Converte MKV in MP4 per Chromecast e TV"
-              enabled={settings.castTranscodeEnabled}
-              disabled={saving}
-              onChange={() =>
-                void saveSettings({
-                  castTranscodeEnabled: !settings.castTranscodeEnabled,
-                })
-              }
-            />
-          </SettingsSection>
+          <SettingsGroupLabel>Streaming</SettingsGroupLabel>
 
           <SettingsSection
             title="I tuoi abbonamenti"

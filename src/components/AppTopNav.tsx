@@ -7,7 +7,6 @@ import {
   CircleUser,
   LogOut,
   MoreHorizontal,
-  RefreshCw,
   Search,
   Users,
   X,
@@ -15,7 +14,7 @@ import {
 import { getNavSections, type NavItem } from "../data/nav";
 import { useAddons } from "../context/AddonsContext";
 import type { Profile } from "../types/profile";
-import { isParentProfile, roleLabel } from "../types/profile";
+import { roleLabel } from "../types/profile";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { AppTopNavMoreMenu, animateAppTopNavMoreMenuClose } from "./AppTopNavMoreMenu";
 import {
@@ -39,10 +38,8 @@ interface AppTopNavProps {
   onOpenSearch: () => void;
   onCloseSearch?: () => void;
   searchActive: boolean;
-  onRescan: () => void;
   onSwitchProfile: () => void;
   onLogout: () => void;
-  scanning: boolean;
   scrollContainerRef?: RefObject<HTMLElement | null>;
   immersive?: boolean;
 }
@@ -130,17 +127,14 @@ export function AppTopNav({
   onOpenSearch,
   onCloseSearch,
   searchActive,
-  onRescan,
   onSwitchProfile,
   onLogout,
-  scanning,
   scrollContainerRef,
   immersive = false,
 }: AppTopNavProps) {
   const headerRef = useRef<HTMLElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const { hasStreaming } = useAddons();
-  const isParent = isParentProfile(profile);
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
@@ -479,21 +473,6 @@ export function AppTopNav({
               >
                 <CircleUser className="h-[20px] w-[20px]" strokeWidth={1.75} />
               </button>
-
-              {isParent && (
-                <button
-                  type="button"
-                  onClick={onRescan}
-                  disabled={scanning}
-                  className="app-top-nav__icon app-top-nav__icon-btn hidden h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 disabled:opacity-40 md:flex"
-                  aria-label="Aggiorna libreria"
-                >
-                  <RefreshCw
-                    className={`h-[19px] w-[19px] ${scanning ? "animate-spin" : ""}`}
-                    strokeWidth={1.85}
-                  />
-                </button>
-              )}
 
               <button
                 type="button"

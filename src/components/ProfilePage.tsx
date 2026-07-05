@@ -2,14 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Clock, Library, Loader2, Trophy, Users, X } from "lucide-react";
 import type { Profile } from "../types/profile";
-import type { MediaItem } from "../types/media";
 import type { StremioMetaPreview } from "../types/stremio";
 import { MediaGrid } from "./MediaGrid";
 import { FriendsPage } from "./FriendsPage";
 import { ProfileHero } from "./profile/ProfileHero";
 import { ProfileEmptyState, ProfileTabBar } from "./profile/ProfileUi";
 import { getStreamingWatchHistory } from "../lib/addonsApi";
-import { isWatchInProgress, toBrowseItems } from "../lib/browse";
 import {
   enrichStreamingPreview,
   mergeContinueBrowseItems,
@@ -29,9 +27,8 @@ import {
 import { PROFILE_CARD } from "./profile/ProfileUi";
 import { AchievementsPanel } from "./profile/AchievementsPanel";
 import { useAchievements } from "../hooks/useAchievements";
-import { isTauri } from "@tauri-apps/api/core";
+import { isLanFeaturesEnabled } from "../lib/platform";
 import { listCloudFriends } from "../lib/cloudFriends";
-import { listFriends } from "../lib/watchPartyApi";
 
 export type ProfileTab = "watched" | "list" | "friends" | "achievements";
 
@@ -40,15 +37,10 @@ interface ProfilePageProps {
   profileId: string;
   activeTab: ProfileTab;
   onTabChange: (tab: ProfileTab) => void;
-  libraryItems: MediaItem[];
-  localFavorites: MediaItem[];
   streamingList: StremioMetaPreview[];
   streamingListKeys: Set<string>;
-  onPlay: (id: string) => void;
   onPlayStreaming: (preview: StremioMetaPreview) => void;
-  onToggleFavorite?: (id: string) => void;
   onToggleStreamingList?: (preview: StremioMetaPreview) => void;
-  onEdit?: (id: string) => void;
   onJoinSession?: (session: WatchPartySession) => void;
   pendingFriendRequests?: number;
 }
@@ -65,15 +57,10 @@ export function ProfilePage({
   profileId,
   activeTab,
   onTabChange,
-  libraryItems,
-  localFavorites,
   streamingList,
   streamingListKeys,
-  onPlay,
   onPlayStreaming,
-  onToggleFavorite,
   onToggleStreamingList,
-  onEdit,
   onJoinSession,
   pendingFriendRequests = 0,
 }: ProfilePageProps) {
@@ -84,7 +71,7 @@ export function ProfilePage({
   const lanPresence = useLanFriendPresence(
     profileId,
     profile.name,
-    friendsTabActive,
+    friendsTabActive && isLanFeaturesEnabled(),
     cloudPresence.friends,
     cloudProfile?.friendCode,
     cloudProfile?.avatarUrl,
@@ -105,16 +92,9 @@ export function ProfilePage({
     let cancelled = false;
     void (async () => {
       try {
-        const [lanFriends, cloudFriends] = await Promise.all([
-          listFriends(profileId),
-          cloudProfile ? listCloudFriends() : Promise.resolve([]),
-        ]);
+        const cloudFriends = cloudProfile ? await listCloudFriends() : [];
         if (!cancelled) {
-          setAchievementFriendsBoost(
-            isTauri()
-              ? cloudFriends.length
-              : lanFriends.length + cloudFriends.length,
-          );
+          setAchievementFriendsBoost(cloudFriends.length);
         }
       } catch {
         if (!cancelled) setAchievementFriendsBoost(0);
@@ -143,27 +123,18 @@ export function ProfilePage({
     };
   }, [profileId, activeTab]);
 
-  const localWatched = useMemo(
-    () =>
-      libraryItems.filter(
-        (item) => isWatchInProgress(item) || (item.watchPosition ?? 0) > 5,
-      ),
-    [libraryItems],
-  );
-
   const watchedItems = useMemo(
-    () => mergeContinueBrowseItems(localWatched, streamingHistory),
-    [localWatched, streamingHistory],
+    () => mergeContinueBrowseItems([], streamingHistory),
+    [streamingHistory],
   );
 
   const listItems = useMemo(() => {
-    const streaming = streamingList.map((preview) =>
+    return streamingList.map((preview) =>
       streamingBrowseItem(
         markStreamingInMyList(enrichStreamingPreview(preview), streamingListKeys),
       ),
     );
-    return [...streaming, ...toBrowseItems(localFavorites)];
-  }, [localFavorites, streamingList, streamingListKeys]);
+  }, [streamingList, streamingListKeys]);
 
   const onlineFriendsCount =
     (cloudProfile ? cloudPresence.onlineCount : 0) +
@@ -210,11 +181,9 @@ export function ProfilePage({
               ) : (
                 <MediaGrid
                   items={watchedItems}
-                  onPlay={onPlay}
+                  onPlay={() => {}}
                   onPlayStreaming={onPlayStreaming}
-                  onToggleFavorite={onToggleFavorite}
                   onToggleStreamingList={onToggleStreamingList}
-                  onEdit={onEdit}
                 />
               )}
             </div>
@@ -231,11 +200,9 @@ export function ProfilePage({
               ) : (
                 <MediaGrid
                   items={listItems}
-                  onPlay={onPlay}
+                  onPlay={() => {}}
                   onPlayStreaming={onPlayStreaming}
-                  onToggleFavorite={onToggleFavorite}
                   onToggleStreamingList={onToggleStreamingList}
-                  onEdit={onEdit}
                 />
               )}
             </div>
@@ -258,15 +225,8 @@ export function ProfilePage({
               onFriendsChanged={() => {
                 void (async () => {
                   try {
-                    const [lanFriends, cloudFriends] = await Promise.all([
-                      listFriends(profileId),
-                      cloudProfile ? listCloudFriends() : Promise.resolve([]),
-                    ]);
-                    setAchievementFriendsBoost(
-                      isTauri()
-                        ? cloudFriends.length
-                        : lanFriends.length + cloudFriends.length,
-                    );
+                    const cloudFriends = cloudProfile ? await listCloudFriends() : [];
+                    setAchievementFriendsBoost(cloudFriends.length);
                   } catch {
                     setAchievementFriendsBoost(0);
                   }
