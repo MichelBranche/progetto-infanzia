@@ -4,6 +4,7 @@ import {
   Copy,
   Loader2,
   LogOut,
+  MessageSquare,
   Radio,
   Users,
   Wifi,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { useCloudAccount } from "../context/CloudAccountContext";
 import { isCloudEnabled } from "../lib/cloudConfig";
+import { ensureWatchPartyChat } from "../lib/cloudChat";
 import { createCloudWatchParty, joinCloudWatchParty } from "../lib/cloudWatchParty";
 import { isPrivateOrLanHost } from "../lib/watchPartyNetwork";
 import {
@@ -21,6 +23,7 @@ import type {
   WatchPartyMember,
   WatchPartySession,
 } from "../types/watchParty";
+import { ChatPanel } from "./chat/ChatPanel";
 
 type PanelTab = "create" | "join";
 
@@ -78,8 +81,27 @@ export function WatchPartyPanel({
   );
   const [useCloudRelay, setUseCloudRelay] = useState(Boolean(cloudProfile));
   const [createdRoom, setCreatedRoom] = useState<WatchPartySession | null>(null);
+  const [partyChatId, setPartyChatId] = useState<string | null>(null);
 
   const activeSession = session ?? createdRoom;
+
+  useEffect(() => {
+    if (!activeSession || activeSession.relay !== "cloud" || !cloudProfile) {
+      setPartyChatId(null);
+      return;
+    }
+    let cancelled = false;
+    void ensureWatchPartyChat(activeSession.room.code)
+      .then((id) => {
+        if (!cancelled) setPartyChatId(id);
+      })
+      .catch(() => {
+        if (!cancelled) setPartyChatId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSession, cloudProfile]);
 
   useEffect(() => {
     if (!open) {
@@ -393,6 +415,20 @@ export function WatchPartyPanel({
                       </button>
                     )}
                   </div>
+                  {activeSession.relay === "cloud" && cloudProfile && partyChatId && (
+                    <div className="mt-4 border-t border-white/[0.06] pt-4">
+                      <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        Chat stanza
+                      </div>
+                      <ChatPanel
+                        conversationId={partyChatId}
+                        currentUserId={cloudProfile.id}
+                        compact
+                        className="max-h-[280px]"
+                      />
+                    </div>
+                  )}
                 </section>
               )}
 

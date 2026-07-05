@@ -134,6 +134,7 @@ function CloudUserDetail({
         avatar={
           <DevUserAvatar
             name={user.displayName ?? user.email}
+            imageUrl={user.avatarUrl}
             online={user.hasProfile ? isCloudUserOnline(user) : undefined}
           />
         }
@@ -190,6 +191,9 @@ function CloudUserDetail({
                 key={friend.friendId}
                 title={friend.displayName}
                 subtitle={friend.email}
+                leading={
+                  <DevUserAvatar name={friend.displayName} imageUrl={friend.avatarUrl} />
+                }
                 trailing={<span className="font-mono text-text-secondary">{friend.friendCode}</span>}
               />
             ))}
@@ -721,6 +725,7 @@ export function DevConsolePage() {
                     leading={
                       <DevUserAvatar
                         name={user.displayName ?? user.email}
+                        imageUrl={user.avatarUrl}
                         online={user.hasProfile ? isCloudUserOnline(user) : undefined}
                       />
                     }

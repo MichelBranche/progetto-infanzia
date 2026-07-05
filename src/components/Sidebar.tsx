@@ -13,6 +13,7 @@ import {
   Sparkles,
   Terminal,
   MessageSquare,
+  MessageCircle,
   Share2,
   Tv,
   Wifi,
@@ -45,6 +46,7 @@ const iconMap: Record<string, LucideIcon> = {
   Manga: BookOpen,
   Terminal,
   MessageSquare,
+  MessageCircle,
   Share2,
 };
 

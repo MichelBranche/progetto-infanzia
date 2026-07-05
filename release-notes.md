@@ -1,22 +1,24 @@
-## Profilo e personalizzazione
+## Messaggi e social
 
-- Nuova UI profilo centrata (hero, tab a pillola, stati vuoti)
-- Foto profilo JPEG (max 1 MB) salvate in locale e **sincronizzate su cloud** per amici e altri dispositivi
-- Sistema **traguardi** (amici, visioni completate, lista personale)
-- Flusso **Invita amici** con scelta tra link download e codice amico
+- Nuova pagina **Messaggi**: chat private tra amici, **gruppi** e chat delle **watch party** cloud
+- **Profilo amico**: tocca un amico cloud per vedere foto, stato e codice; pulsante per aprire la chat
+- Notifica popup + suono per **nuovi messaggi** e **nuove richieste di amicizia**
+- Chat integrata nel pannello Guarda insieme (stanze online)
 
-## Amici e presenza
+## Area dev
 
-- Avatar visibili nella lista amici cloud (e arricchimento LAN quando collegati al cloud)
-- Foto profilo annunciata in presenza LAN se loggati con account cloud
+- Foto profilo visibili nella lista utenti, nel dettaglio e tra gli amici annidati
 
-## App e interfaccia
+## Note Supabase
 
-- **Nuova icona** Branchefy (B con play)
-- Navbar superiore ridisegnata; area **privata dev** con layout allineato al profilo
-- Fix persistenza lista e cronologia dopo aggiornamenti (scanner libreria più sicuro)
+Esegui l'aggiornamento SQL in `supabase/schema.sql` se non già fatto:
 
-## Note
+- Tabelle chat (`chat_conversations`, `chat_members`, `chat_messages`, …)
+- RPC chat (`open_direct_chat`, `create_group_chat`, `ensure_watch_party_chat`, `list_my_chats`, …)
+- `avatar_url` in `dev_users_overview`
+- Realtime su `chat_messages`
 
-- Esegui l'aggiornamento SQL in `supabase/schema.sql` su Supabase (`avatar_url`, bucket `profile-avatars`, policy Storage)
-- Su Windows: aggiornamento automatico in-app; su macOS scarica il `.dmg` dalla release
+## Piattaforme
+
+- **Windows**: aggiornamento automatico in-app
+- **macOS**: scarica il `.dmg` dalla release (tasto destro → Apri alla prima apertura)

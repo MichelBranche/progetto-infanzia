@@ -156,6 +156,7 @@ export function FriendListRow({
   away,
   avatarUrl,
   trailing,
+  onPress,
 }: {
   name: string;
   subtitle?: string;
@@ -163,11 +164,12 @@ export function FriendListRow({
   away?: boolean;
   avatarUrl?: string;
   trailing?: ReactNode;
+  onPress?: () => void;
 }) {
   const initial = name.trim().charAt(0).toUpperCase() || "?";
 
-  return (
-    <li className="flex items-center gap-3 border-b border-white/[0.05] py-3 last:border-0">
+  const content = (
+    <>
       <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/[0.06] font-display text-[14px] font-semibold text-text-primary">
         {avatarUrl ? (
           <img
@@ -192,6 +194,26 @@ export function FriendListRow({
         )}
       </div>
       {trailing}
+    </>
+  );
+
+  if (onPress) {
+    return (
+      <li className="border-b border-white/[0.05] last:border-0">
+        <button
+          type="button"
+          onClick={onPress}
+          className="flex w-full items-center gap-3 py-3 text-left transition-colors hover:bg-white/[0.03]"
+        >
+          {content}
+        </button>
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex items-center gap-3 border-b border-white/[0.05] py-3 last:border-0">
+      {content}
     </li>
   );
 }

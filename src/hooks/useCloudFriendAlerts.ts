@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useCloudAccount } from "../context/CloudAccountContext";
 import { useNotifications } from "../context/NotificationContext";
 import { sendOsNotification } from "../lib/osNotifications";
+import { playFriendRequestNotificationSound } from "../lib/friendRequestNotificationSound";
 import {
   listAcceptedAsRequester,
   listPendingFriendRequests,
@@ -22,7 +23,13 @@ export function useCloudFriendAlerts() {
   const seenAcceptedRef = useRef<Set<string> | null>(null);
 
   const pushAlert = useCallback(
-    (title: string, message?: string, kind: "friend" | "success" | "info" = "info") => {
+    (
+      title: string,
+      message?: string,
+      kind: "friend" | "success" | "info" = "info",
+      playSound = false,
+    ) => {
+      if (playSound) playFriendRequestNotificationSound();
       notify({ kind, title, message });
       void sendOsNotification(title, message);
     },
@@ -57,6 +64,7 @@ export function useCloudFriendAlerts() {
                 ? `${req.requester.displayName} vuole aggiungerti`
                 : "Hai una nuova richiesta in attesa",
               "friend",
+              true,
             );
           }
         }

@@ -1,4 +1,5 @@
 import { getSupabase } from "./supabaseClient";
+import { ensureWatchPartyChat } from "./cloudChat";
 import type { WatchPartyContent, WatchPartyRoom } from "../types/watchParty";
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -89,10 +90,12 @@ export async function createCloudWatchParty(
       .single();
 
     if (!error && data) {
-      return mapRoom({
+      const room = mapRoom({
         ...data,
         content: data.content as WatchPartyContent,
       });
+      void ensureWatchPartyChat(room.code).catch(() => {});
+      return room;
     }
     if (error && !error.message.includes("duplicate")) {
       throw new Error(error.message);

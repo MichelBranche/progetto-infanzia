@@ -302,6 +302,8 @@ begin
   values (v_code, auth.uid())
   on conflict do nothing;
 
+  perform public.ensure_watch_party_chat(v_code);
+
   return row_to_json(v_room);
 end;
 $$;
@@ -371,6 +373,307 @@ begin
       and tablename = 'user_presence'
   ) then
     alter publication supabase_realtime add table public.user_presence;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Chat: messaggi privati, gruppi, stanze watch party
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.chat_conversations (
+  id uuid primary key default gen_random_uuid(),
+  kind text not null check (kind in ('direct', 'group', 'watch_party')),
+  title text,
+  watch_party_code text,
+  created_by uuid references public.cloud_profiles (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists chat_conversations_watch_party_code_idx
+  on public.chat_conversations (watch_party_code)
+  where watch_party_code is not null;
+
+create table if not exists public.chat_members (
+  conversation_id uuid not null references public.chat_conversations (id) on delete cascade,
+  user_id uuid not null references public.cloud_profiles (id) on delete cascade,
+  joined_at timestamptz not null default now(),
+  primary key (conversation_id, user_id)
+);
+
+create index if not exists chat_members_user_idx on public.chat_members (user_id);
+
+create table if not exists public.chat_messages (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references public.chat_conversations (id) on delete cascade,
+  sender_id uuid not null references public.cloud_profiles (id) on delete cascade,
+  body text not null check (char_length(trim(body)) between 1 and 2000),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists chat_messages_conversation_created_idx
+  on public.chat_messages (conversation_id, created_at desc);
+
+create table if not exists public.chat_direct_pairs (
+  user_a uuid not null references public.cloud_profiles (id) on delete cascade,
+  user_b uuid not null references public.cloud_profiles (id) on delete cascade,
+  conversation_id uuid not null references public.chat_conversations (id) on delete cascade,
+  primary key (user_a, user_b),
+  check (user_a < user_b)
+);
+
+alter table public.chat_conversations enable row level security;
+alter table public.chat_members enable row level security;
+alter table public.chat_messages enable row level security;
+alter table public.chat_direct_pairs enable row level security;
+
+create or replace function public.are_cloud_friends(a uuid, b uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.friend_requests fr
+    where fr.status = 'accepted'
+      and (
+        (fr.requester_id = a and fr.addressee_id = b)
+        or (fr.requester_id = b and fr.addressee_id = a)
+      )
+  );
+$$;
+
+create or replace function public.is_chat_member(conv_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.chat_members cm
+    where cm.conversation_id = conv_id
+      and cm.user_id = (select auth.uid())
+  );
+$$;
+
+revoke all on function public.are_cloud_friends(uuid, uuid) from public;
+grant execute on function public.are_cloud_friends(uuid, uuid) to authenticated;
+revoke all on function public.is_chat_member(uuid) from public;
+grant execute on function public.is_chat_member(uuid) to authenticated;
+
+drop policy if exists "chat conversations read members" on public.chat_conversations;
+create policy "chat conversations read members"
+  on public.chat_conversations for select
+  to authenticated
+  using (public.is_chat_member(id));
+
+drop policy if exists "chat members read own" on public.chat_members;
+create policy "chat members read own"
+  on public.chat_members for select
+  to authenticated
+  using (
+    user_id = (select auth.uid())
+    or public.is_chat_member(conversation_id)
+  );
+
+drop policy if exists "chat messages read members" on public.chat_messages;
+create policy "chat messages read members"
+  on public.chat_messages for select
+  to authenticated
+  using (public.is_chat_member(conversation_id));
+
+drop policy if exists "chat messages insert own" on public.chat_messages;
+create policy "chat messages insert own"
+  on public.chat_messages for insert
+  to authenticated
+  with check (
+    sender_id = (select auth.uid())
+    and public.is_chat_member(conversation_id)
+  );
+
+drop policy if exists "chat direct pairs read involved" on public.chat_direct_pairs;
+create policy "chat direct pairs read involved"
+  on public.chat_direct_pairs for select
+  to authenticated
+  using (
+    user_a = (select auth.uid())
+    or user_b = (select auth.uid())
+  );
+
+create or replace function public.open_direct_chat(other_user_id uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  a uuid;
+  b uuid;
+  conv_id uuid;
+begin
+  if me is null then raise exception 'Non autenticato'; end if;
+  if other_user_id = me then raise exception 'Non puoi chattare con te stesso'; end if;
+  if not public.are_cloud_friends(me, other_user_id) then
+    raise exception 'Solo tra amici accettati';
+  end if;
+  if me < other_user_id then a := me; b := other_user_id;
+  else a := other_user_id; b := me; end if;
+  select conversation_id into conv_id from public.chat_direct_pairs where user_a = a and user_b = b;
+  if conv_id is not null then return conv_id; end if;
+  insert into public.chat_conversations (kind, created_by) values ('direct', me) returning id into conv_id;
+  insert into public.chat_direct_pairs (user_a, user_b, conversation_id) values (a, b, conv_id);
+  insert into public.chat_members (conversation_id, user_id) values (conv_id, a), (conv_id, b);
+  return conv_id;
+end;
+$$;
+
+create or replace function public.create_group_chat(chat_title text, member_ids uuid[])
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  conv_id uuid;
+  member_id uuid;
+  unique_members uuid[];
+begin
+  if me is null then raise exception 'Non autenticato'; end if;
+  if trim(coalesce(chat_title, '')) = '' then raise exception 'Titolo gruppo obbligatorio'; end if;
+  select coalesce(array_agg(distinct x), array[]::uuid[]) into unique_members
+  from unnest(array_append(coalesce(member_ids, array[]::uuid[]), me)) as x;
+  if coalesce(array_length(unique_members, 1), 0) < 2 then
+    raise exception 'Servono almeno due partecipanti';
+  end if;
+  foreach member_id in array unique_members loop
+    if member_id <> me and not public.are_cloud_friends(me, member_id) then
+      raise exception 'Puoi aggiungere solo amici accettati';
+    end if;
+  end loop;
+  insert into public.chat_conversations (kind, title, created_by)
+  values ('group', trim(chat_title), me) returning id into conv_id;
+  foreach member_id in array unique_members loop
+    insert into public.chat_members (conversation_id, user_id) values (conv_id, member_id) on conflict do nothing;
+  end loop;
+  return conv_id;
+end;
+$$;
+
+create or replace function public.ensure_watch_party_chat(room_code text)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  v_code text := upper(trim(room_code));
+  conv_id uuid;
+  room_row public.watch_party_rooms%rowtype;
+  member_row record;
+begin
+  if me is null then raise exception 'Non autenticato'; end if;
+  select * into room_row from public.watch_party_rooms where code = v_code and is_active = true limit 1;
+  if not found then raise exception 'Stanza non trovata'; end if;
+  select id into conv_id from public.chat_conversations where watch_party_code = v_code limit 1;
+  if conv_id is null then
+    insert into public.chat_conversations (kind, title, watch_party_code, created_by)
+    values ('watch_party', 'Stanza ' || v_code, v_code, room_row.host_id)
+    returning id into conv_id;
+  end if;
+  insert into public.chat_members (conversation_id, user_id) values (conv_id, room_row.host_id) on conflict do nothing;
+  for member_row in select user_id from public.watch_party_members where room_code = v_code loop
+    insert into public.chat_members (conversation_id, user_id) values (conv_id, member_row.user_id) on conflict do nothing;
+  end loop;
+  insert into public.chat_members (conversation_id, user_id) values (conv_id, me) on conflict do nothing;
+  return conv_id;
+end;
+$$;
+
+create or replace function public.send_chat_message(conv_id uuid, message_body text)
+returns public.chat_messages
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  trimmed text := trim(message_body);
+  row public.chat_messages;
+begin
+  if me is null then raise exception 'Non autenticato'; end if;
+  if char_length(trimmed) < 1 or char_length(trimmed) > 2000 then
+    raise exception 'Messaggio non valido';
+  end if;
+  if not public.is_chat_member(conv_id) then raise exception 'Non sei in questa conversazione'; end if;
+  insert into public.chat_messages (conversation_id, sender_id, body) values (conv_id, me, trimmed) returning * into row;
+  update public.chat_conversations set updated_at = now() where id = conv_id;
+  return row;
+end;
+$$;
+
+create or replace function public.list_my_chats()
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+begin
+  if me is null then raise exception 'Non autenticato'; end if;
+  return coalesce((
+    select json_agg(row_to_json(t) order by t.updated_at desc)
+    from (
+      select
+        c.id,
+        c.kind,
+        c.title,
+        c.watch_party_code,
+        c.updated_at,
+        (
+          select json_build_object('id', m.id, 'body', m.body, 'sender_id', m.sender_id, 'created_at', m.created_at)
+          from public.chat_messages m where m.conversation_id = c.id order by m.created_at desc limit 1
+        ) as last_message,
+        (select count(*)::int from public.chat_members cm2 where cm2.conversation_id = c.id) as member_count,
+        (
+          select json_build_object('user_id', p.id, 'display_name', p.display_name, 'avatar_url', p.avatar_url, 'friend_code', p.friend_code)
+          from public.chat_direct_pairs dp
+          join public.cloud_profiles p on p.id = case when dp.user_a = me then dp.user_b else dp.user_a end
+          where dp.conversation_id = c.id limit 1
+        ) as direct_peer
+      from public.chat_conversations c
+      join public.chat_members cm on cm.conversation_id = c.id
+      where cm.user_id = me
+    ) t
+  ), '[]'::json);
+end;
+$$;
+
+revoke all on function public.open_direct_chat(uuid) from public;
+grant execute on function public.open_direct_chat(uuid) to authenticated;
+revoke all on function public.create_group_chat(text, uuid[]) from public;
+grant execute on function public.create_group_chat(text, uuid[]) to authenticated;
+revoke all on function public.ensure_watch_party_chat(text) from public;
+grant execute on function public.ensure_watch_party_chat(text) to authenticated;
+revoke all on function public.send_chat_message(uuid, text) from public;
+grant execute on function public.send_chat_message(uuid, text) to authenticated;
+revoke all on function public.list_my_chats() from public;
+grant execute on function public.list_my_chats() to authenticated;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'chat_messages'
+  ) then
+    alter publication supabase_realtime add table public.chat_messages;
   end if;
 end $$;
 
@@ -445,6 +748,7 @@ begin
         (p.id is not null) as has_profile,
         p.display_name,
         p.friend_code,
+        p.avatar_url,
         p.created_at as profile_created_at,
         coalesce(fr.friends_count, 0) as friends_count,
         pr.status as presence_status,
@@ -479,7 +783,8 @@ begin
               fp.id as friend_id,
               fp.display_name,
               fp.email,
-              fp.friend_code
+              fp.friend_code,
+              fp.avatar_url
             from public.friend_requests frx
             join public.cloud_profiles fp on fp.id = case
               when frx.requester_id = p.id then frx.addressee_id

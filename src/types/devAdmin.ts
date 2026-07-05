@@ -3,6 +3,7 @@ export interface DevCloudFriend {
   displayName: string;
   email: string;
   friendCode: string;
+  avatarUrl?: string;
 }
 
 export interface DevCloudWatchEvent {
@@ -28,6 +29,7 @@ export interface DevCloudUser {
   hasProfile: boolean;
   displayName?: string;
   friendCode?: string;
+  avatarUrl?: string;
   profileCreatedAt?: string;
   friendsCount: number;
   presenceStatus?: string;

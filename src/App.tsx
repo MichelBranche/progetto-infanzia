@@ -23,6 +23,7 @@ import { CloudAccountProvider, useCloudAccount } from "./context/CloudAccountCon
 import { usePresenceHeartbeat } from "./hooks/useFriendPresence";
 import { NotificationProvider, useNotifications } from "./context/NotificationContext";
 import { CloudFriendAlertsProvider, useCloudFriendAlertsContext } from "./context/CloudFriendAlertsContext";
+import { ChatMessageAlertsProvider } from "./context/ChatMessageAlertsContext";
 import { ProfileProvider, useProfile } from "./context/ProfileContext";
 import {
   AppAccessProvider,
@@ -121,6 +122,9 @@ const InviteFriendsPage = lazy(() =>
   import("./components/InviteFriendsPage").then((m) => ({
     default: m.InviteFriendsPage,
   })),
+);
+const ChatsPage = lazy(() =>
+  import("./components/ChatsPage").then((m) => ({ default: m.ChatsPage })),
 );
 const StreamingPage = lazy(() =>
   import("./components/StreamingPage").then((m) => ({ default: m.StreamingPage })),
@@ -285,6 +289,15 @@ function AppContent() {
       setActiveNav("home");
     }
   }, [isParent, activeNav]);
+
+  useEffect(() => {
+    const openChats = () => {
+      setSearchOpen(false);
+      setActiveNav("chats");
+    };
+    window.addEventListener("branchefy:open-chat", openChats);
+    return () => window.removeEventListener("branchefy:open-chat", openChats);
+  }, []);
 
   const ensureGuestCanPlay = useCallback(() => {
     if (isGuest && guestLimitReached) {
@@ -1169,6 +1182,12 @@ function AppContent() {
                   </SuspenseRoute>
                 )}
 
+                {!seriesKey && activeNav === "chats" && (
+                  <SuspenseRoute>
+                    <ChatsPage />
+                  </SuspenseRoute>
+                )}
+
                 {!seriesKey && activeNav === "manage" && isParent && library && (
                   <SuspenseRoute>
                     <ManageLibraryPage
@@ -1346,7 +1365,8 @@ function AppContent() {
                   activeNav !== "activity" &&
                   activeNav !== "dev" &&
                   activeNav !== "feedback" &&
-                  activeNav !== "invite" && (
+                  activeNav !== "invite" &&
+                  activeNav !== "chats" && (
                   <SectionBrowsePage
                     sectionId={activeNav}
                     title={sectionInfo?.title ?? activeNav}
@@ -1490,7 +1510,9 @@ function AppGate() {
           <AddonsProvider profileId={activeProfile.id}>
             <AppUpdaterProvider>
               <CloudFriendAlertsProvider>
-                <AppContent />
+                <ChatMessageAlertsProvider>
+                  <AppContent />
+                </ChatMessageAlertsProvider>
               </CloudFriendAlertsProvider>
             </AppUpdaterProvider>
           </AddonsProvider>

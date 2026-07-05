@@ -354,18 +354,23 @@ export function DevRowItem({
   title,
   subtitle,
   trailing,
+  leading,
 }: {
   title: string;
   subtitle?: string;
   trailing?: ReactNode;
+  leading?: ReactNode;
 }) {
   return (
     <li className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-      <div className="min-w-0">
+      <div className="flex min-w-0 items-center gap-3">
+        {leading}
+        <div className="min-w-0">
         <p className="truncate text-[14px] font-medium text-text-primary">{title}</p>
         {subtitle && (
           <p className="mt-0.5 truncate text-[12px] text-text-muted">{subtitle}</p>
         )}
+        </div>
       </div>
       {trailing && <div className="shrink-0 text-right text-[11px] text-text-muted">{trailing}</div>}
     </li>

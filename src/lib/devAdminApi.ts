@@ -43,6 +43,7 @@ function mapCloudUser(row: Record<string, unknown>): DevCloudUser {
         displayName: String(item.display_name ?? ""),
         email: String(item.email ?? ""),
         friendCode: String(item.friend_code ?? ""),
+        avatarUrl: item.avatar_url ? String(item.avatar_url) : undefined,
       }))
     : [];
 
@@ -57,6 +58,7 @@ function mapCloudUser(row: Record<string, unknown>): DevCloudUser {
     hasProfile: Boolean(row.has_profile),
     displayName: row.display_name ? String(row.display_name) : undefined,
     friendCode: row.friend_code ? String(row.friend_code) : undefined,
+    avatarUrl: row.avatar_url ? String(row.avatar_url) : undefined,
     profileCreatedAt: row.profile_created_at
       ? String(row.profile_created_at)
       : undefined,

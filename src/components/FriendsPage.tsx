@@ -13,6 +13,10 @@ import {
 import { CloudAuthPanel } from "./CloudAuthPanel";
 import { WatchPartyPanel } from "./WatchPartyPanel";
 import {
+  FriendProfileSheet,
+  type FriendProfileTarget,
+} from "./chat/FriendProfileSheet";
+import {
   FriendListRow,
   ProfileCard,
   ProfileSectionLabel,
@@ -86,6 +90,7 @@ export function FriendsPage({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [partyPanelOpen, setPartyPanelOpen] = useState(false);
+  const [selectedFriend, setSelectedFriend] = useState<FriendProfileTarget | null>(null);
   const [showAddPanel, setShowAddPanel] = useState(false);
 
   const loadMeta = useCallback(async () => {
@@ -262,10 +267,14 @@ export function FriendsPage({
                     avatarUrl={friend.avatarUrl}
                     online
                     away={friend.presence?.status === "away"}
+                    onPress={() => setSelectedFriend(friend)}
                     trailing={
                       <button
                         type="button"
-                        onClick={() => void removeCloudFriend(friend.userId).then(refreshAll)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void removeCloudFriend(friend.userId).then(refreshAll);
+                        }}
                         className="rounded-lg p-2 text-text-muted hover:bg-white/5 hover:text-warm"
                         aria-label="Rimuovi"
                       >
@@ -375,10 +384,14 @@ export function FriendsPage({
                         `Codice ${friend.friendCode}`
                       }
                       online={false}
+                      onPress={() => setSelectedFriend(friend)}
                       trailing={
                         <button
                           type="button"
-                          onClick={() => void removeCloudFriend(friend.userId).then(refreshAll)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void removeCloudFriend(friend.userId).then(refreshAll);
+                          }}
                           className="rounded-lg p-2 text-text-muted hover:bg-white/5 hover:text-warm"
                           aria-label="Rimuovi"
                         >
@@ -543,6 +556,11 @@ export function FriendsPage({
           onJoinSession?.(session);
           setPartyPanelOpen(false);
         }}
+      />
+
+      <FriendProfileSheet
+        friend={selectedFriend}
+        onClose={() => setSelectedFriend(null)}
       />
     </>
   );

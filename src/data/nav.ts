@@ -20,6 +20,7 @@ export type NavIcon =
   | "User"
   | "Terminal"
   | "MessageSquare"
+  | "MessageCircle"
   | "Share2";
 
 export interface NavItem {
@@ -67,6 +68,7 @@ const systemItems: NavItem[] = [
 ];
 
 const supportItems: NavItem[] = [
+  { id: "chats", label: "Messaggi", icon: "MessageCircle" },
   { id: "feedback", label: "Feedback e richieste", icon: "MessageSquare" },
   { id: "invite", label: "Invita amici", icon: "Share2" },
 ];
@@ -179,6 +181,10 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
     invite: {
       title: "Invita amici",
       subtitle: "Link download o codice amico da condividere",
+    },
+    chats: {
+      title: "Messaggi",
+      subtitle: "Chat private, gruppi e stanze watch party",
     },
     search: {
       title: "Cerca",

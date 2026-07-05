@@ -8,9 +8,9 @@ import {
   type ReactNode,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CheckCircle2, Info, UserPlus, X } from "lucide-react";
+import { CheckCircle2, Info, MessageSquare, UserPlus, X } from "lucide-react";
 
-export type NotificationKind = "info" | "success" | "friend";
+export type NotificationKind = "info" | "success" | "friend" | "message";
 
 export interface AppNotification {
   id: string;
@@ -33,6 +33,8 @@ function kindIcon(kind: NotificationKind) {
       return CheckCircle2;
     case "friend":
       return UserPlus;
+    case "message":
+      return MessageSquare;
     default:
       return Info;
   }
@@ -44,6 +46,8 @@ function kindStyles(kind: NotificationKind) {
       return "border-mint/25 bg-mint/10";
     case "friend":
       return "border-accent/25 bg-accent/10";
+    case "message":
+      return "border-sky-400/25 bg-sky-400/10";
     default:
       return "border-white/10 bg-white/[0.04]";
   }
