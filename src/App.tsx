@@ -935,7 +935,7 @@ function AppContent() {
   ]);
   const showEmptyLibraryOnly =
     isEmpty &&
-    !["add", "settings", "manage", "activity", "profile", "anime", "manga", "streaming", "dev", "feedback", "invite"].includes(
+    !["add", "settings", "manage", "activity", "profile", "anime", "manga", "streaming", "dev", "feedback", "invite", "chats"].includes(
       activeNav,
     ) &&
     !(hasStreaming && streamingBrowseNav.has(activeNav));

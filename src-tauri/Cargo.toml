@@ -1,6 +1,6 @@
 [package]
 name = "tauri-app"
-version = "0.1.21"
+version = "0.2.0"
 description = "Branchefy - streaming locale per famiglia"
 authors = ["miche"]
 edition = "2021"
