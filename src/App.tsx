@@ -4,13 +4,14 @@ import { useStreamingSearch } from "./lib/useStreamingSearch";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { prefetchBootCatalog } from "./lib/bootCatalog";
 import { ProfileSelectScreen } from "./components/ProfileSelectScreen";
-import { Sidebar } from "./components/Sidebar";
-import { Header } from "./components/Header";
+import { AppTopNav } from "./components/AppTopNav";
 import { HeroBanner } from "./components/HeroBanner";
 import { MediaRow } from "./components/MediaRow";
 import { SectionBrowsePage } from "./components/SectionBrowsePage";
+import { CartoniBrowsePage } from "./components/CartoniBrowsePage";
 import { RowSkeleton } from "./components/RowSkeleton";
 import { StreamHubRow } from "./components/StreamHubRow";
+import { MangaPromoBanner } from "./components/MangaPromoBanner";
 import { EmptyLibrary } from "./components/EmptyLibrary";
 import { ProfilePage, type ProfileTab } from "./components/ProfilePage";
 import { AppUpdaterProvider } from "./context/AppUpdaterContext";
@@ -31,7 +32,10 @@ import { tryGrandfatherExistingInstall } from "./lib/appAccess";
 import { AppAccessBootstrap, AppAccessScreen } from "./components/AppAccessScreen";
 import { GuestUsageBanner } from "./components/GuestUsageBanner";
 import { PreviewAudioProvider } from "./context/PreviewAudioContext";
-import { shareBranchefyApp } from "./lib/shareApp";
+import {
+  ARCHIVIO_CARTONI_LOGO,
+  isArchivioCartoniRow,
+} from "./lib/brandAssets";
 import { sectionMeta } from "./data/nav";
 import {
   type SeriesRef,
@@ -55,10 +59,16 @@ import type { BrowseItem } from "./lib/browse";
 import { STREMIO_ADDONS_ENABLED, isBuiltinStreamingCatalog } from "./lib/features";
 import { isDevAdminEmail } from "./lib/devAdmin";
 import {
+  buildHeroStreamingPreviews,
+  mergePreviewForHero,
+} from "./lib/heroImage";
+import {
   buildContinueBrowseItems,
+  buildCartoniHomeRow,
   buildUnifiedHomeRows,
   buildRandomHeroItems,
   enrichStreamingPreview,
+  insertCartoniHomeRow,
   mergedSectionBrowseItems,
 } from "./lib/unifiedBrowse";
 import {
@@ -105,6 +115,11 @@ const DevConsolePage = lazy(() =>
 const FeedbackPage = lazy(() =>
   import("./components/FeedbackPage").then((m) => ({
     default: m.FeedbackPage,
+  })),
+);
+const InviteFriendsPage = lazy(() =>
+  import("./components/InviteFriendsPage").then((m) => ({
+    default: m.InviteFriendsPage,
   })),
 );
 const StreamingPage = lazy(() =>
@@ -189,9 +204,9 @@ function AppContent() {
     initialPage?: number;
   } | null>(null);
   const [heroItems, setHeroItems] = useState<MediaItem[]>([]);
-  const heroSeededRef = useRef(false);
+  const prevActiveNavRef = useRef(activeNav);
+  const cartoniCatalogRefreshRef = useRef(false);
   const mainScrollRef = useRef<HTMLElement>(null);
-  const [mainScrolled, setMainScrolled] = useState(false);
   const { hasStreaming } = useAddons();
   const {
     rows: streamingRows,
@@ -202,6 +217,7 @@ function AppContent() {
     syncingIndex,
     error: streamingError,
     refreshContinue: refreshStreamingContinue,
+    refreshCatalog,
   } = useStreamingCatalogs(activeProfile?.id ?? "");
   const {
     streamingList,
@@ -341,15 +357,12 @@ function AppContent() {
 
   const handleNav = (id: string) => {
     if (id === "invite") {
-      void shareBranchefyApp().then(({ copied }) => {
-        notify({
-          kind: "success",
-          title: "Invita i tuoi amici",
-          message: copied
-            ? "Aperta la pagina download. Link copiato negli appunti."
-            : "Aperta la pagina download.",
-        });
-      });
+      setSeriesKey(null);
+      setMangaDetail(null);
+      setMangaReader(null);
+      setSearchOpen(false);
+      setSearchQuery("");
+      setActiveNav("invite");
       return;
     }
     if ((id === "add" || id === "manage" || id === "settings" || id === "activity") && !isParent) return;
@@ -454,41 +467,48 @@ function AppContent() {
     }
   }, [loading, activeProfile?.id, refreshStreamingContinue]);
 
-  const heroStreamingPreviews = useMemo(() => {
-    if (streamingPreviews.length > 0) return streamingPreviews;
-    const seen = new Set<string>();
-    const fallback: StremioMetaPreview[] = [];
-    for (const row of streamingRows) {
-      for (const item of row.items) {
-        const key = `${item.type}:${item.id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        fallback.push(item);
-      }
-    }
-    return fallback;
-  }, [streamingPreviews, streamingRows]);
+  const heroStreamingPreviews = useMemo(
+    () =>
+      buildHeroStreamingPreviews(
+        streamingPreviews,
+        catalogIndex,
+        streamingRows,
+      ),
+    [streamingPreviews, catalogIndex, streamingRows],
+  );
 
   useEffect(() => {
-    if (activeNav !== "home") return;
-    if (loading) return;
-    if (heroSeededRef.current) return;
-    if (heroStreamingPreviews.length === 0 && (library?.items.length ?? 0) === 0) {
+    const enteredHome =
+      activeNav === "home" && prevActiveNavRef.current !== "home";
+    prevActiveNavRef.current = activeNav;
+
+    if (activeNav !== "home" || loading) return;
+    if (
+      heroStreamingPreviews.length === 0 &&
+      (library?.items.length ?? 0) === 0
+    ) {
       return;
     }
-    heroSeededRef.current = true;
-    setHeroItems(
-      buildRandomHeroItems(
+
+    setHeroItems((current) => {
+      if (!enteredHome && current.length > 0) return current;
+      return buildRandomHeroItems(
         library?.items ?? [],
         heroStreamingPreviews,
-        (preview) => previewToMediaItem(enrichListedPreview(preview)),
+        (preview) =>
+          previewToMediaItem(
+            enrichListedPreview(
+              mergePreviewForHero(preview, catalogIndex),
+            ),
+          ),
         8,
-      ),
-    );
+      );
+    });
   }, [
     activeNav,
     library?.items,
     heroStreamingPreviews,
+    catalogIndex,
     enrichListedPreview,
     loading,
   ]);
@@ -515,8 +535,8 @@ function AppContent() {
   );
 
   const { top10Row, otherRows: streamingRowsWithoutTop10 } = useMemo(
-    () => splitTop10Row(streamingRows),
-    [streamingRows],
+    () => splitTop10Row(streamingRows, streamingPreviews),
+    [streamingRows, streamingPreviews],
   );
 
   const searchSuggestions = useMemo(() => {
@@ -580,11 +600,46 @@ function AppContent() {
     withMyListFlags,
   ]);
 
+  const cartoniHomeRow = useMemo(() => {
+    const localCartoni =
+      library?.collections.find((collection) => collection.id === "cartoni")
+        ?.items ??
+      (library?.items ?? []).filter((item) => item.mediaType === "cartone");
+    const row = buildCartoniHomeRow(
+      localCartoni,
+      streamingPreviews.map(withMyListFlags),
+      streamingRowsWithoutTop10,
+    );
+    if (!row) return null;
+    return {
+      ...row,
+      items: applyMyListToBrowseItems(row.items),
+    };
+  }, [
+    library?.collections,
+    library?.items,
+    streamingPreviews,
+    streamingRowsWithoutTop10,
+    applyMyListToBrowseItems,
+    withMyListFlags,
+  ]);
+
+  const homeCatalogRows = useMemo(() => {
+    if (!cartoniHomeRow) return unifiedHomeRows;
+    return insertCartoniHomeRow(
+      unifiedHomeRows,
+      cartoniHomeRow,
+      isArchivioCartoniRow,
+    );
+  }, [unifiedHomeRows, cartoniHomeRow]);
+
   const homeContentReady = !loading;
   const homeStreamingPending =
     streamingLoading &&
     streamingRows.length === 0 &&
+    catalogIndex.length === 0 &&
     unifiedHomeRows.length === 0 &&
+    !cartoniHomeRow &&
     !continueHomeRow;
 
   const saturnSeedPreviews = useMemo(() => {
@@ -648,11 +703,11 @@ function AppContent() {
     if (continueHomeRow) {
       for (const item of continueHomeRow.items) push(item);
     }
-    for (const row of unifiedHomeRows) {
+    for (const row of homeCatalogRows) {
       for (const item of row.items) push(item);
     }
     return [...byId.values()];
-  }, [sectionBrowseItems, continueHomeRow, unifiedHomeRows]);
+  }, [sectionBrowseItems, continueHomeRow, homeCatalogRows]);
 
   const handleOpenBrowseDetail = useCallback(
     (browse: BrowseItem, pool?: BrowseItem[]) => {
@@ -699,13 +754,26 @@ function AppContent() {
   );
 
   useEffect(() => {
+    if (activeNav !== "home" || !activeProfile?.id) return;
     const el = mainScrollRef.current;
     if (!el) return;
-    const onScroll = () => setMainScrolled(el.scrollTop > 32);
-    onScroll();
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [activeNav, seriesKey]);
+    el.scrollTop = 0;
+  }, [activeProfile?.id, activeNav]);
+
+  useEffect(() => {
+    if (activeNav !== "cartoni") {
+      cartoniCatalogRefreshRef.current = false;
+      return;
+    }
+    if (cartoniCatalogRefreshRef.current || syncingIndex) return;
+    const loonexCount = streamingPreviews.filter(
+      (preview) => preview.catalogPrefix === "loonex",
+    ).length;
+    if (loonexCount < 120) {
+      cartoniCatalogRefreshRef.current = true;
+      void refreshCatalog();
+    }
+  }, [activeNav, streamingPreviews, syncingIndex, refreshCatalog]);
 
   const handlePlayStreaming = (preview: StremioMetaPreview) => {
     if (!ensureGuestCanPlay()) return;
@@ -716,7 +784,8 @@ function AppContent() {
     if (
       (target.catalogPrefix === "sc" ||
         target.catalogPrefix === "saturn" ||
-        target.catalogPrefix === "loonex") &&
+        target.catalogPrefix === "loonex" ||
+        target.catalogPrefix === "youtube") &&
       !target.slug
     ) {
       return;
@@ -853,7 +922,7 @@ function AppContent() {
   ]);
   const showEmptyLibraryOnly =
     isEmpty &&
-    !["add", "settings", "manage", "activity", "profile", "anime", "manga", "streaming", "dev", "feedback"].includes(
+    !["add", "settings", "manage", "activity", "profile", "anime", "manga", "streaming", "dev", "feedback", "invite"].includes(
       activeNav,
     ) &&
     !(hasStreaming && streamingBrowseNav.has(activeNav));
@@ -861,37 +930,35 @@ function AppContent() {
 
   return (
     <motion.div
-      className="flex h-full min-h-0 bg-void"
+      className="relative flex h-full min-h-0 flex-col bg-void"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
     >
       <div className="noise-overlay pointer-events-none fixed inset-0 z-0 opacity-[0.25]" />
 
-      <Sidebar
+      <AppTopNav
         activeId={searchOpen ? "search" : activeNav}
         profile={activeProfile}
         devMode={devMode}
         onNavigate={handleNav}
-        onSwitchProfile={clearProfile}
         badgeCounts={sidebarBadges}
         alertDots={sidebarAlertDots}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        onOpenSearch={handleOpenSearch}
+        onCloseSearch={handleCloseSearch}
+        searchActive={searchOpen}
+        onRescan={rescan}
+        onSwitchProfile={clearProfile}
+        onLogout={() => void handleLogout()}
+        scanning={scanning}
+        scrollContainerRef={mainScrollRef}
+        immersive={
+          activeNav === "home" && !seriesKey && !searchOpen
+        }
       />
 
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <Header
-          profile={activeProfile}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          onOpenSearch={handleOpenSearch}
-          onCloseSearch={handleCloseSearch}
-          searchActive={searchOpen}
-          onRescan={rescan}
-          onSwitchProfile={clearProfile}
-          onLogout={() => void handleLogout()}
-          scanning={scanning}
-          scrolled={mainScrolled}
-        />
-
         <GuestUsageBanner onUpgrade={() => handleNav("settings")} />
 
         <SuspenseRoute>
@@ -941,6 +1008,13 @@ function AppContent() {
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
               >
+                {!(activeNav === "home" && !seriesKey) && (
+                  <div
+                    className="shrink-0"
+                    style={{ height: "var(--app-nav-height)" }}
+                    aria-hidden
+                  />
+                )}
                 {seriesKey && library && (
                   <SuspenseRoute>
                     <SeriesDetailPage
@@ -1083,6 +1157,18 @@ function AppContent() {
                   </SuspenseRoute>
                 )}
 
+                {!seriesKey && activeNav === "invite" && (
+                  <SuspenseRoute>
+                    <InviteFriendsPage
+                      profileId={activeProfile.id}
+                      onOpenFriends={() => {
+                        setProfileTab("friends");
+                        setActiveNav("profile");
+                      }}
+                    />
+                  </SuspenseRoute>
+                )}
+
                 {!seriesKey && activeNav === "manage" && isParent && library && (
                   <SuspenseRoute>
                     <ManageLibraryPage
@@ -1101,7 +1187,7 @@ function AppContent() {
                   <>
                     {!homeContentReady && !continueHomeRow ? (
                       <div className="pb-16">
-                        <div className="h-[52vh] min-h-[320px] shimmer-bg sm:min-h-[360px]" />
+                        <div className="h-[100svh] min-h-[560px] shimmer-bg" />
                         <RowSkeleton />
                         <RowSkeleton />
                         <RowSkeleton />
@@ -1114,16 +1200,13 @@ function AppContent() {
                         <RowSkeleton />
                       </div>
                     )}
-                    {syncingIndex && streamingRows.length > 0 && (
-                      <p className="page-px pt-24 text-center text-[12px] text-text-muted sm:pt-28">
-                        Sincronizzazione catalogo in corso…
-                      </p>
-                    )}
                     {heroItems.length > 0 && (
                       <HeroBanner
+                        fullPage
                         items={heroItems}
                         scrollContainerRef={mainScrollRef}
                         onPlay={handlePlayNow}
+                        onOpenDetail={handleOpenBrowseDetail}
                         onOpenSeries={(media) => {
                           if (media.seriesTitle) {
                             handleOpenSeries(
@@ -1140,6 +1223,7 @@ function AppContent() {
                         }
                       />
                     )}
+                    <div className="relative z-10 bg-void">
                     {continueHomeRow && (
                       <div className="relative z-20 -mt-2 sm:-mt-3">
                         <MediaRow
@@ -1161,6 +1245,7 @@ function AppContent() {
                       </div>
                     )}
                     <StreamHubRow onNavigate={handleNav} />
+                    <MangaPromoBanner onExplore={() => handleNav("manga")} />
                     {top10Row && (
                       <SuspenseRoute>
                         <NetflixTop10Row
@@ -1171,13 +1256,18 @@ function AppContent() {
                         />
                       </SuspenseRoute>
                     )}
-                    {(unifiedHomeRows.length > 0 || streamingError) && (
+                    {(homeCatalogRows.length > 0 || streamingError) && (
                       <div className="relative -mt-4 space-y-0.5 overflow-visible sm:-mt-5">
-                        {unifiedHomeRows.map((row, i) => (
+                        {homeCatalogRows.map((row, i) => (
                             <MediaRow
                               key={row.key}
                               index={String(i + 1).padStart(2, "0")}
                               title={row.title}
+                              titleLogo={
+                                isArchivioCartoniRow(row.key, row.title)
+                                  ? ARCHIVIO_CARTONI_LOGO
+                                  : undefined
+                              }
                               subtitle={row.subtitle}
                               items={row.items}
                               animateEntrance
@@ -1188,7 +1278,11 @@ function AppContent() {
                               onToggleFavorite={toggleFavorite}
                               onToggleStreamingList={handleToggleStreamingList}
                               actionLabel={
-                                row.key === "favorites" ? "Vedi tutto" : undefined
+                                row.key === "favorites"
+                                  ? "Vedi tutto"
+                                  : row.key === "home-cartoni"
+                                    ? "Esplora"
+                                    : undefined
                               }
                               onActionClick={
                                 row.key === "favorites"
@@ -1196,7 +1290,9 @@ function AppContent() {
                                       setProfileTab("list");
                                       setActiveNav("profile");
                                     }
-                                  : undefined
+                                  : row.key === "home-cartoni"
+                                    ? () => handleNav("cartoni")
+                                    : undefined
                               }
                               onEdit={
                                 isParent ? (id) => setEditingId(id) : undefined
@@ -1208,20 +1304,40 @@ function AppContent() {
 
                     {hasStreaming &&
                       streamingError &&
-                      unifiedHomeRows.length === 0 && (
+                      homeCatalogRows.length === 0 && (
                         <p className="page-px py-8 text-center text-[13px] text-text-muted">
                           {streamingError}
                         </p>
                       )}
+                    </div>
                       </>
                     )}
                   </>
                 )}
 
                 {!seriesKey &&
+                  activeNav === "cartoni" && (
+                  <SuspenseRoute>
+                    <CartoniBrowsePage
+                      title={sectionInfo?.title ?? "Cartoni"}
+                      subtitle={sectionBrowseSubtitle}
+                      syncing={syncingIndex}
+                      loading={streamingLoading && sectionBrowseItems.length === 0}
+                      items={sectionBrowseItems}
+                      onPlay={handlePlayNow}
+                      onPlayStreaming={handlePlayStreaming}
+                      onOpenDetail={handleOpenBrowseDetail}
+                      onOpenSeries={handleOpenSeries}
+                      onRefreshCatalog={() => void refreshCatalog()}
+                    />
+                  </SuspenseRoute>
+                )}
+
+                {!seriesKey &&
                   activeNav !== "home" &&
                   activeNav !== "anime" &&
                   activeNav !== "manga" &&
+                  activeNav !== "cartoni" &&
                   activeNav !== "profile" &&
                   activeNav !== "add" &&
                   activeNav !== "manage" &&
@@ -1229,7 +1345,8 @@ function AppContent() {
                   activeNav !== "streaming" &&
                   activeNav !== "activity" &&
                   activeNav !== "dev" &&
-                  activeNav !== "feedback" && (
+                  activeNav !== "feedback" &&
+                  activeNav !== "invite" && (
                   <SectionBrowsePage
                     sectionId={activeNav}
                     title={sectionInfo?.title ?? activeNav}
@@ -1312,8 +1429,7 @@ function AppGate() {
   const { setupComplete, loading: accessLoading, syncFromStorage } = useAppAccess();
 
   useEffect(() => {
-    void prefetchBootCatalog();
-    setCatalogReady(true);
+    void prefetchBootCatalog().finally(() => setCatalogReady(true));
   }, []);
 
   useEffect(() => {

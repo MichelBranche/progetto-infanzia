@@ -12,6 +12,7 @@ import {
 interface MediaRowProps {
   index: string;
   title: string;
+  titleLogo?: string;
   subtitle?: string;
   items: BrowseItem[];
   animateEntrance?: boolean;
@@ -54,6 +55,7 @@ const cardMotion = {
 export function MediaRow({
   index,
   title,
+  titleLogo,
   subtitle,
   items,
   animateEntrance = false,
@@ -127,15 +129,27 @@ export function MediaRow({
           )}
           <div>
             <div className="flex items-baseline gap-3">
-              <h2
-                className={
-                  usePremiumCards
-                    ? "stream-row-title title-safe"
-                    : "title-safe font-display text-xl font-semibold tracking-[-0.025em] text-text-primary sm:text-[1.65rem]"
-                }
-              >
-                {title}
-              </h2>
+              {titleLogo ? (
+                <img
+                  src={titleLogo}
+                  alt={title}
+                  className={
+                    usePremiumCards
+                      ? "h-9 w-auto max-w-[min(100%,300px)] object-contain object-left sm:h-10"
+                      : "h-10 w-auto max-w-[min(100%,320px)] object-contain object-left sm:h-12"
+                  }
+                />
+              ) : (
+                <h2
+                  className={
+                    usePremiumCards
+                      ? "stream-row-title title-safe"
+                      : "title-safe font-display text-xl font-semibold tracking-[-0.025em] text-text-primary sm:text-[1.65rem]"
+                  }
+                >
+                  {title}
+                </h2>
+              )}
               {actionLabel && onActionClick && usePremiumCards && (
                 <button
                   type="button"

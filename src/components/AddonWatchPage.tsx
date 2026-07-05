@@ -6,12 +6,15 @@ import {
   fetchScSeasonEpisodes,
   fetchSaturnMeta,
   fetchLoonexMeta,
+  fetchYoutubeMeta,
   getStreamingWatchProgress,
   listStreamingTitleProgress,
   resolveAddonStreams,
   resolveScStream,
   resolveSaturnStream,
   resolveLoonexStream,
+  resolveYoutubeStream,
+  saveStreamingWatchProgress,
   resolveScPreview,
   resolveTorrentSource,
 } from "../lib/addonsApi";
@@ -30,9 +33,11 @@ import { useMyList } from "../lib/useMyList";
 import type { PlayableStream, StremioMeta, StremioMetaPreview } from "../types/stremio";
 import type { WatchPartySession } from "../types/watchParty";
 import { VideoPlayer } from "./VideoPlayer";
+import { YouTubePlayer, youtubeVideoIdFromStreamUrl } from "./YouTubePlayer";
 import { StreamingTitlePage } from "./StreamingTitlePage";
 
 import type { BrowseItem } from "../lib/browse";
+import { nextEpisode } from "../lib/browse";
 import { RelatedTitlesSection } from "./RelatedTitlesSection";
 
 interface AddonWatchPageProps extends AddonWatchTarget {
@@ -133,7 +138,8 @@ export function AddonWatchPage({
   const isSc = catalogPrefix === "sc" && !!slug;
   const isSaturn = catalogPrefix === "saturn" && !!slug;
   const isLoonex = catalogPrefix === "loonex" && !!slug;
-  const isBuiltin = isSc || isSaturn || isLoonex;
+  const isYoutube = catalogPrefix === "youtube" && !!slug;
+  const isBuiltin = isSc || isSaturn || isLoonex || isYoutube;
   const [meta, setMeta] = useState<StremioMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -229,13 +235,15 @@ export function AddonWatchPage({
           ? await resolveScStream(metaId, slug, videoId, readPlayerAudioLanguage())
           : isLoonex
             ? await resolveLoonexStream(slug, videoId)
-            : await resolveSaturnStream(slug, videoId);
+            : isYoutube
+              ? await resolveYoutubeStream(slug, videoId)
+              : await resolveSaturnStream(slug, videoId);
         return { url: stream.url, isHls: stream.isHls };
       } catch {
         return null;
       }
     },
-    [isBuiltin, isSc, isLoonex, metaId, slug],
+    [isBuiltin, isSc, isLoonex, isYoutube, metaId, slug],
   );
 
   const playStream = useCallback(
@@ -312,9 +320,11 @@ export function AddonWatchPage({
           ? await fetchScMeta(metaId, slug!)
           : isLoonex
             ? await fetchLoonexMeta(slug!)
-            : isSaturn
-              ? await fetchSaturnMeta(slug!)
-              : await fetchAddonMeta(profileId, contentType, metaId);
+            : isYoutube
+              ? await fetchYoutubeMeta(slug!)
+              : isSaturn
+                ? await fetchSaturnMeta(slug!)
+                : await fetchAddonMeta(profileId, contentType, metaId);
         if (!cancelled) setMeta(data);
       } catch (err) {
         if (!cancelled) {
@@ -327,7 +337,7 @@ export function AddonWatchPage({
     return () => {
       cancelled = true;
     };
-  }, [profileId, contentType, metaId, isSc, isSaturn, isLoonex, slug]);
+  }, [profileId, contentType, metaId, isSc, isSaturn, isLoonex, isYoutube, slug]);
 
   useEffect(() => {
     if (!meta || playback) return;
@@ -370,9 +380,11 @@ export function AddonWatchPage({
             ]
           : isLoonex
             ? [await resolveLoonexStream(slug!, episodeId)]
-            : isSaturn
-              ? [await resolveSaturnStream(slug!, episodeId)]
-              : await resolveAddonStreams(profileId, meta.type, episodeId);
+            : isYoutube
+              ? [await resolveYoutubeStream(slug!, episodeId ?? meta.id)]
+              : isSaturn
+                ? [await resolveSaturnStream(slug!, episodeId)]
+                : await resolveAddonStreams(profileId, meta.type, episodeId);
         if (generation !== playbackGenerationRef.current) return;
         if (streams.length === 0) {
           setError(
@@ -396,7 +408,7 @@ export function AddonWatchPage({
         }
       }
     },
-    [meta, profileId, playStream, isSc, isSaturn, isLoonex, metaId, slug],
+    [meta, profileId, playStream, isSc, isSaturn, isLoonex, isYoutube, metaId, slug],
   );
 
   const handleStreamAudioLanguage = useCallback(
@@ -493,6 +505,63 @@ export function AddonWatchPage({
   }
 
   if (playback && meta) {
+    const youtubeVideoId = youtubeVideoIdFromStreamUrl(playback.stream.url);
+    if (playback.stream.addonId === "youtube" && youtubeVideoId) {
+      const followingEpisode = nextEpisode(seriesEpisodes, playback.videoId);
+      const saveYoutubeProgress = async (videoId: string, episodeLabel?: string) => {
+        if (!isBuiltin || !slug) return;
+        try {
+          await saveStreamingWatchProgress(profileId, {
+            catalogPrefix: catalogPrefix ?? "youtube",
+            contentType: meta.type,
+            titleId: metaId,
+            slug,
+            videoId,
+            titleName: meta.name,
+            episodeLabel,
+            poster: meta.poster,
+            positionSecs: 1,
+          });
+        } catch {
+          // ignore
+        }
+      };
+
+      return (
+        <YouTubePlayer
+          videoId={youtubeVideoId}
+          title={playback.videoTitle}
+          nextEpisode={
+            followingEpisode
+              ? {
+                  videoId: followingEpisode.id,
+                  title: followingEpisode.title,
+                  thumbnail: followingEpisode.posterUrl,
+                }
+              : undefined
+          }
+          onPlayNext={(videoId, videoTitle) => {
+            void (async () => {
+              await saveYoutubeProgress(
+                playback.videoId,
+                playback.videoTitle !== meta.name ? playback.videoTitle : undefined,
+              );
+              await startPlayback(videoId, videoTitle);
+            })();
+          }}
+          onBack={async () => {
+            await saveYoutubeProgress(
+              playback.videoId,
+              playback.videoTitle !== meta.name ? playback.videoTitle : undefined,
+            );
+            setPlayback(null);
+            void loadEpisodeProgress();
+            void onRefreshContinue?.();
+          }}
+        />
+      );
+    }
+
     const playbackMedia = metaVideoToMediaItem(
       meta,
       playback.videoId,
@@ -589,7 +658,7 @@ export function AddonWatchPage({
         isInMyList={isInMyList}
         onToggleMyList={() => void handleToggleMyList()}
         myListLoading={myListLoading}
-        resolveEpisodeStream={isBuiltin ? resolveEpisodeStream : undefined}
+        resolveEpisodeStream={isBuiltin && !isYoutube ? resolveEpisodeStream : undefined}
         onLoadSeason={isSc ? handleLoadSeason : undefined}
         footer={
           relatedItems.length > 0 ? (

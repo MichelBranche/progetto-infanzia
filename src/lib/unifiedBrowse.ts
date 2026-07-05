@@ -5,6 +5,7 @@ import type {
 } from "../types/stremio";
 import type { BrowseItem } from "./browse";
 import { browseItemId, isWatchInProgress, toBrowseItems } from "./browse";
+import { isHeroEligibleLocalItem, isHeroEligiblePreview, isHeroPriorityLocalItem, isHeroPriorityPreview } from "./heroImage";
 import type { StreamingRow } from "./useStreamingCatalogs";
 import { decodeHtmlEntities } from "./htmlText";
 import {
@@ -53,6 +54,7 @@ export function isAnimationStreamingPreview(
   context?: { rowKey?: string; rowTitle?: string },
 ): boolean {
   if (preview.catalogPrefix === "loonex") return true;
+  if (preview.catalogPrefix === "youtube") return true;
   const resolved = resolveStreamingContext(preview, context);
   return (
     isAnimationContext(resolved) || isAnimationFromGenres(preview.genres)
@@ -203,15 +205,36 @@ export function buildRandomHeroItems(
   toMediaItem: (preview: StremioMetaPreview) => MediaItem,
   count = 8,
 ): MediaItem[] {
-  const byId = new Map<string, MediaItem>();
+  const seen = new Set<string>();
+  const priority: MediaItem[] = [];
+  const secondary: MediaItem[] = [];
+
+  const push = (item: MediaItem, preferred: boolean) => {
+    if (seen.has(item.id)) return;
+    seen.add(item.id);
+    (preferred ? priority : secondary).push(item);
+  };
+
   for (const item of localItems) {
-    byId.set(item.id, item);
+    if (!isHeroEligibleLocalItem(item)) continue;
+    push(item, isHeroPriorityLocalItem(item));
   }
   for (const preview of streamingPreviews) {
-    const item = toMediaItem(preview);
-    byId.set(item.id, item);
+    if (!isHeroEligiblePreview(preview)) continue;
+    push(toMediaItem(preview), isHeroPriorityPreview(preview));
   }
-  return shuffleArray([...byId.values()]).slice(0, count);
+
+  const priorityPool = shuffleArray(priority);
+  const secondaryPool = shuffleArray(secondary);
+
+  if (priorityPool.length >= count) {
+    return priorityPool.slice(0, count);
+  }
+
+  return [
+    ...priorityPool,
+    ...secondaryPool.slice(0, Math.max(0, count - priorityPool.length)),
+  ];
 }
 
 const COLLECTION_STREAMING_TYPES: Record<
@@ -316,11 +339,14 @@ function streamingPreviewHasPoster(preview: StremioMetaPreview): boolean {
 
 /** Loonex index entries may omit artwork; rows/detail can still supply it later. */
 function includeAnimationCatalogPreview(preview: StremioMetaPreview): boolean {
+  if (preview.catalogPrefix === "loonex") return true;
+  if (preview.catalogPrefix === "youtube") return true;
   return streamingPreviewHasPoster(preview);
 }
 
 function animationCatalogPreviewRank(preview: StremioMetaPreview): number {
   if (preview.catalogPrefix === "loonex") return 0;
+  if (preview.catalogPrefix === "youtube") return 0;
   if (preview.catalogPrefix === "saturn") return 1;
   return 2;
 }
@@ -347,6 +373,11 @@ function streamingForAnimation(
       streamingBrowseItem(enrichStreamingPreview(preview, resolved)),
     );
   };
+
+  for (const preview of previews) {
+    if (preview.catalogPrefix !== "loonex") continue;
+    push(preview);
+  }
 
   // Curated animation rows (Loonex cartoni, SC sliders) first — usually with covers.
   for (const row of streamingRows) {
@@ -784,4 +815,59 @@ export function mergedSectionBrowseItems(
   }
 
   return localItems.map((item) => ({ kind: "media" as const, item }));
+}
+
+const MIN_CARTONI_HOME_ROW_ITEMS = 4;
+
+export function buildCartoniHomeRow(
+  localItems: MediaItem[],
+  catalogPreviews: StremioMetaPreview[],
+  streamingRows: StreamingRow[] = [],
+): UnifiedHomeRow | null {
+  const items = mergedSectionBrowseItems(
+    "cartoni",
+    localItems,
+    catalogPreviews,
+    [],
+    streamingRows,
+  );
+  if (items.length < MIN_CARTONI_HOME_ROW_ITEMS) {
+    return null;
+  }
+  return {
+    key: "home-cartoni",
+    title: "Cartoni",
+    subtitle: "Loonex, YouTube, animazione e libreria locale",
+    items: items.slice(0, HOME_ROW_DISPLAY_LIMIT),
+  };
+}
+
+export function insertCartoniHomeRow(
+  rows: UnifiedHomeRow[],
+  cartoniRow: UnifiedHomeRow,
+  isDuplicateRow: (key: string, title: string) => boolean,
+): UnifiedHomeRow[] {
+  const filtered = rows.filter(
+    (row) => !isDuplicateRow(row.key, row.title),
+  );
+  const cartoniSlot = rows.findIndex((row) => row.key === "cartoni");
+  if (cartoniSlot < 0) {
+    const mid = Math.max(0, Math.floor(filtered.length / 2));
+    return [
+      ...filtered.slice(0, mid),
+      cartoniRow,
+      ...filtered.slice(mid),
+    ];
+  }
+
+  let insertAt = 0;
+  for (let i = 0; i < cartoniSlot; i++) {
+    if (!isDuplicateRow(rows[i].key, rows[i].title)) {
+      insertAt += 1;
+    }
+  }
+
+  const next = [...filtered];
+  next.splice(insertAt, 0, cartoniRow);
+  return next;
 }

@@ -16,6 +16,10 @@ pub struct DevicePresence {
     pub profile_id: String,
     pub friend_code: String,
     pub display_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_friend_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +36,8 @@ pub struct LanFriendPresence {
     pub display_name: String,
     pub online: bool,
     pub last_host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
 }
 
 pub type PresenceRegistry = Arc<Mutex<Option<DevicePresence>>>;
@@ -66,17 +72,8 @@ async fn fetch_whoami(client: &Client, host: &str) -> Option<DevicePresence> {
     response.json::<DevicePresence>().await.ok()
 }
 
-async fn lookup_friend_at(client: &Client, host: &str, friend_code: &str) -> bool {
-    let url = format!(
-        "http://{host}:{STREAM_PORT}/presence/lookup?code={}",
-        urlencoding::encode(friend_code)
-    );
-    client
-        .get(url)
-        .send()
-        .await
-        .ok()
-        .is_some_and(|r| r.status().is_success())
+async fn fetch_presence_at(client: &Client, host: &str) -> Option<DevicePresence> {
+    fetch_whoami(client, host).await
 }
 
 async fn send_hello(client: &Client, host: &str, friend_code: &str, display_name: &str) {
@@ -178,16 +175,21 @@ pub async fn sync_lan_presence(
     let mut results = Vec::with_capacity(final_friends.len());
 
     for (friend_code, name, last_host) in final_friends {
-        let online = if let Some(ref host) = last_host {
-            lookup_friend_at(&client, host, &friend_code).await
+        let (online, remote_avatar) = if let Some(ref host) = last_host {
+            let presence = fetch_presence_at(&client, host).await;
+            let online = presence
+                .as_ref()
+                .is_some_and(|p| p.friend_code.eq_ignore_ascii_case(&friend_code));
+            (online, presence.and_then(|p| p.avatar_url))
         } else {
-            false
+            (false, None)
         };
         results.push(LanFriendPresence {
             friend_code,
             display_name: name,
             online,
             last_host,
+            avatar_url: remote_avatar,
         });
     }
 

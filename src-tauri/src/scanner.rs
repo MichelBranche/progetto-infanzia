@@ -8,8 +8,29 @@ use tauri::{AppHandle, Manager};
 use walkdir::WalkDir;
 
 pub const META_CUSTOM_MEDIA_ROOT: &str = "custom_media_root";
+pub const META_LAST_MEDIA_ROOT: &str = "media_root";
 
 const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "avi", "mov", "webm", "m4v", "wmv"];
+
+/// Normalizes paths for stable comparisons (slashes, Windows case).
+pub fn normalize_path_key(path: &str) -> String {
+    let mut normalized = path.trim().replace('/', std::path::MAIN_SEPARATOR_STR);
+    #[cfg(windows)]
+    {
+        normalized = normalized.to_lowercase();
+    }
+    normalized
+}
+
+pub fn path_under_root(file_path: &str, media_root: &Path) -> bool {
+    let file_key = normalize_path_key(file_path);
+    let root_key = normalize_path_key(&media_root.to_string_lossy());
+    if file_key == root_key {
+        return true;
+    }
+    let prefix = format!("{}{}", root_key, std::path::MAIN_SEPARATOR);
+    file_key.starts_with(&prefix)
+}
 
 fn is_dev_project_root(cwd: &Path) -> bool {
     cwd.join("src-tauri").join("tauri.conf.json").exists()
@@ -21,6 +42,17 @@ fn is_dev_project_root(cwd: &Path) -> bool {
 pub fn resolve_media_root(handle: &AppHandle, db: &Database) -> PathBuf {
     if let Ok(Some(custom)) = db.get_meta(META_CUSTOM_MEDIA_ROOT) {
         let trimmed = custom.trim();
+        if !trimmed.is_empty() {
+            let path = PathBuf::from(trimmed);
+            if path.is_dir() {
+                return path;
+            }
+        }
+    }
+
+    // Keep using the last library folder that was scanned successfully.
+    if let Ok(Some(last)) = db.get_meta(META_LAST_MEDIA_ROOT) {
+        let trimmed = last.trim();
         if !trimmed.is_empty() {
             let path = PathBuf::from(trimmed);
             if path.is_dir() {
@@ -85,11 +117,11 @@ pub fn scan_library(db: &Database, media_root: &Path) -> Result<ScanResult, Stri
         &mut updated,
     )?;
 
-    let removed = db.remove_missing(&found_paths)?;
+    let removed = db.remove_missing(&found_paths, media_root)?;
     let total = db.count_media()?;
 
     db.set_meta("last_scan", &chrono::Utc::now().to_rfc3339())?;
-    db.set_meta("media_root", &media_root.to_string_lossy())?;
+    db.set_meta(META_LAST_MEDIA_ROOT, &media_root.to_string_lossy())?;
 
     Ok(ScanResult {
         added,
@@ -138,7 +170,7 @@ fn scan_folder(
         }
 
         let item = build_media_item(path, media_type, series_title, None, None)?;
-        found_paths.push(item.file_path.clone());
+        found_paths.push(normalize_path_key(&item.file_path));
         let is_new = db.upsert_media(&item)?;
         apply_sidecar_if_present(db, media_root, path, &item.id);
         if is_new {
@@ -173,7 +205,7 @@ fn scan_episodic(
         {
             if is_video_file(&series_entry.path()) {
                 let item = build_media_item(&series_entry.path(), media_type, None, None, None)?;
-                found_paths.push(item.file_path.clone());
+                found_paths.push(normalize_path_key(&item.file_path));
                 let is_new = db.upsert_media(&item)?;
                 apply_sidecar_if_present(db, media_root, &series_entry.path(), &item.id);
                 if is_new {
@@ -205,7 +237,7 @@ fn scan_episodic(
                 season,
                 episode,
             )?;
-            found_paths.push(item.file_path.clone());
+            found_paths.push(normalize_path_key(&item.file_path));
             let is_new = db.upsert_media(&item)?;
             apply_sidecar_if_present(db, media_root, entry.path(), &item.id);
             if is_new {

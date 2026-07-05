@@ -68,11 +68,15 @@ export async function syncLanFriendsPresence(
   profileId: string,
   displayName: string,
   deepScan = false,
+  cloudFriendCode?: string,
+  avatarUrl?: string,
 ): Promise<import("../types/cloud").LanFriendPresence[]> {
   return invoke("sync_lan_friends_presence_cmd", {
     profileId,
     displayName,
     deepScan,
+    cloudFriendCode: cloudFriendCode ?? null,
+    avatarUrl: avatarUrl ?? null,
   });
 }
 

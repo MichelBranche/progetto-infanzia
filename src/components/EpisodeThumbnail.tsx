@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import type { TitleDetailEpisode } from "../lib/titleDetail";
 import { useEpisodeFrameThumbnail } from "../hooks/useEpisodeFrameThumbnail";
 import { CoverImage } from "./CoverImage";
@@ -17,14 +18,16 @@ export function EpisodeThumbnail({
   resolveEpisodeStream,
 }: EpisodeThumbnailProps) {
   const needsFrame = episode.useVideoFrame && Boolean(resolveEpisodeStream);
+  const resolveStream = useCallback(
+    () => resolveEpisodeStream!(episode.id),
+    [resolveEpisodeStream, episode.id],
+  );
   const { thumbnail: frameThumb, loading, rootRef } = useEpisodeFrameThumbnail({
     enabled: Boolean(needsFrame),
     cacheKey: `ep:${episode.id}`,
     seed: episode.id,
     durationHintSec: episode.durationHintSec,
-    resolveStream: needsFrame
-      ? () => resolveEpisodeStream!(episode.id)
-      : undefined,
+    resolveStream: needsFrame ? resolveStream : undefined,
   });
 
   const src = frameThumb ?? (needsFrame ? null : episode.thumbnail);

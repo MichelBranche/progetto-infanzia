@@ -157,7 +157,22 @@ impl Database {
         }
     }
 
-    pub fn remove_missing(&self, valid_paths: &[String]) -> Result<usize, String> {
+    pub fn remove_missing(
+        &self,
+        valid_paths: &[String],
+        media_root: &Path,
+    ) -> Result<usize, String> {
+        let media_count = self.count_media()?;
+        if valid_paths.is_empty() && media_count > 0 {
+            // Avoid wiping the library when the scan folder is empty or unreachable.
+            return Ok(0);
+        }
+
+        let valid: std::collections::HashSet<String> = valid_paths
+            .iter()
+            .map(|path| crate::scanner::normalize_path_key(path))
+            .collect();
+
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare("SELECT id, file_path FROM media")
@@ -171,7 +186,11 @@ impl Database {
         let mut removed = 0;
         for row in rows {
             let (id, path) = row.map_err(|e| e.to_string())?;
-            if !valid_paths.contains(&path) {
+            if !crate::scanner::path_under_root(&path, media_root) {
+                continue;
+            }
+            let normalized = crate::scanner::normalize_path_key(&path);
+            if !valid.contains(&normalized) {
                 conn.execute("DELETE FROM media WHERE id = ?1", params![id])
                     .map_err(|e| e.to_string())?;
                 removed += 1;
@@ -861,6 +880,7 @@ impl Database {
                     r#type: row.get::<_, String>(1)?,
                     name: row.get::<_, String>(4)?,
                     poster: row.get::<_, Option<String>>(5)?,
+                    background: None,
                     poster_shape: None,
                     description: None,
                     release_info: row.get::<_, Option<String>>(7)?,
@@ -1108,6 +1128,163 @@ impl Database {
             .map_err(|e| e.to_string())
     }
 
+    pub fn count_lan_friends(&self, profile_id: &str) -> Result<i32, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM friends WHERE owner_profile_id = ?1",
+                params![profile_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(count)
+    }
+
+    pub fn count_profile_list_items(&self, profile_id: &str) -> Result<i32, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let count: i32 = conn
+            .query_row(
+                "SELECT
+                    (SELECT COUNT(*) FROM streaming_list WHERE profile_id = ?1) +
+                    (SELECT COUNT(*) FROM favorites WHERE profile_id = ?1)",
+                params![profile_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(count)
+    }
+
+    pub fn count_profile_completions(&self, profile_id: &str) -> Result<i32, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM profile_completions WHERE profile_id = ?1",
+                params![profile_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(count)
+    }
+
+    pub fn record_profile_completion(
+        &self,
+        profile_id: &str,
+        completion_key: &str,
+        kind: &str,
+        title: &str,
+    ) -> Result<bool, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let now = Utc::now().to_rfc3339();
+        let changed = conn
+            .execute(
+                "INSERT OR IGNORE INTO profile_completions (
+                    profile_id, completion_key, kind, title, completed_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![profile_id, completion_key, kind, title, now],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(changed > 0)
+    }
+
+    pub fn backfill_profile_completions(&self, profile_id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+
+        conn.execute(
+            "INSERT OR IGNORE INTO profile_completions (
+                profile_id, completion_key, kind, title, completed_at
+             )
+             SELECT profile_id,
+                    source_kind || ':' || media_id,
+                    source_kind,
+                    COALESCE(NULLIF(session_title, ''), media_id),
+                    COALESCE(ended_at, started_at)
+             FROM watch_sessions
+             WHERE profile_id = ?1 AND completed = 1",
+            params![profile_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        conn.execute(
+            "INSERT OR IGNORE INTO profile_completions (
+                profile_id, completion_key, kind, title, completed_at
+             )
+             SELECT profile_id,
+                    'stream:' || progress_key,
+                    'streaming',
+                    title_name,
+                    updated_at
+             FROM streaming_watch_progress
+             WHERE profile_id = ?1
+               AND duration_secs IS NOT NULL
+               AND duration_secs > 0
+               AND position_secs >= duration_secs * 0.92",
+            params![profile_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    pub fn list_profile_achievements(
+        &self,
+        profile_id: &str,
+    ) -> Result<Vec<(String, String)>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT achievement_id, unlocked_at
+                 FROM profile_achievements
+                 WHERE profile_id = ?1
+                 ORDER BY unlocked_at ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![profile_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn unlock_profile_achievement(
+        &self,
+        profile_id: &str,
+        achievement_id: &str,
+    ) -> Result<Option<String>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let now = Utc::now().to_rfc3339();
+        let changed = conn
+            .execute(
+                "INSERT OR IGNORE INTO profile_achievements (profile_id, achievement_id, unlocked_at)
+                 VALUES (?1, ?2, ?3)",
+                params![profile_id, achievement_id, now],
+            )
+            .map_err(|e| e.to_string())?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        Ok(Some(now))
+    }
+
+    pub fn get_watch_session_completion(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<(String, String, String, String)>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        match conn.query_row(
+            "SELECT profile_id, media_id, COALESCE(NULLIF(session_title, ''), media_id), source_kind
+             FROM watch_sessions
+             WHERE id = ?1",
+            params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ) {
+            Ok(row) => Ok(Some(row)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
     pub fn count_media(&self) -> Result<usize, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let count: i32 = conn
@@ -1120,7 +1297,7 @@ impl Database {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, name, role, avatar_color, accent_color, avatar_style, avatar_emoji, created_at,
+                "SELECT id, name, role, avatar_color, accent_color, avatar_style, avatar_emoji, avatar_image_path, created_at,
                         CASE WHEN pin_hash IS NOT NULL AND pin_hash != '' THEN 1 ELSE 0 END
                  FROM profiles ORDER BY
                    CASE role WHEN 'parent' THEN 0 WHEN 'child' THEN 1 ELSE 2 END,
@@ -1138,8 +1315,9 @@ impl Database {
                     accent_color: row.get(4)?,
                     avatar_style: row.get(5)?,
                     avatar_emoji: row.get(6)?,
-                    created_at: row.get(7)?,
-                    has_pin: row.get::<_, i32>(8)? == 1,
+                    avatar_image_path: row.get(7)?,
+                    created_at: row.get(8)?,
+                    has_pin: row.get::<_, i32>(9)? == 1,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -1176,7 +1354,7 @@ impl Database {
             .filter(|s| !s.is_empty())
             .unwrap_or("emoji");
         match avatar_style {
-            "emoji" | "initial" | "gradient" => {}
+            "emoji" | "initial" | "gradient" | "photo" => {}
             _ => return Err("Stile avatar non valido".into()),
         }
 
@@ -1190,10 +1368,11 @@ impl Database {
         } else {
             None
         };
+        let avatar_image_path = None;
 
         conn.execute(
-            "INSERT INTO profiles (id, name, role, avatar_color, accent_color, avatar_style, avatar_emoji, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO profiles (id, name, role, avatar_color, accent_color, avatar_style, avatar_emoji, avatar_image_path, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 id,
                 input.name.trim(),
@@ -1202,6 +1381,7 @@ impl Database {
                 accent_color,
                 avatar_style,
                 avatar_emoji,
+                avatar_image_path,
                 now,
             ],
         )
@@ -1215,6 +1395,7 @@ impl Database {
             accent_color,
             avatar_style: Some(avatar_style.to_string()),
             avatar_emoji,
+            avatar_image_path,
             created_at: now,
             has_pin: false,
         })
@@ -1263,7 +1444,7 @@ impl Database {
             .or(existing.avatar_style.as_deref())
             .unwrap_or("emoji");
         match avatar_style {
-            "emoji" | "initial" | "gradient" => {}
+            "emoji" | "initial" | "gradient" | "photo" => {}
             _ => return Err("Stile avatar non valido".into()),
         }
 
@@ -1283,25 +1464,96 @@ impl Database {
         } else {
             None
         };
+        let avatar_image_path = if avatar_style == "photo" {
+            existing.avatar_image_path.clone()
+        } else {
+            None
+        };
 
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
-        conn.execute(
-            "UPDATE profiles SET name = ?2, role = ?3, avatar_color = ?4, accent_color = ?5, avatar_style = ?6, avatar_emoji = ?7 WHERE id = ?1",
-            params![
-                id,
-                name,
-                role,
-                avatar_color,
-                accent_color,
-                avatar_style,
-                avatar_emoji,
-            ],
-        )
-        .map_err(|e| e.to_string())?;
+        if avatar_style == "photo" {
+            conn.execute(
+                "UPDATE profiles SET name = ?2, role = ?3, avatar_color = ?4, accent_color = ?5, avatar_style = ?6, avatar_emoji = ?7, avatar_image_path = ?8 WHERE id = ?1",
+                params![
+                    id,
+                    name,
+                    role,
+                    avatar_color,
+                    accent_color,
+                    avatar_style,
+                    avatar_emoji,
+                    avatar_image_path,
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        } else {
+            conn.execute(
+                "UPDATE profiles SET name = ?2, role = ?3, avatar_color = ?4, accent_color = ?5, avatar_style = ?6, avatar_emoji = ?7, avatar_image_path = NULL, avatar_image_jpeg = NULL WHERE id = ?1",
+                params![
+                    id,
+                    name,
+                    role,
+                    avatar_color,
+                    accent_color,
+                    avatar_style,
+                    avatar_emoji,
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        }
 
         drop(conn);
         self.get_profile(id)?
             .ok_or_else(|| "Profilo non trovato".to_string())
+    }
+
+    pub fn set_profile_avatar_jpeg(&self, profile_id: &str, bytes: &[u8]) -> Result<(), String> {
+        crate::profile_avatar::validate_avatar_bytes(bytes)?;
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let updated = conn
+            .execute(
+                "UPDATE profiles SET avatar_style = 'photo', avatar_emoji = NULL, accent_color = NULL, avatar_image_path = ?2, avatar_image_jpeg = ?3 WHERE id = ?1",
+                params![profile_id, crate::profile_avatar::AVATAR_DB_SENTINEL, bytes],
+            )
+            .map_err(|e| e.to_string())?;
+        if updated == 0 {
+            return Err("Profilo non trovato".into());
+        }
+        Ok(())
+    }
+
+    pub fn get_profile_avatar_jpeg(&self, profile_id: &str) -> Result<Option<Vec<u8>>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT avatar_image_jpeg FROM profiles WHERE id = ?1",
+            params![profile_id],
+            |row| row.get::<_, Option<Vec<u8>>>(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn set_profile_avatar(&self, profile_id: &str, path: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let updated = conn
+            .execute(
+                "UPDATE profiles SET avatar_style = 'photo', avatar_emoji = NULL, accent_color = NULL, avatar_image_path = ?2 WHERE id = ?1",
+                params![profile_id, path],
+            )
+            .map_err(|e| e.to_string())?;
+        if updated == 0 {
+            return Err("Profilo non trovato".into());
+        }
+        Ok(())
+    }
+
+    pub fn clear_profile_avatar(&self, profile_id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE profiles SET avatar_image_path = NULL, avatar_image_jpeg = NULL WHERE id = ?1",
+            params![profile_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     pub fn set_profile_pin(
@@ -2321,6 +2573,23 @@ fn migrate_schema(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
 
+        if let Ok(profile_id) = conn.query_row(
+            "SELECT id FROM profiles ORDER BY created_at ASC LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        ) {
+            let _ = conn.execute(
+                "INSERT OR IGNORE INTO watch_progress (profile_id, media_id, position_secs, duration_secs, updated_at)
+                 SELECT ?1, media_id, position_secs, duration_secs, updated_at FROM watch_progress_legacy",
+                params![profile_id],
+            );
+            let _ = conn.execute(
+                "INSERT OR IGNORE INTO favorites (profile_id, media_id, added_at)
+                 SELECT ?1, media_id, added_at FROM favorites_legacy",
+                params![profile_id],
+            );
+        }
+
         let _ = conn.execute("DROP TABLE IF EXISTS watch_progress_legacy", []);
         let _ = conn.execute("DROP TABLE IF EXISTS favorites_legacy", []);
     }
@@ -2357,6 +2626,16 @@ fn migrate_schema(conn: &Connection) -> Result<(), String> {
 
     if !table_has_column(conn, "profiles", "accent_color")? {
         conn.execute("ALTER TABLE profiles ADD COLUMN accent_color TEXT", [])
+            .map_err(|e| e.to_string())?;
+    }
+
+    if !table_has_column(conn, "profiles", "avatar_image_path")? {
+        conn.execute("ALTER TABLE profiles ADD COLUMN avatar_image_path TEXT", [])
+            .map_err(|e| e.to_string())?;
+    }
+
+    if !table_has_column(conn, "profiles", "avatar_image_jpeg")? {
+        conn.execute("ALTER TABLE profiles ADD COLUMN avatar_image_jpeg BLOB", [])
             .map_err(|e| e.to_string())?;
     }
 
@@ -2499,6 +2778,22 @@ fn migrate_schema(conn: &Connection) -> Result<(), String> {
             last_host TEXT,
             added_at TEXT NOT NULL,
             PRIMARY KEY (owner_profile_id, friend_code)
+        );
+
+        CREATE TABLE IF NOT EXISTS profile_completions (
+            profile_id TEXT NOT NULL,
+            completion_key TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            title TEXT NOT NULL,
+            completed_at TEXT NOT NULL,
+            PRIMARY KEY (profile_id, completion_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS profile_achievements (
+            profile_id TEXT NOT NULL,
+            achievement_id TEXT NOT NULL,
+            unlocked_at TEXT NOT NULL,
+            PRIMARY KEY (profile_id, achievement_id)
         );
         ",
     )

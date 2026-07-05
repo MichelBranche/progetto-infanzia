@@ -120,8 +120,8 @@ export function getNavSections(
   if (devMode) {
     sections.push({
       id: "devtools",
-      label: "Sviluppo",
-      items: [{ id: "dev", label: "Dev console", icon: "Terminal" }],
+      label: "Privata",
+      items: [{ id: "dev", label: "Area dev", icon: "Terminal" }],
     });
   }
 
@@ -169,8 +169,8 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
       subtitle: "Cosa hanno guardato i profili bambino",
     },
     dev: {
-      title: "Dev console",
-      subtitle: "Utenti, cronologia e analytics (solo sviluppatore)",
+      title: "Area privata dev",
+      subtitle: "Utenti cloud, dispositivo locale e feedback utenti",
     },
     feedback: {
       title: "Feedback e richieste",
@@ -178,7 +178,7 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
     },
     invite: {
       title: "Invita amici",
-      subtitle: "Condividi Branchefy e scarica l'ultima versione",
+      subtitle: "Link download o codice amico da condividere",
     },
     search: {
       title: "Cerca",

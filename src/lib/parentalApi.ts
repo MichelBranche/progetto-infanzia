@@ -95,9 +95,11 @@ export async function startAddonWatchSession(
   });
 }
 
+import type { AchievementUnlock } from "./achievements";
+
 export async function endWatchSession(
   sessionId: string,
   completed: boolean,
-): Promise<void> {
-  return invoke("end_watch_session_cmd", { sessionId, completed });
+): Promise<AchievementUnlock[]> {
+  return invoke<AchievementUnlock[]>("end_watch_session_cmd", { sessionId, completed });
 }

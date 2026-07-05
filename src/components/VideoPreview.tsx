@@ -25,6 +25,7 @@ export function VideoPreview({
   const { activeProfile } = useProfile();
   const videoRef = useRef<HTMLVideoElement>(null);
   const startedAtRef = useRef<number | null>(null);
+  const loadedKeyRef = useRef<string | null>(null);
   const { url } = useStreamUrl(activeProfile?.id, media.id, active);
   const [ready, setReady] = useState(false);
 
@@ -35,6 +36,11 @@ export function VideoPreview({
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !url || !active) return;
+
+    const loadKey = `${media.id}:${url}`;
+    if (loadedKeyRef.current === loadKey && !video.paused) {
+      return;
+    }
 
     const onLoaded = () => {
       const duration =
@@ -47,21 +53,32 @@ export function VideoPreview({
           Math.max(0, start),
           Math.max(0, duration - 1),
         );
-        video.currentTime = safeStart;
+        if (loadedKeyRef.current !== loadKey) {
+          video.currentTime = safeStart;
+        }
       } catch {
         // ignore seek errors on unsupported formats
       }
       void video.play().catch(() => undefined);
       startedAtRef.current = performance.now();
+      loadedKeyRef.current = loadKey;
     };
+
+    if (video.readyState >= 1 && loadedKeyRef.current === loadKey) {
+      void video.play().catch(() => undefined);
+      return;
+    }
 
     if (video.readyState >= 1) onLoaded();
     else video.addEventListener("loadedmetadata", onLoaded, { once: true });
 
     return () => {
       video.removeEventListener("loadedmetadata", onLoaded);
-      video.pause();
-      startedAtRef.current = null;
+      if (!active) {
+        video.pause();
+        startedAtRef.current = null;
+        loadedKeyRef.current = null;
+      }
     };
   }, [url, active, media.id, maxDurationSec, media.watchDuration]);
 

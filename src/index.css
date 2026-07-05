@@ -130,7 +130,86 @@ body {
   );
   --sidebar-collapsed: 68px;
   --sidebar-expanded: 276px;
-  --sidebar-layout-width: var(--sidebar-collapsed);
+  --sidebar-layout-width: 0px;
+  --app-nav-height: 64px;
+}
+
+.app-top-nav {
+  --nav-blend: 1;
+  isolation: isolate;
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
+.app-top-nav__actions {
+  flex-shrink: 0;
+}
+
+.app-top-nav::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(calc(10px + var(--nav-blend) * 14px));
+  backdrop-filter: blur(calc(10px + var(--nav-blend) * 14px));
+  background: linear-gradient(
+    180deg,
+    rgb(0 0 0 / calc(0.68 + var(--nav-blend) * 0.3)) 0%,
+    rgb(0 0 0 / calc(0.42 + var(--nav-blend) * 0.52)) 100%
+  );
+}
+
+.app-top-nav--immersive::before {
+  background: linear-gradient(
+    180deg,
+    rgb(0 0 0 / 0.94) 0%,
+    rgb(0 0 0 / calc(0.82 - var(--nav-blend) * 0.08)) 38%,
+    rgb(0 0 0 / calc(0.58 - var(--nav-blend) * 0.14)) 70%,
+    rgb(0 0 0 / calc(0.22 + var(--nav-blend) * 0.72)) 100%
+  );
+}
+
+.app-top-nav--immersive::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 100%;
+  height: 72px;
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / calc(0.55 * (1 - var(--nav-blend) * 0.55))),
+    transparent
+  );
+  opacity: calc(1 - var(--nav-blend) * 0.75);
+}
+
+.app-top-nav__inner {
+  position: relative;
+  z-index: 1;
+}
+
+.app-top-nav__brand {
+  color: #fff;
+  text-shadow: 0 1px 14px rgb(0 0 0 / calc(0.75 * (1 - var(--nav-blend) * 0.7)));
+}
+
+.app-top-nav__link {
+  text-shadow: 0 1px 12px rgb(0 0 0 / calc(0.82 * (1 - var(--nav-blend) * 0.8)));
+}
+
+.app-top-nav__icon {
+  color: rgb(255 255 255 / 0.94);
+  filter: drop-shadow(
+    0 1px 8px rgb(0 0 0 / calc(0.6 * (1 - var(--nav-blend) * 0.75)))
+  );
+}
+
+.app-top-nav__more-panel {
+  transform-origin: top left;
+  will-change: transform, opacity;
 }
 
 @media (min-width: 640px) {
@@ -256,6 +335,69 @@ video.player-video::cue {
 
 .hero-vignette {
   box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.45);
+}
+
+.hero-vignette--video {
+  box-shadow: inset 0 0 72px rgba(0, 0, 0, 0.2);
+}
+
+.ken-burns-hero {
+  animation: ken-burns-hero 28s var(--ease-out-expo) forwards;
+  transform-origin: center center;
+}
+
+@keyframes ken-burns-hero {
+  0% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(1.03);
+  }
+}
+
+.hero-prime__scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      to right,
+      rgba(6, 6, 8, 0.94) 0%,
+      rgba(6, 6, 8, 0.78) 24%,
+      rgba(6, 6, 8, 0.34) 48%,
+      rgba(6, 6, 8, 0.08) 62%,
+      transparent 74%
+    ),
+    linear-gradient(
+      to top,
+      rgba(6, 6, 8, 0.98) 0%,
+      rgba(6, 6, 8, 0.55) 18%,
+      rgba(6, 6, 8, 0.12) 42%,
+      transparent 62%
+    );
+  transition: opacity 0.7s ease;
+}
+
+.hero-prime__scrim--video {
+  background:
+    linear-gradient(
+      to right,
+      rgba(6, 6, 8, 0.82) 0%,
+      rgba(6, 6, 8, 0.52) 26%,
+      rgba(6, 6, 8, 0.16) 50%,
+      transparent 68%
+    ),
+    linear-gradient(
+      to top,
+      rgba(6, 6, 8, 0.88) 0%,
+      rgba(6, 6, 8, 0.38) 16%,
+      transparent 48%
+    );
+}
+
+.hero-prime__media {
+  object-fit: cover;
+  object-position: 68% center;
 }
 
 .row-edge-fade {

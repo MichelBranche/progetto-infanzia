@@ -1,5 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { Library, MediaItem, ScanResult, StreamInfo, AddMediaInput, UpdateMediaInput, PosterAsset, CastDevice, CastPosition } from "../types/media";
+import { syncAchievements } from "./achievementsApi";
 
 function emptyLibrary(): Library {
   return {
@@ -61,10 +62,12 @@ export async function toggleFavorite(
   profileId: string,
   mediaId: string,
 ): Promise<boolean> {
-  return invoke<boolean>("toggle_favorite", {
+  const added = await invoke<boolean>("toggle_favorite", {
     profileId,
     mediaId,
   });
+  void syncAchievements(profileId);
+  return added;
 }
 
 export async function fetchMediaRoot(): Promise<string> {

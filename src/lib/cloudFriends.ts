@@ -6,6 +6,7 @@ function mapProfile(row: {
   email: string;
   display_name: string;
   friend_code: string;
+  avatar_url?: string | null;
   created_at: string;
 }): CloudProfile {
   return {
@@ -13,6 +14,7 @@ function mapProfile(row: {
     email: row.email,
     displayName: row.display_name,
     friendCode: row.friend_code,
+    avatarUrl: row.avatar_url ?? undefined,
     createdAt: row.created_at,
   };
 }
@@ -123,7 +125,7 @@ export async function listCloudFriends(): Promise<CloudFriend[]> {
 
   const { data: profiles, error: profileError } = await supabase
     .from("cloud_profiles")
-    .select("id, email, display_name, friend_code")
+    .select("id, email, display_name, friend_code, avatar_url")
     .in("id", otherIds);
 
   if (profileError) throw new Error(profileError.message);
@@ -133,6 +135,7 @@ export async function listCloudFriends(): Promise<CloudFriend[]> {
     displayName: p.display_name,
     friendCode: p.friend_code,
     email: p.email,
+    avatarUrl: p.avatar_url ?? undefined,
   }));
 }
 
@@ -148,7 +151,7 @@ export async function listAcceptedAsRequester(): Promise<CloudFriendRequest[]> {
   const { data, error } = await supabase
     .from("friend_requests")
     .select(
-      "*, addressee:cloud_profiles!friend_requests_addressee_id_fkey(id, email, display_name, friend_code, created_at)",
+      "*, addressee:cloud_profiles!friend_requests_addressee_id_fkey(id, email, display_name, friend_code, avatar_url, created_at)",
     )
     .eq("requester_id", myId)
     .eq("status", "accepted");
@@ -168,6 +171,7 @@ export async function listAcceptedAsRequester(): Promise<CloudFriendRequest[]> {
             email: string;
             display_name: string;
             friend_code: string;
+            avatar_url?: string | null;
             created_at: string;
           },
         )
@@ -186,7 +190,7 @@ export async function listPendingFriendRequests(): Promise<CloudFriendRequest[]>
   const { data, error } = await supabase
     .from("friend_requests")
     .select(
-      "*, requester:cloud_profiles!friend_requests_requester_id_fkey(id, email, display_name, friend_code, created_at)",
+      "*, requester:cloud_profiles!friend_requests_requester_id_fkey(id, email, display_name, friend_code, avatar_url, created_at)",
     )
     .eq("addressee_id", myId)
     .eq("status", "pending");
@@ -206,6 +210,7 @@ export async function listPendingFriendRequests(): Promise<CloudFriendRequest[]>
             email: string;
             display_name: string;
             friend_code: string;
+            avatar_url?: string | null;
             created_at: string;
           },
         )

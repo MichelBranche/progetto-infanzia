@@ -7,18 +7,23 @@ use reqwest::blocking::Client;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const META_LOONEX_INDEX: &str = "loonex_catalog_index";
 const META_LOONEX_INDEX_TS: &str = "loonex_catalog_index_ts";
 const META_LOONEX_INDEX_VERSION: &str = "loonex_catalog_index_version";
-const LOONEX_INDEX_VERSION: &str = "5";
+const LOONEX_INDEX_VERSION: &str = "7";
 const META_LOONEX_SITE_ROOT: &str = "loonex_site_root";
 const META_LOONEX_ENABLED: &str = "loonex_catalog_enabled";
 const META_LOONEX_APP_URL: &str = "loonex_app_url";
 const DEFAULT_APP_URL: &str = "https://loonex.eu/cartoni";
 const ROW_LIMIT: usize = 48;
+const MIN_CACHED_INDEX: usize = 120;
+const INDEX_TTL_SECS: i64 = 6 * 3600;
+const MAX_ARCHIVE_PAGES: usize = 240;
 const HTTP_TIMEOUT_SECS: u64 = 60;
+const ONLINE_PAGE_DELAY_MS: u64 = 900;
 
 #[derive(Debug, Clone)]
 struct LoonexCard {
@@ -507,6 +512,7 @@ fn card_to_preview(db: &Database, card: &LoonexCard) -> StremioMetaPreview {
             .poster_src
             .as_deref()
             .and_then(|src| resolve_poster_url(db, src)),
+        background: None,
         poster_shape: Some("poster".to_string()),
         description: None,
         release_info: None,
@@ -534,7 +540,49 @@ fn fetch_online_html(client: &Client, base: &str, path: &str) -> Option<String> 
         .and_then(|r| r.text().ok())
 }
 
+fn archive_page_from_path(path: &str) -> Option<usize> {
+    static PAGE_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let re = PAGE_RE.get_or_init(|| {
+        Regex::new(r#"(?i)[?&]page=(\d+)"#).expect("archive page param")
+    });
+    if !path.contains("cat=all") {
+        return None;
+    }
+    re.captures(path)
+        .and_then(|cap| cap.get(1))
+        .and_then(|m| m.as_str().parse::<usize>().ok())
+}
+
+fn local_archive_html(root: &Path, page: usize) -> Option<String> {
+    let candidates: Vec<PathBuf> = if page <= 1 {
+        vec![
+            root.join("index.html"),
+            root.join("index.php.html"),
+            root.join("index.php"),
+        ]
+    } else {
+        vec![
+            root.join(format!(
+                "index.php?cat=all&search=&collezione=&page={page}.html"
+            )),
+            root.join(format!("index.php_cat=all&search=&collezione=&page={page}.html")),
+            root.join(format!("index.php?cat=all&page={page}.html")),
+            root.join(format!("index_cat=all&page={page}.html")),
+            root.join(format!("index.php?cat=all&search=&collezione=&page={page}")),
+        ]
+    };
+    for file in candidates {
+        if file.is_file() {
+            return fs::read_to_string(file).ok();
+        }
+    }
+    None
+}
+
 fn read_local_html(root: &Path, path: &str) -> Option<String> {
+    if let Some(page) = archive_page_from_path(path) {
+        return local_archive_html(root, page);
+    }
     let file = if path.is_empty() || path == "/" || path == "/index.php" {
         root.join("index.html")
     } else if path.starts_with('/') {
@@ -547,6 +595,114 @@ fn read_local_html(root: &Path, path: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+fn slug_from_detail_filename(name: &str) -> Option<String> {
+    static DETAIL_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let re = DETAIL_RE.get_or_init(|| {
+        Regex::new(r#"(?i)^index_cartone=(.+)\.php\.html$"#).expect("detail filename")
+    });
+    re.captures(name)
+        .and_then(|cap| cap.get(1))
+        .map(|m| m.as_str().trim().to_string())
+        .filter(|slug| !slug.is_empty())
+}
+
+fn extract_detail_name(html: &str, slug: &str) -> String {
+    static OG_TITLE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    static H1_TITLE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let og = OG_TITLE.get_or_init(|| {
+        Regex::new(r#"(?is)property="og:title" content="([^"]+)""#).expect("og:title")
+    });
+    if let Some(cap) = og.captures(html) {
+        if let Some(title) = cap.get(1) {
+            let name = decode_html_entities(title.as_str().trim());
+            if !name.is_empty() {
+                return name;
+            }
+        }
+    }
+    let h1 = H1_TITLE.get_or_init(|| {
+        Regex::new(r#"(?is)<h1[^>]*>([^<]+)</h1>"#).expect("h1 title")
+    });
+    if let Some(cap) = h1.captures(html) {
+        if let Some(title) = cap.get(1) {
+            let name = decode_html_entities(title.as_str().trim());
+            if !name.is_empty() {
+                return name;
+            }
+        }
+    }
+    slug.replace('-', " ")
+}
+
+fn card_from_detail_html(html: &str, slug: &str) -> LoonexCard {
+    let poster_src = extract_img_src(html, "detail-poster")
+        .or_else(|| extract_img_src(html, "card-img-bg"))
+        .and_then(|src| normalize_poster_ref(&src));
+    let is_movie = html.contains("class=\"movie-badge\"")
+        || html.contains("class='movie-badge'")
+        || html.contains("movie-badge\">");
+    LoonexCard {
+        slug: slug.to_string(),
+        name: extract_detail_name(html, slug),
+        poster_src,
+        is_movie,
+    }
+}
+
+fn ingest_mirror_detail_pages(root: &Path, cards: &mut HashMap<String, LoonexCard>) -> usize {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(_) => return 0,
+    };
+    let before = cards.len();
+    for entry in entries.filter_map(|e| e.ok()) {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let Some(slug) = slug_from_detail_filename(&name) else {
+            continue;
+        };
+        let path = entry.path();
+        let Ok(html) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let card = card_from_detail_html(&html, &slug);
+        cards.entry(slug).or_insert(card);
+    }
+    cards.len().saturating_sub(before)
+}
+
+fn ingest_mirror_archive_pages(root: &Path, cards: &mut HashMap<String, LoonexCard>) -> usize {
+    let before = cards.len();
+    let mut empty_streak = 0usize;
+    for page in 1..=MAX_ARCHIVE_PAGES {
+        let Some(html) = local_archive_html(root, page) else {
+            empty_streak += 1;
+            if empty_streak >= 2 {
+                break;
+            }
+            continue;
+        };
+        let added = ingest_cards(cards, parse_cartoon_cards(&html));
+        if added == 0 {
+            empty_streak += 1;
+            if empty_streak >= 2 {
+                break;
+            }
+        } else {
+            empty_streak = 0;
+        }
+    }
+    cards.len().saturating_sub(before)
+}
+
+fn sync_mirror_index(db: &Database) -> HashMap<String, LoonexCard> {
+    let mut cards: HashMap<String, LoonexCard> = HashMap::new();
+    for root in site_root_candidates_ordered(db) {
+        ingest_mirror_archive_pages(&root, &mut cards);
+        ingest_mirror_detail_pages(&root, &mut cards);
+    }
+    cards
 }
 
 /// Mirror locale salvato come `index_cartone={slug}.php.html` (HTTrack/wget).
@@ -598,55 +754,111 @@ pub fn fetch_cartoon_detail_html(
     Err(format!("Pagina cartone non trovata: {slug}"))
 }
 
-fn fetch_page_html(db: &Database, client: &Client, path: &str) -> Option<String> {
+fn fetch_page_html_local(db: &Database, path: &str) -> Option<String> {
     for root in site_root_candidates_ordered(db) {
         if let Some(html) = read_local_html(&root, path) {
             return Some(html);
         }
     }
+    None
+}
+
+fn fetch_page_html(db: &Database, client: &Client, path: &str) -> Option<String> {
+    if let Some(html) = fetch_page_html_local(db, path) {
+        return Some(html);
+    }
     let base = app_url(db).trim_end_matches('/').to_string();
     fetch_online_html(client, &base, path)
 }
 
-fn max_archive_page(html: &str) -> usize {
-    let page_re =
-        Regex::new(r#"(?is)href="\?cat=all[^"]*page=(\d+)""#).expect("loonex pagination");
-    page_re
-        .captures_iter(html)
-        .filter_map(|cap| cap.get(1).and_then(|m| m.as_str().parse::<usize>().ok()))
-        .max()
-        .unwrap_or(1)
+fn online_gap_fill_needed(cards: &HashMap<String, LoonexCard>) -> bool {
+    cards.len() < MIN_CACHED_INDEX
 }
 
-fn sync_online_index(db: &Database) -> Vec<StremioMetaPreview> {
+fn pause_between_online_pages() {
+    thread::sleep(Duration::from_millis(ONLINE_PAGE_DELAY_MS));
+}
+
+/// Costruisce l'indice: prima mirror locale (archivio + pagine dettaglio), poi online solo se serve.
+fn sync_catalog_index(db: &Database, allow_online: bool) -> Vec<StremioMetaPreview> {
+    let mut cards = sync_mirror_index(db);
+    if !allow_online || !online_gap_fill_needed(&cards) {
+        let mut index: Vec<StremioMetaPreview> = cards
+            .values()
+            .map(|card| card_to_preview(db, card))
+            .collect();
+        index.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        return index;
+    }
+
     let client = match http_client() {
         Ok(c) => c,
-        Err(_) => return Vec::new(),
+        Err(_) => {
+            let mut index: Vec<StremioMetaPreview> = cards
+                .values()
+                .map(|card| card_to_preview(db, card))
+                .collect();
+            index.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            return index;
+        }
     };
     let base = app_url(db).trim_end_matches('/').to_string();
     let first_path = "/index.php?cat=all&search=&collezione=&page=1";
-    let first_html = fetch_page_html(db, &client, first_path)
-        .or_else(|| fetch_page_html(db, &client, "/index.php"))
-        .or_else(|| fetch_page_html(db, &client, "/index.html"));
+    let first_html = fetch_page_html_local(db, first_path)
+        .or_else(|| fetch_page_html_local(db, "/index.php"))
+        .or_else(|| fetch_page_html_local(db, "/index.html"));
+    let first_html = if first_html.is_some() {
+        first_html
+    } else {
+        pause_between_online_pages();
+        fetch_online_html(&client, &base, first_path)
+            .or_else(|| {
+                pause_between_online_pages();
+                fetch_online_html(&client, &base, "/index.php")
+            })
+            .or_else(|| fetch_online_html(&client, &base, "/index.html"))
+    };
     let Some(first_html) = first_html else {
-        return Vec::new();
+        let mut index: Vec<StremioMetaPreview> = cards
+            .values()
+            .map(|card| card_to_preview(db, card))
+            .collect();
+        index.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        return index;
     };
 
-    let max_page = max_archive_page(&first_html).max(1);
-    let mut cards: HashMap<String, LoonexCard> = HashMap::new();
+    ingest_cards(&mut cards, parse_cartoon_cards(&first_html));
+    let hinted_max = max_archive_page(&first_html).max(1);
+    let scan_until = hinted_max.max(32).min(MAX_ARCHIVE_PAGES);
+    let mut empty_streak = 0usize;
 
-    for page in 1..=max_page.min(120) {
+    for page in 2..=scan_until {
         let path = format!("/index.php?cat=all&search=&collezione=&page={page}");
-        let html = if page == 1 {
-            first_html.clone()
-        } else {
+        let html = fetch_page_html_local(db, &path).unwrap_or_else(|| {
+            pause_between_online_pages();
             fetch_online_html(&client, &base, &path).unwrap_or_default()
-        };
+        });
         if html.is_empty() {
+            empty_streak += 1;
+            if empty_streak >= 2 {
+                break;
+            }
+            continue;
+        }
+        let added = ingest_cards(&mut cards, parse_cartoon_cards(&html));
+        if added == 0 {
+            empty_streak += 1;
+            if empty_streak >= 2 {
+                break;
+            }
+        } else {
+            empty_streak = 0;
+        }
+        if page >= hinted_max && added == 0 {
             break;
         }
-        for card in parse_cartoon_cards(&html) {
-            cards.entry(card.slug.clone()).or_insert(card);
+        if cards.len() >= MIN_CACHED_INDEX && added == 0 {
+            break;
         }
     }
 
@@ -656,6 +868,55 @@ fn sync_online_index(db: &Database) -> Vec<StremioMetaPreview> {
         .collect();
     index.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     index
+}
+
+fn max_archive_page(html: &str) -> usize {
+    let patterns = [
+        r#"(?is)href="[^"]*\?cat=all[^"]*page=(\d+)""#,
+        r#"(?is)href='[^']*\?cat=all[^']*page=(\d+)'"#,
+        r#"(?is)data-page="(\d+)""#,
+    ];
+    let mut max_page = 1usize;
+    for pat in patterns {
+        if let Ok(re) = Regex::new(pat) {
+            for cap in re.captures_iter(html) {
+                if let Some(page) = cap.get(1).and_then(|m| m.as_str().parse::<usize>().ok()) {
+                    max_page = max_page.max(page);
+                }
+            }
+        }
+    }
+    max_page
+}
+
+fn ingest_cards(cards: &mut HashMap<String, LoonexCard>, parsed: Vec<LoonexCard>) -> usize {
+    let before = cards.len();
+    for card in parsed {
+        cards.entry(card.slug.clone()).or_insert(card);
+    }
+    cards.len().saturating_sub(before)
+}
+
+/// Scarica tutte le pagine dell'archivio finché non arrivano pagine vuote o senza novità.
+fn sync_online_index(db: &Database) -> Vec<StremioMetaPreview> {
+    sync_catalog_index(db, true)
+}
+
+pub fn index_needs_refresh(db: &Database) -> bool {
+    if !enabled(db) {
+        return false;
+    }
+    let count = load_cached_index(db).map(|index| index.len()).unwrap_or(0);
+    if count < MIN_CACHED_INDEX {
+        return true;
+    }
+    let synced_at = db
+        .get_meta(META_LOONEX_INDEX_TS)
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0);
+    now_ts().saturating_sub(synced_at) > INDEX_TTL_SECS
 }
 
 fn load_home_rows(db: &Database) -> Vec<ScCatalogRow> {
@@ -688,7 +949,7 @@ fn load_home_rows(db: &Database) -> Vec<ScCatalogRow> {
 
     vec![ScCatalogRow {
         key: "loonex-trending".to_string(),
-        title: "Cartoni Loonex".to_string(),
+        title: "Archivio Cartoni".to_string(),
         subtitle: "Archivio cartoni animati · ITA gratis".to_string(),
         items: cards
             .into_iter()
@@ -846,6 +1107,58 @@ mod tests {
             with,
             cards.len() - with
         );
+    }
+
+    #[test]
+    fn ingest_cards_tracks_new_entries() {
+        let mut cards = HashMap::new();
+        let page1 = parse_cartoon_cards(
+            r#"<a href="?cartone=foo-1"><div class="card-title-cine" title="Foo">Foo</div></a>"#,
+        );
+        assert_eq!(ingest_cards(&mut cards, page1), 1);
+        let page2 = parse_cartoon_cards(
+            r#"<a href="?cartone=bar-2"><div class="card-title-cine" title="Bar">Bar</div></a>"#,
+        );
+        assert_eq!(ingest_cards(&mut cards, page2.clone()), 1);
+        assert_eq!(cards.len(), 2);
+        assert_eq!(ingest_cards(&mut cards, page2), 0);
+    }
+
+    #[test]
+    fn slug_from_detail_filename_reads_httrack_name() {
+        assert_eq!(
+            slug_from_detail_filename("index_cartone=ben-10-1771414168.php.html").as_deref(),
+            Some("ben-10-1771414168")
+        );
+    }
+
+    #[test]
+    fn archive_page_from_path_reads_query() {
+        assert_eq!(
+            archive_page_from_path("/index.php?cat=all&search=&collezione=&page=9"),
+            Some(9)
+        );
+    }
+
+    #[test]
+    fn card_from_detail_html_reads_poster_and_title() {
+        let html = r#"
+            <meta property="og:title" content="Ben 10">
+            <img src="covers/143-ben-10-cover.jpg" class="detail-poster" alt="Ben 10">
+        "#;
+        let card = card_from_detail_html(html, "ben-10-1771414168");
+        assert_eq!(card.slug, "ben-10-1771414168");
+        assert_eq!(card.name, "Ben 10");
+        assert_eq!(
+            card.poster_src.as_deref(),
+            Some("covers/143-ben-10-cover.jpg")
+        );
+    }
+
+    #[test]
+    fn max_archive_page_reads_index_php_links() {
+        let html = r#"<a href="/cartoni/index.php?cat=all&search=&collezione=&page=14">14</a>"#;
+        assert_eq!(max_archive_page(html), 14);
     }
 
     #[test]

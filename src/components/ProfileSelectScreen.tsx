@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pencil, ArrowLeft, Trash2, Lock } from "lucide-react";
+import { ArrowLeft, Plus, Pencil, Trash2, Lock, Settings2 } from "lucide-react";
 import { useProfile } from "../context/ProfileContext";
 import { useAppAccess } from "../context/AppAccessContext";
 import { isBrowserDevMode } from "../lib/tauriEnv";
 import { ProfileAvatar } from "./ProfileAvatar";
+import { setProfileAvatar, updateProfile } from "../lib/profilesApi";
 import { roleLabel, type Profile } from "../types/profile";
 import {
   ProfileCustomizeForm,
@@ -24,6 +25,93 @@ const defaultCreateValue = (guest = false): ProfileCustomizeValue => ({
   avatarEmoji: PROFILE_EMOJIS[2],
 });
 
+function ProfileTile({
+  profile,
+  index,
+  isManaging,
+  onSelect,
+  onEdit,
+  onRemove,
+  canRemove,
+}: {
+  profile: Profile;
+  index: number;
+  isManaging: boolean;
+  onSelect: () => void;
+  onEdit: () => void;
+  onRemove: () => void;
+  canRemove: boolean;
+}) {
+  const avatar = (
+    <div className="relative">
+      <div className="rounded-full p-[3px] transition-all duration-300 group-hover:bg-white/20 group-focus-visible:bg-white/25">
+        <ProfileAvatar
+          profile={profile}
+          size="xl"
+          className="h-[4.75rem] w-[4.75rem] rounded-full sm:h-[5.5rem] sm:w-[5.5rem]"
+        />
+      </div>
+      {profile.hasPin && (
+        <span className="absolute bottom-0 right-0 flex h-6 w-6 items-center justify-center rounded-full bg-void ring-2 ring-void">
+          <Lock className="h-3 w-3 text-accent" />
+        </span>
+      )}
+    </div>
+  );
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.92 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ delay: index * 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+      className="group flex w-[5.5rem] flex-col items-center gap-3 sm:w-[6.5rem]"
+    >
+      {isManaging ? (
+        <>
+          {avatar}
+          <div className="text-center">
+            <p className="truncate font-display text-[14px] font-medium text-text-primary">
+              {profile.name}
+            </p>
+            <p className="mt-0.5 text-[11px] text-text-muted">{roleLabel(profile.role)}</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onEdit}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.06] text-text-muted transition-colors hover:bg-white/12 hover:text-text-primary"
+              aria-label={`Modifica ${profile.name}`}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            {canRemove && (
+              <button
+                type="button"
+                onClick={onRemove}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-warm/10 text-warm transition-colors hover:bg-warm/20"
+                aria-label={`Elimina ${profile.name}`}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={onSelect}
+          className="flex w-full flex-col items-center gap-3 rounded-2xl outline-none transition-transform duration-300 hover:scale-[1.04] focus-visible:scale-[1.04]"
+        >
+          {avatar}
+          <p className="max-w-full truncate text-center font-display text-[14px] font-medium text-text-secondary transition-colors group-hover:text-text-primary sm:text-[15px]">
+            {profile.name}
+          </p>
+        </button>
+      )}
+    </motion.div>
+  );
+}
+
 export function ProfileSelectScreen() {
   const {
     profiles,
@@ -35,6 +123,7 @@ export function ProfileSelectScreen() {
     createNewProfile,
     updateExistingProfile,
     removeProfile,
+    refreshProfiles,
   } = useProfile();
   const { isGuest } = useAppAccess();
 
@@ -50,51 +139,67 @@ export function ProfileSelectScreen() {
     }
   }, [loading, profiles.length, creating, editingProfile]);
 
+  const isFormView = creating || Boolean(editingProfile);
+
+  const exitForm = () => {
+    setCreating(false);
+    setEditingProfile(null);
+    setError(null);
+  };
+
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center bg-void">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/10 border-t-accent" />
+      <div className="fixed inset-0 z-[10] flex items-center justify-center bg-void">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-accent" />
       </div>
     );
   }
 
-  return (
-    <div className="relative flex h-full flex-col items-center justify-center overflow-auto bg-void px-6 py-12">
-      <div className="noise-overlay pointer-events-none absolute inset-0 opacity-30" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_0%,rgba(107,127,255,0.1),transparent)]" />
+  const formTitle = creating ? "Nuovo profilo" : "Modifica profilo";
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="relative w-full max-w-3xl"
-      >
-        <div className="mb-12 text-center">
-          <p className="text-[11px] font-medium uppercase tracking-[0.35em] text-text-muted">
-            Branchefy
-          </p>
-          <h1 className="font-display mt-4 text-[clamp(2rem,5vw,3.5rem)] font-semibold tracking-[-0.03em] text-text-primary">
-            {creating
-              ? "Nuovo profilo"
-              : editingProfile
-                ? "Modifica profilo"
-                : isManaging
-                  ? "Gestisci profili"
-                  : "Chi sta guardando?"}
-          </h1>
-          {!creating && !editingProfile && (
-            <p className="mt-3 text-[14px] text-text-secondary">
-              {browserDev
-                ? "Modalità browser dev: profili salvati in localStorage"
-                : profiles.length === 0
-                  ? isGuest
-                    ? "Crea il tuo profilo ospite per iniziare"
-                    : "Crea il primo profilo per iniziare"
-                  : isManaging
-                    ? "Modifica o elimina i profili"
-                    : "Scegli il tuo profilo per continuare"}
+  return (
+    <div className="fixed inset-0 z-[10] overflow-y-auto overflow-x-hidden bg-[#050507]">
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(107,127,255,0.12),transparent)]" />
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/40 to-transparent" />
+
+      <div className="relative z-[1] flex min-h-full w-full flex-col items-center justify-center px-5 py-10 sm:px-8">
+        <div className={`w-full ${isFormView ? "max-w-4xl" : "max-w-3xl"}`}>
+        {isFormView ? (
+          <header className="relative mb-8 text-center">
+            <button
+              type="button"
+              onClick={exitForm}
+              className="absolute left-0 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/[0.06] text-text-secondary transition-colors hover:bg-white/10 hover:text-text-primary sm:left-0"
+              aria-label="Indietro"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <div className="px-12">
+              <p className="font-display text-[22px] font-semibold tracking-[-0.03em] text-text-primary sm:text-[26px]">
+                {formTitle}
+              </p>
+              <p className="mt-0.5 text-[13px] text-text-muted">
+                Personalizza nome, ruolo e avatar
+              </p>
+            </div>
+          </header>
+        ) : (
+          <header className="mb-14 text-center sm:mb-16">
+            <p className="font-display text-[13px] font-medium tracking-[0.2em] text-text-muted">
+              BRANCHEFY
             </p>
-          )}
-        </div>
+            <h1 className="font-display mt-5 text-[clamp(1.75rem,4.5vw,2.75rem)] font-semibold tracking-[-0.04em] text-text-primary">
+              Chi sta guardando?
+            </h1>
+            <p className="mx-auto mt-3 max-w-sm text-[14px] leading-relaxed text-text-secondary">
+              {browserDev
+                ? "Profili salvati in locale (browser dev)"
+                : isManaging
+                  ? "Modifica o rimuovi i profili esistenti"
+                  : "Seleziona un profilo per continuare"}
+            </p>
+          </header>
+        )}
 
         <AnimatePresence mode="wait">
           {creating ? (
@@ -104,15 +209,21 @@ export function ProfileSelectScreen() {
               submitLabel="Crea profilo"
               submitting={submitting}
               error={error}
-              onCancel={() => {
-                setCreating(false);
-                setError(null);
-              }}
+              onCancel={exitForm}
               onSubmit={async (value) => {
                 setSubmitting(true);
                 setError(null);
                 try {
-                  const profile = await createNewProfile(profileCustomizeToCreate(value));
+                  let profile = await createNewProfile(profileCustomizeToCreate(value));
+                  if (value.avatarStyle === "photo" && value.avatarImagePath) {
+                    profile = value.avatarImagePath.startsWith("data:")
+                      ? await updateProfile(profile.id, {
+                          avatarStyle: "photo",
+                          avatarImagePath: value.avatarImagePath,
+                        })
+                      : await setProfileAvatar(profile.id, value.avatarImagePath);
+                  }
+                  await refreshProfiles();
                   setCreating(false);
                   selectProfile(profile);
                 } catch (err) {
@@ -126,13 +237,11 @@ export function ProfileSelectScreen() {
             <ProfileCustomizeForm
               key={editingProfile.id}
               initial={valueFromProfile(editingProfile)}
-              submitLabel="Salva modifiche"
+              previewProfileId={editingProfile.id}
+              submitLabel="Salva"
               submitting={submitting}
               error={error}
-              onCancel={() => {
-                setEditingProfile(null);
-                setError(null);
-              }}
+              onCancel={exitForm}
               onSubmit={async (value) => {
                 setSubmitting(true);
                 setError(null);
@@ -141,6 +250,17 @@ export function ProfileSelectScreen() {
                     editingProfile.id,
                     profileCustomizeToUpdate(value),
                   );
+                  if (value.avatarStyle === "photo" && value.avatarImagePath) {
+                    if (value.avatarImagePath.startsWith("data:")) {
+                      await updateProfile(editingProfile.id, {
+                        avatarStyle: "photo",
+                        avatarImagePath: value.avatarImagePath,
+                      });
+                    } else {
+                      await setProfileAvatar(editingProfile.id, value.avatarImagePath);
+                    }
+                  }
+                  await refreshProfiles();
                   setEditingProfile(null);
                 } catch (err) {
                   setError(err instanceof Error ? err.message : String(err));
@@ -155,122 +275,65 @@ export function ProfileSelectScreen() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="flex flex-wrap items-start justify-center gap-8"
+              className="flex flex-col items-center"
             >
-              {profiles.map((profile, i) => (
-                <motion.div
-                  key={profile.id}
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.06 }}
-                  className="group relative flex w-28 flex-col items-center gap-3"
+              <div className="flex flex-wrap items-start justify-center gap-x-6 gap-y-10 sm:gap-x-10">
+                {profiles.map((profile, i) => (
+                  <ProfileTile
+                    key={profile.id}
+                    profile={profile}
+                    index={i}
+                    isManaging={isManaging}
+                    onSelect={() => selectProfile(profile)}
+                    onEdit={() => setEditingProfile(profile)}
+                    onRemove={() => void removeProfile(profile.id)}
+                    canRemove={profiles.length > 1}
+                  />
+                ))}
+
+                {!isManaging && (
+                  <motion.button
+                    initial={{ opacity: 0, scale: 0.92 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: profiles.length * 0.05 }}
+                    type="button"
+                    onClick={() => setCreating(true)}
+                    className="group flex w-[5.5rem] flex-col items-center gap-3 sm:w-[6.5rem]"
+                  >
+                    <div className="flex h-[4.75rem] w-[4.75rem] items-center justify-center rounded-full border-2 border-dashed border-white/15 bg-white/[0.02] transition-all duration-300 group-hover:scale-[1.04] group-hover:border-accent/40 group-hover:bg-accent/[0.06] sm:h-[5.5rem] sm:w-[5.5rem]">
+                      <Plus className="h-8 w-8 text-text-muted transition-colors group-hover:text-accent" />
+                    </div>
+                    <span className="text-center text-[14px] text-text-muted transition-colors group-hover:text-text-secondary">
+                      Aggiungi
+                    </span>
+                  </motion.button>
+                )}
+              </div>
+
+              {profiles.length > 0 && (
+                <button
+                  type="button"
+                  onClick={isManaging ? stopManaging : startManaging}
+                  className="mt-14 inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13px] text-text-muted transition-colors hover:text-text-secondary"
                 >
                   {isManaging ? (
                     <>
-                      <div className="relative">
-                        <ProfileAvatar profile={profile} size="xl" />
-                        {profile.hasPin && (
-                          <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-void ring-2 ring-void">
-                            <Lock className="h-3 w-3 text-accent" />
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-center">
-                        <p className="text-[14px] font-medium text-text-primary">
-                          {profile.name}
-                        </p>
-                        <p className="mt-0.5 text-[10px] uppercase tracking-wider text-text-muted">
-                          {roleLabel(profile.role)}
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setEditingProfile(profile)}
-                          className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-text-muted hover:text-text-primary"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        {profiles.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => void removeProfile(profile.id)}
-                            className="flex h-8 w-8 items-center justify-center rounded-full border border-warm/20 text-warm hover:bg-warm/10"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
+                      <ArrowLeft className="h-3.5 w-3.5" />
+                      Fine
                     </>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => selectProfile(profile)}
-                      className="flex w-full flex-col items-center gap-3"
-                    >
-                      <div className="relative">
-                        <ProfileAvatar profile={profile} size="xl" />
-                        {profile.hasPin && (
-                          <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-void ring-2 ring-void">
-                            <Lock className="h-3 w-3 text-accent" />
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-center">
-                        <p className="text-[14px] font-medium text-text-secondary transition-colors group-hover:text-text-primary">
-                          {profile.name}
-                        </p>
-                        <p className="mt-0.5 text-[10px] uppercase tracking-wider text-text-muted">
-                          {roleLabel(profile.role)}
-                        </p>
-                      </div>
-                    </button>
+                    <>
+                      <Settings2 className="h-3.5 w-3.5" />
+                      Gestisci profili
+                    </>
                   )}
-                </motion.div>
-              ))}
-
-              {!isManaging && (
-                <motion.button
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: profiles.length * 0.06 }}
-                  onClick={() => setCreating(true)}
-                  className="group flex w-28 flex-col items-center gap-3"
-                >
-                  <div className="flex h-28 w-28 items-center justify-center rounded-xl border border-dashed border-white/15 bg-white/[0.02] transition-colors group-hover:border-accent/40 group-hover:bg-accent/5">
-                    <Plus className="h-8 w-8 text-text-muted transition-colors group-hover:text-accent" />
-                  </div>
-                  <p className="text-[14px] text-text-muted transition-colors group-hover:text-text-secondary">
-                    Aggiungi profilo
-                  </p>
-                </motion.button>
+                </button>
               )}
             </motion.div>
           )}
         </AnimatePresence>
-
-        {!creating && !editingProfile && profiles.length > 0 && (
-          <div className="mt-12 flex justify-center">
-            <button
-              type="button"
-              onClick={isManaging ? stopManaging : startManaging}
-              className="inline-flex items-center gap-2 text-[13px] text-text-muted transition-colors hover:text-text-secondary"
-            >
-              {isManaging ? (
-                <>
-                  <ArrowLeft className="h-3.5 w-3.5" />
-                  Fatto
-                </>
-              ) : (
-                <>
-                  <Pencil className="h-3.5 w-3.5" />
-                  Gestisci profili
-                </>
-              )}
-            </button>
-          </div>
-        )}
-      </motion.div>
+        </div>
+      </div>
     </div>
   );
 }

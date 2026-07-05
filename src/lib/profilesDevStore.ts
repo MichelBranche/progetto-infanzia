@@ -135,6 +135,10 @@ export function updateDevProfile(
       input.avatarEmoji !== undefined
         ? (input.avatarEmoji ?? undefined)
         : current.avatarEmoji,
+    avatarImagePath:
+      input.avatarImagePath !== undefined
+        ? (input.avatarImagePath ?? undefined)
+        : current.avatarImagePath,
     hasPin: Boolean(readPins()[id]),
   };
 

@@ -2,12 +2,15 @@ import { Film, Sparkles, Tv } from "lucide-react";
 import { useState } from "react";
 import type { MediaItem } from "../types/media";
 
-export type PosterVariant = "browse" | "episode";
+export type PosterVariant = "browse" | "episode" | "hero";
 
 export function posterUrlFor(
   item: MediaItem,
   variant: PosterVariant = "browse",
 ): string | undefined {
+  if (variant === "hero") {
+    return item.backgroundUrl ?? item.seriesPosterUrl ?? item.posterUrl;
+  }
   if (variant === "episode") {
     return item.posterUrl ?? item.seriesPosterUrl;
   }
@@ -20,6 +23,7 @@ interface PosterImageProps {
   variant?: PosterVariant;
   className?: string;
   priority?: boolean;
+  srcOverride?: string;
 }
 
 export function PosterImage({
@@ -27,8 +31,9 @@ export function PosterImage({
   variant = "browse",
   className = "",
   priority = false,
+  srcOverride,
 }: PosterImageProps) {
-  const posterUrl = posterUrlFor(item, variant);
+  const posterUrl = srcOverride ?? posterUrlFor(item, variant);
   const [failed, setFailed] = useState(false);
 
   if (!posterUrl || failed) {
@@ -43,8 +48,9 @@ export function PosterImage({
     <img
       src={posterUrl}
       alt={item.title}
-      loading={priority ? "eager" : "lazy"}
+      loading={priority || variant === "hero" ? "eager" : "lazy"}
       decoding="async"
+      fetchPriority={priority || variant === "hero" ? "high" : undefined}
       onError={() => setFailed(true)}
       className={`absolute inset-0 h-full w-full object-cover ${className}`}
     />

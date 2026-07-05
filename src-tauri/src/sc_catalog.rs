@@ -35,7 +35,7 @@ pub struct ScCatalogResponse {
 const META_SC_INDEX: &str = "sc_catalog_index";
 const META_SC_INDEX_TS: &str = "sc_catalog_index_ts";
 const META_SC_INDEX_VERSION: &str = "sc_catalog_index_version";
-const CURRENT_INDEX_VERSION: &str = "6";
+const CURRENT_INDEX_VERSION: &str = "8";
 const INDEX_TTL_SECS: i64 = 2 * 3600;
 const SLIDER_ROW_LIMIT: usize = 60;
 
@@ -697,6 +697,9 @@ fn apply_preview_metadata(
             .clone()
             .or_else(|| source_row_title.map(str::to_string));
         existing.genres = merge_genres(&existing.genres, &incoming.genres);
+        if incoming.background.is_some() {
+            existing.background = incoming.background.clone();
+        }
         return;
     }
 
@@ -711,6 +714,20 @@ fn apply_preview_metadata(
             .source_row_title
             .clone()
             .or_else(|| source_row_title.map(str::to_string));
+    }
+    if incoming.description.as_ref().is_some_and(|v| !v.trim().is_empty())
+        && existing
+            .description
+            .as_ref()
+            .is_none_or(|v| v.trim().is_empty())
+    {
+        existing.description = incoming.description.clone();
+    }
+    if incoming.background.is_some() {
+        existing.background = incoming.background.clone();
+    }
+    if incoming.poster.is_some() && existing.poster.is_none() {
+        existing.poster = incoming.poster.clone();
     }
     if incoming.r#type != "movie" && incoming.resume_video_id.is_some() {
         existing.resume_video_id = incoming.resume_video_id.clone();
@@ -1215,9 +1232,18 @@ fn image_url_for_type(cdn: &str, images: &[ScImage], image_type: &str) -> Option
 }
 
 /// Per le card landscape in home: `cover` ha aspect ratio adatto e pesa ~20–30 KB.
-/// `background` è hero full-res (~400 KB) e rallenta il caricamento a strisce.
 fn browse_poster_url(cdn: &str, images: &[ScImage]) -> Option<String> {
     for image_type in ["cover", "cover_mobile", "poster"] {
+        if let Some(url) = image_url_for_type(cdn, images, image_type) {
+            return Some(url);
+        }
+    }
+    None
+}
+
+/// Hero home: `background` full-res landscape (~400 KB), fallback su cover.
+fn hero_background_url(cdn: &str, images: &[ScImage]) -> Option<String> {
+    for image_type in ["background", "cover", "poster"] {
         if let Some(url) = image_url_for_type(cdn, images, image_type) {
             return Some(url);
         }
@@ -1247,11 +1273,14 @@ fn map_title(cdn: &str, title: ScTitle) -> StremioMetaPreview {
     };
     let poster = browse_poster_url(cdn, &title.images)
         .or_else(|| browse_poster_url(cdn, &episode_images));
+    let background = hero_background_url(cdn, &title.images)
+        .or_else(|| hero_background_url(cdn, &episode_images));
     StremioMetaPreview {
         id: title.id.to_string(),
         r#type: stremio_type.to_string(),
         name: decode_text(display_name),
         poster,
+        background,
         poster_shape: None,
         description: None,
         release_info: title.last_air_date,
@@ -1306,6 +1335,8 @@ pub fn preview_from_value(
     };
     let poster = browse_poster_url(cdn, &images)
         .or_else(|| browse_poster_url(cdn, &episode_images));
+    let background = hero_background_url(cdn, &images)
+        .or_else(|| hero_background_url(cdn, &episode_images));
     let mut genres = genres_from_value(title);
     if let Some(genre) = archive_genre {
         if !genres.iter().any(|g| g.eq_ignore_ascii_case(genre)) {
@@ -1317,6 +1348,7 @@ pub fn preview_from_value(
         r#type: stremio_type.to_string(),
         name: decode_text(display_name),
         poster,
+        background,
         poster_shape: None,
         description: title
             .get("plot")

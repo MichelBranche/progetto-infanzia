@@ -69,6 +69,7 @@ struct ParsedEpisode {
     title: String,
     season: i32,
     episode: i32,
+    thumbnail: Option<String>,
 }
 
 fn season_before_position(html: &str, pos: usize) -> i32 {
@@ -116,7 +117,33 @@ fn parse_guarda_id_season_episode(guarda_id: &str) -> (Option<i32>, Option<i32>)
     (None, None)
 }
 
-fn parse_episodes(html: &str) -> Vec<ParsedEpisode> {
+fn episode_thumbnail_from_block(
+    db: &crate::db::Database,
+    block: &str,
+    series_poster: &Option<String>,
+) -> Option<String> {
+    let img_re = Regex::new(r#"(?is)<img[^>]+src="([^"]+)""#).ok()?;
+    for cap in img_re.captures_iter(block) {
+        let src = cap.get(1)?.as_str().trim();
+        if src.is_empty() || src.contains("data:image") {
+            continue;
+        }
+        let resolved = loonex_catalog::resolve_poster_url(db, src)
+            .or_else(|| Some(loonex_catalog::absolute_asset_url(
+                &loonex_catalog::app_url(db),
+                src,
+            )));
+        if let Some(url) = resolved {
+            if series_poster.as_ref().is_some_and(|p| p == &url) {
+                continue;
+            }
+            return Some(url);
+        }
+    }
+    None
+}
+
+fn parse_episodes(html: &str, db: &crate::db::Database, series_poster: &Option<String>) -> Vec<ParsedEpisode> {
     let link_re = Regex::new(
         r#"(?is)href="(?:https://loonex\.eu)?/guarda/\?id=([^"]+)""#,
     )
@@ -127,7 +154,7 @@ fn parse_episodes(html: &str) -> Vec<ParsedEpisode> {
 
     let mut seen = HashSet::new();
     let mut out = Vec::new();
-    let mut episode_index = 0i32;
+    let mut episode_by_season: HashMap<i32, i32> = HashMap::new();
 
     for cap in link_re.captures_iter(html) {
         let guarda_id = cap
@@ -157,16 +184,28 @@ fn parse_episodes(html: &str) -> Vec<ParsedEpisode> {
 
         let (id_season, id_episode) = parse_guarda_id_season_episode(&guarda_id);
         let season = id_season.unwrap_or_else(|| season_before_position(html, start));
-        episode_index += 1;
-        let episode = id_episode.unwrap_or(episode_index);
+        let episode = id_episode.unwrap_or_else(|| {
+            let counter = episode_by_season.entry(season).or_insert(0);
+            *counter += 1;
+            *counter
+        });
+        let thumbnail = episode_thumbnail_from_block(db, block, series_poster);
 
         out.push(ParsedEpisode {
             guarda_id,
             title,
             season,
             episode,
+            thumbnail,
         });
     }
+
+    out.sort_by(|a, b| {
+        a.season
+            .cmp(&b.season)
+            .then(a.episode.cmp(&b.episode))
+            .then(a.title.cmp(&b.title))
+    });
 
     out
 }
@@ -308,17 +347,21 @@ pub fn fetch_title_meta(db: &crate::db::Database, slug: &str) -> Result<StremioM
     let name = extract_detail_name(&html, slug);
     let poster = extract_poster(db, &html);
     let description = extract_description(&html, &name);
-    let episodes = parse_episodes(&html);
+    let episodes = parse_episodes(&html, db, &poster);
     let movie = is_movie_detail(&html, &episodes);
 
     let mut videos = Vec::new();
     for ep in episodes.iter() {
+        let thumb = ep
+            .thumbnail
+            .clone()
+            .or_else(|| poster.clone());
         videos.push(StremioVideo {
             id: ep.guarda_id.clone(),
             title: ep.title.clone(),
             season: Some(ep.season),
             episode: Some(ep.episode),
-            thumbnail: poster.clone(),
+            thumbnail: thumb,
             released: None,
             description: None,
             runtime: None,
@@ -483,6 +526,7 @@ mod tests {
 
     #[test]
     fn parses_episode_links_without_lookahead() {
+        let db = crate::db::Database::open(std::path::Path::new(":memory:")).expect("db");
         let html = r#"
             <div class="episode-row px-0">
                 <span class="episode-title">Episodio 1</span>
@@ -493,7 +537,7 @@ mod tests {
                 <a href="/guarda/?id=ben10_2005_ep2" class="btn-play-sm">Guarda</a>
             </div>
         "#;
-        let eps = parse_episodes(html);
+        let eps = parse_episodes(html, &db, &None);
         assert_eq!(eps.len(), 2);
         assert_eq!(eps[0].guarda_id, "ben10_2005_ep1");
         assert_eq!(eps[0].title, "Episodio 1");
@@ -514,20 +558,40 @@ mod tests {
 
     #[test]
     fn series_with_one_episode_is_not_movie() {
+        let db = crate::db::Database::open(std::path::Path::new(":memory:")).expect("db");
         let html = r#"<div class="episode-row"><span class="episode-title">Unico</span><a href="/guarda/?id=foo_1x01">x</a></div>"#;
-        let eps = parse_episodes(html);
+        let eps = parse_episodes(html, &db, &None);
         assert!(!is_movie_detail(html, &eps));
     }
 
     #[test]
     fn css_movie_badge_class_does_not_mark_as_movie() {
+        let db = crate::db::Database::open(std::path::Path::new(":memory:")).expect("db");
         let html = r#"
             <style>.movie-badge { background: blue; }</style>
             <div class="episode-row"><span class="episode-title">E1</span><a href="/guarda/?id=foo_1x01">x</a></div>
             <div class="episode-row"><span class="episode-title">E2</span><a href="/guarda/?id=foo_1x02">x</a></div>
         "#;
-        let eps = parse_episodes(html);
+        let eps = parse_episodes(html, &db, &None);
         assert_eq!(eps.len(), 2);
         assert!(!is_movie_detail(html, &eps));
+    }
+
+    #[test]
+    fn episode_numbers_restart_per_season_without_id() {
+        let db = crate::db::Database::open(std::path::Path::new(":memory:")).expect("db");
+        let html = r#"
+            <div class="episode-row"><span class="episode-title">S1E1</span><a href="/guarda/?id=show_a">x</a></div>
+            <div class="episode-row"><span class="episode-title">S1E2</span><a href="/guarda/?id=show_b">x</a></div>
+            <div id="season-tab-2"></div>
+            <div class="episode-row"><span class="episode-title">S2E1</span><a href="/guarda/?id=show_c">x</a></div>
+            <div class="episode-row"><span class="episode-title">S2E2</span><a href="/guarda/?id=show_d">x</a></div>
+        "#;
+        let eps = parse_episodes(html, &db, &None);
+        assert_eq!(eps.len(), 4);
+        assert_eq!(eps[2].season, 2);
+        assert_eq!(eps[2].episode, 1);
+        assert_eq!(eps[3].season, 2);
+        assert_eq!(eps[3].episode, 2);
     }
 }

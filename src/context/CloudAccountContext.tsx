@@ -55,6 +55,10 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
       setUser(data.session?.user ?? null);
       const p = await getCurrentCloudProfile();
       setProfile(p);
+      if (p) {
+        const { importCloudAvatarToMatchingProfile } = await import("../lib/cloudAvatar");
+        await importCloudAvatarToMatchingProfile().catch(() => {});
+      }
     } finally {
       setLoading(false);
     }
@@ -71,7 +75,15 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
       void refresh();
     });
 
-    return () => sub.subscription.unsubscribe();
+    const onCloudProfileChanged = () => {
+      void refresh();
+    };
+    window.addEventListener("branchefy:cloud-profile-changed", onCloudProfileChanged);
+
+    return () => {
+      sub.subscription.unsubscribe();
+      window.removeEventListener("branchefy:cloud-profile-changed", onCloudProfileChanged);
+    };
   }, [configured, refresh]);
 
   const signUp = useCallback(

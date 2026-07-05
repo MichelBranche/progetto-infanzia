@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
+import { enrichLanFriendsWithCloudAvatars } from "../lib/cloudAvatar";
 import { syncLanFriendsPresence } from "../lib/watchPartyApi";
-import type { LanFriendPresence } from "../types/cloud";
+import type { CloudFriend, LanFriendPresence } from "../types/cloud";
 
 const LAN_SYNC_MS = 45_000;
 
@@ -9,6 +10,9 @@ export function useLanFriendPresence(
   profileId: string,
   displayName: string,
   active = true,
+  cloudFriends: CloudFriend[] = [],
+  cloudFriendCode?: string,
+  cloudAvatarUrl?: string,
 ) {
   const [friends, setFriends] = useState<LanFriendPresence[]>([]);
   const [loading, setLoading] = useState(false);
@@ -25,6 +29,8 @@ export function useLanFriendPresence(
           profileId,
           displayName,
           deepScan,
+          cloudFriendCode,
+          cloudAvatarUrl,
         );
         setFriends(list);
       } catch (err) {
@@ -34,7 +40,7 @@ export function useLanFriendPresence(
         setLoading(false);
       }
     },
-    [profileId, displayName],
+    [profileId, displayName, cloudFriendCode, cloudAvatarUrl],
   );
 
   useEffect(() => {
@@ -44,11 +50,16 @@ export function useLanFriendPresence(
     return () => window.clearInterval(interval);
   }, [active, refresh]);
 
-  const onlineFriends = friends.filter((f) => f.online);
-  const offlineFriends = friends.filter((f) => !f.online);
+  const enrichedFriends = useMemo(
+    () => enrichLanFriendsWithCloudAvatars(friends, cloudFriends),
+    [friends, cloudFriends],
+  );
+
+  const onlineFriends = enrichedFriends.filter((f) => f.online);
+  const offlineFriends = enrichedFriends.filter((f) => !f.online);
 
   return {
-    friends,
+    friends: enrichedFriends,
     onlineFriends,
     offlineFriends,
     onlineCount: onlineFriends.length,

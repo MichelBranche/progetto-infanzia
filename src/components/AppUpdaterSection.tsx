@@ -1,5 +1,6 @@
 import { Download, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { useAppUpdaterContext } from "../context/AppUpdaterContext";
+import { SETTINGS_CARD } from "./settings/SettingsUi";
 
 export function AppUpdaterSection() {
   const {
@@ -16,10 +17,12 @@ export function AppUpdaterSection() {
   const showUpToDate = phase === "up-to-date";
 
   return (
-    <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-      <div className="flex items-center gap-2 text-text-primary">
-        <Sparkles className="h-4 w-4 text-accent" />
-        <h3 className="text-[15px] font-medium">Aggiornamenti</h3>
+    <section className={SETTINGS_CARD}>
+      <div className="flex items-center gap-2.5 text-text-primary">
+        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/[0.06]">
+          <Sparkles className="h-4 w-4 text-accent" strokeWidth={2} />
+        </span>
+        <h3 className="font-display text-[16px] font-medium tracking-[-0.02em]">Aggiornamenti</h3>
       </div>
       <p className="mt-2 text-[13px] text-text-muted">
         Versione installata:{" "}

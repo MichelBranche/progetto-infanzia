@@ -3,6 +3,7 @@ export interface CloudProfile {
   email: string;
   displayName: string;
   friendCode: string;
+  avatarUrl?: string;
   createdAt: string;
 }
 
@@ -11,6 +12,7 @@ export interface CloudFriend {
   displayName: string;
   friendCode: string;
   email?: string;
+  avatarUrl?: string;
 }
 
 export interface FriendPresence {
@@ -26,6 +28,7 @@ export interface LanFriendPresence {
   displayName: string;
   online: boolean;
   lastHost?: string;
+  avatarUrl?: string;
 }
 
 export interface CloudFriendRequest {

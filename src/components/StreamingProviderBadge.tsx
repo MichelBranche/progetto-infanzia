@@ -38,6 +38,14 @@ export function StreamingProviderBadge({
     );
   }
 
+  if (catalogPrefix === "youtube") {
+    return (
+      <span className={`${base} text-[11px] font-bold ${className}`}>
+        YouTube
+      </span>
+    );
+  }
+
   return (
     <span className={`${base} text-[10px] font-semibold uppercase tracking-wider ${className}`}>
       Web

@@ -2,7 +2,12 @@
 export const STREMIO_ADDONS_ENABLED = false;
 
 export function isBuiltinStreamingCatalog(catalogPrefix?: string): boolean {
-  return catalogPrefix === "sc" || catalogPrefix === "saturn" || catalogPrefix === "loonex";
+  return (
+    catalogPrefix === "sc" ||
+    catalogPrefix === "saturn" ||
+    catalogPrefix === "loonex" ||
+    catalogPrefix === "youtube"
+  );
 }
 
 export function isStremioAddonPreview(preview: {

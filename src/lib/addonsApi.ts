@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import type {
   DebridConfig,
   InstalledAddon,
@@ -14,7 +14,16 @@ import type {
 } from "../types/stremio";
 import type { CanPlayResult } from "./parentalApi";
 import type { PlayerStreamAudioLanguage } from "./playerAudioLanguage";
+import type { AchievementUnlock } from "./achievements";
+import { isWatchCompletedRatio, streamingCompletionKey } from "./achievements";
+import { recordCompletion } from "./achievementsApi";
 import type { StreamingListInput } from "./myList";
+import {
+  listDevStreamingList,
+  listDevStreamingWatchHistory,
+  saveDevStreamingWatchProgress,
+  toggleDevStreamingList,
+} from "./streamingDevStore";
 
 export const CINEMETA_MANIFEST =
   "https://v3-cinemeta.strem.io/manifest.json";
@@ -211,11 +220,44 @@ export async function resolveLoonexStream(
   });
 }
 
+export async function fetchYoutubeMeta(playlistId: string): Promise<StremioMeta> {
+  return invoke<StremioMeta>("fetch_youtube_meta_cmd", { playlistId });
+}
+
+export async function resolveYoutubeStream(
+  playlistId: string,
+  videoId: string,
+): Promise<PlayableStream> {
+  return invoke<PlayableStream>("resolve_youtube_stream_cmd", {
+    playlistId,
+    videoId,
+  });
+}
+
 export async function saveStreamingWatchProgress(
   profileId: string,
   input: StreamingWatchProgressInput,
-): Promise<void> {
-  return invoke("update_streaming_watch_progress_cmd", { profileId, input });
+): Promise<AchievementUnlock[]> {
+  if (!isTauri()) {
+    saveDevStreamingWatchProgress(profileId, input);
+  } else {
+    await invoke("update_streaming_watch_progress_cmd", { profileId, input });
+  }
+
+  if (!isWatchCompletedRatio(input.positionSecs, input.durationSecs)) {
+    return [];
+  }
+
+  try {
+    return await recordCompletion(
+      profileId,
+      streamingCompletionKey(input),
+      "streaming",
+      input.titleName,
+    );
+  } catch {
+    return [];
+  }
 }
 
 export async function getStreamingWatchProgress(
@@ -259,6 +301,9 @@ export async function getStreamingWatchHistory(
   profileId: string,
   limit = 50,
 ): Promise<StreamingContinueItem[]> {
+  if (!isTauri()) {
+    return listDevStreamingWatchHistory(profileId, limit);
+  }
   return invoke<StreamingContinueItem[]>("get_streaming_watch_history_cmd", {
     profileId,
     limit,
@@ -375,6 +420,9 @@ export async function resolveTorrentSource(
 export async function listStreamingList(
   profileId: string,
 ): Promise<StremioMetaPreview[]> {
+  if (!isTauri()) {
+    return listDevStreamingList(profileId);
+  }
   return invoke<StremioMetaPreview[]>("list_streaming_list_cmd", { profileId });
 }
 
@@ -382,5 +430,8 @@ export async function toggleStreamingList(
   profileId: string,
   item: StreamingListInput,
 ): Promise<boolean> {
+  if (!isTauri()) {
+    return toggleDevStreamingList(profileId, item);
+  }
   return invoke<boolean>("toggle_streaming_list_cmd", { profileId, item });
 }

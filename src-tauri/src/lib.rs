@@ -1,4 +1,5 @@
 mod addon_proxy;
+mod achievements;
 mod cast;
 mod catalog_search;
 mod db;
@@ -12,8 +13,11 @@ mod models;
 mod network;
 mod parental;
 mod profiles;
+mod profile_avatar;
 mod loonex_catalog;
 mod loonex_playback;
+mod youtube_catalog;
+mod youtube_playback;
 mod saturn_catalog;
 mod saturn_playback;
 mod sc_catalog;
@@ -374,17 +378,73 @@ fn create_profile_cmd(
 }
 
 #[tauri::command]
-fn delete_profile_cmd(state: State<'_, AppState>, id: String) -> Result<(), String> {
+fn delete_profile_cmd(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    if let Ok(dir) = app.path().app_data_dir() {
+        profile_avatar::remove_legacy_avatar_files(&dir.join("profile-avatars"), &id);
+    }
     state.db.delete_profile(&id)
 }
 
 #[tauri::command]
 fn update_profile_cmd(
+    app: AppHandle,
     state: State<'_, AppState>,
     id: String,
     input: UpdateProfileInput,
 ) -> Result<Profile, String> {
-    state.db.update_profile(&id, &input)
+    let before = state.db.get_profile(&id)?;
+    let profile = state.db.update_profile(&id, &input)?;
+    let was_photo = before
+        .as_ref()
+        .and_then(|p| p.avatar_style.as_deref())
+        == Some("photo");
+    let is_photo = profile.avatar_style.as_deref() == Some("photo");
+    if was_photo && !is_photo {
+        let _ = state.db.clear_profile_avatar(&id);
+        if let Ok(dir) = app.path().app_data_dir() {
+            profile_avatar::remove_legacy_avatar_files(&dir.join("profile-avatars"), &id);
+        }
+    }
+    Ok(profile)
+}
+
+#[tauri::command]
+fn set_profile_avatar_bytes_cmd(
+    state: State<'_, AppState>,
+    profile_id: String,
+    bytes: Vec<u8>,
+) -> Result<Profile, String> {
+    profile_avatar::save_profile_avatar_bytes(&state.db, &profile_id, &bytes)?;
+    state
+        .db
+        .get_profile(&profile_id)?
+        .ok_or_else(|| "Profilo non trovato".to_string())
+}
+
+#[tauri::command]
+fn set_profile_avatar_cmd(
+    state: State<'_, AppState>,
+    profile_id: String,
+    source_path: String,
+) -> Result<Profile, String> {
+    profile_avatar::save_profile_avatar_from_file(&state.db, &profile_id, &source_path)?;
+    state
+        .db
+        .get_profile(&profile_id)?
+        .ok_or_else(|| "Profilo non trovato".to_string())
+}
+
+#[tauri::command]
+fn get_profile_avatar_data_url_cmd(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<Option<String>, String> {
+    let bytes = state.db.get_profile_avatar_jpeg(&profile_id)?;
+    Ok(bytes.as_deref().map(profile_avatar::profile_avatar_data_url))
 }
 
 #[tauri::command]
@@ -528,8 +588,68 @@ fn end_watch_session_cmd(
     state: State<'_, AppState>,
     session_id: String,
     completed: bool,
-) -> Result<(), String> {
-    state.db.end_watch_session(&session_id, completed)
+) -> Result<Vec<achievements::AchievementUnlock>, String> {
+    let session = state.db.get_watch_session_completion(&session_id)?;
+    state.db.end_watch_session(&session_id, completed)?;
+    if !completed {
+        return Ok(Vec::new());
+    }
+    let Some((profile_id, media_id, title, source_kind)) = session else {
+        return Ok(Vec::new());
+    };
+    achievements::record_completion(
+        &state.db,
+        &profile_id,
+        &format!("{source_kind}:{media_id}"),
+        source_kind.as_str(),
+        &title,
+        0,
+    )
+}
+
+#[tauri::command]
+fn get_achievements_state_cmd(
+    state: State<'_, AppState>,
+    profile_id: String,
+    cloud_friends_count: Option<i32>,
+) -> Result<achievements::ProfileAchievementsState, String> {
+    achievements::get_state(
+        &state.db,
+        &profile_id,
+        cloud_friends_count.unwrap_or(0),
+    )
+}
+
+#[tauri::command]
+fn sync_achievements_cmd(
+    state: State<'_, AppState>,
+    profile_id: String,
+    cloud_friends_count: Option<i32>,
+) -> Result<Vec<achievements::AchievementUnlock>, String> {
+    achievements::sync_profile(
+        &state.db,
+        &profile_id,
+        cloud_friends_count.unwrap_or(0),
+    )
+}
+
+#[tauri::command]
+fn record_completion_cmd(
+    state: State<'_, AppState>,
+    profile_id: String,
+    completion_key: String,
+    kind: String,
+    title: String,
+    cloud_friends_count: Option<i32>,
+) -> Result<Vec<achievements::AchievementUnlock>, String> {
+    achievements::record_completion(
+        &state.db,
+        &profile_id,
+        &completion_key,
+        &kind,
+        &title,
+        cloud_friends_count.unwrap_or(0),
+    )
 }
 
 #[tauri::command]
@@ -716,6 +836,16 @@ fn merge_external_catalog(
     response.total_count = response.index.len();
 }
 
+async fn fetch_youtube_catalog_fast(
+    db: Arc<crate::db::Database>,
+) -> Option<youtube_catalog::YoutubeCatalogResponse> {
+    let task = tokio::task::spawn_blocking(move || youtube_catalog::fetch_catalog(db.as_ref()));
+    match tokio::time::timeout(std::time::Duration::from_secs(30), task).await {
+        Ok(Ok(Ok(response))) => Some(response),
+        _ => None,
+    }
+}
+
 #[tauri::command]
 async fn fetch_sc_catalog_cmd(
     state: State<'_, AppState>,
@@ -723,7 +853,8 @@ async fn fetch_sc_catalog_cmd(
     let sc_enabled = sc_catalog::catalog_enabled(&state.db);
     let saturn_enabled = saturn_catalog::enabled(&state.db);
     let loonex_enabled = loonex_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled {
+    let youtube_enabled = youtube_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled {
         return Ok(sc_catalog::ScCatalogResponse {
             rows: Vec::new(),
             index: Vec::new(),
@@ -778,7 +909,7 @@ async fn fetch_sc_catalog_cmd(
             return None;
         }
         match tokio::time::timeout(
-            std::time::Duration::from_secs(4),
+            std::time::Duration::from_secs(12),
             fetch_loonex_catalog_fast(Arc::clone(&db)),
         )
         .await
@@ -788,7 +919,23 @@ async fn fetch_sc_catalog_cmd(
         }
     };
 
-    let (sc_result, saturn, loonex) = tokio::join!(sc_future, saturn_future, loonex_future);
+    let youtube_future = async {
+        if !youtube_enabled {
+            return None;
+        }
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            fetch_youtube_catalog_fast(Arc::clone(&db)),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => None,
+        }
+    };
+
+    let (sc_result, saturn, loonex, youtube) =
+        tokio::join!(sc_future, saturn_future, loonex_future, youtube_future);
     let mut response = sc_result?;
 
     if let Some(saturn) = saturn {
@@ -805,6 +952,19 @@ async fn fetch_sc_catalog_cmd(
             loonex.rows,
             loonex.index,
             loonex.synced_at,
+        );
+        if loonex.total_count < 120 || loonex_catalog::index_needs_refresh(state.db.as_ref()) {
+            response.needs_background_sync = true;
+        }
+    } else if loonex_enabled {
+        response.needs_background_sync = true;
+    }
+    if let Some(youtube) = youtube {
+        merge_external_catalog(
+            &mut response,
+            youtube.rows,
+            youtube.index,
+            youtube.synced_at,
         );
     }
 
@@ -852,7 +1012,8 @@ async fn refresh_sc_catalog_cmd(
     let sc_enabled = sc_catalog::catalog_enabled(&state.db);
     let saturn_enabled = saturn_catalog::enabled(&state.db);
     let loonex_enabled = loonex_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled {
+    let youtube_enabled = youtube_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled {
         return Ok(sc_catalog::ScCatalogResponse {
             rows: Vec::new(),
             index: Vec::new(),
@@ -894,6 +1055,16 @@ async fn refresh_sc_catalog_cmd(
                 loonex.rows,
                 loonex.index,
                 loonex.synced_at,
+            );
+        }
+
+        if youtube_enabled {
+            let youtube = youtube_catalog::refresh_catalog(db.as_ref())?;
+            merge_external_catalog(
+                &mut response,
+                youtube.rows,
+                youtube.index,
+                youtube.synced_at,
             );
         }
 
@@ -1000,7 +1171,8 @@ async fn search_sc_catalog_page_inner(
     let sc_enabled = sc_catalog::catalog_enabled(&state.db);
     let saturn_enabled = saturn_catalog::enabled(&state.db);
     let loonex_enabled = loonex_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled {
+    let youtube_enabled = youtube_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled {
         return Ok(catalog_search::SearchCatalogPage {
             items: Vec::new(),
             total: 0,
@@ -1022,6 +1194,7 @@ async fn search_sc_catalog_page_inner(
             sc_enabled,
             saturn_enabled,
             loonex_enabled,
+            youtube_enabled,
             &cdn,
             &locale,
         )
@@ -1118,6 +1291,39 @@ async fn resolve_loonex_stream_cmd(
     })
     .await
     .map_err(|e| format!("Errore riproduzione Loonex: {e}"))?
+}
+
+#[tauri::command]
+async fn fetch_youtube_meta_cmd(
+    state: State<'_, AppState>,
+    playlist_id: String,
+) -> Result<StremioMeta, String> {
+    if !youtube_catalog::enabled(&state.db) {
+        return Err("Catalogo YouTube disabilitato".into());
+    }
+    let db = Arc::clone(&state.db);
+    tokio::task::spawn_blocking(move || {
+        youtube_playback::fetch_title_meta(db.as_ref(), &playlist_id)
+    })
+    .await
+    .map_err(|e| format!("Errore meta YouTube: {e}"))?
+}
+
+#[tauri::command]
+async fn resolve_youtube_stream_cmd(
+    state: State<'_, AppState>,
+    playlist_id: String,
+    video_id: String,
+) -> Result<PlayableStream, String> {
+    if !youtube_catalog::enabled(&state.db) {
+        return Err("Catalogo YouTube disabilitato".into());
+    }
+    let db = Arc::clone(&state.db);
+    tokio::task::spawn_blocking(move || {
+        youtube_playback::resolve_playback(db.as_ref(), &playlist_id, &video_id)
+    })
+    .await
+    .map_err(|e| format!("Errore riproduzione YouTube: {e}"))?
 }
 
 #[tauri::command]
@@ -1749,6 +1955,8 @@ async fn sync_lan_friends_presence_cmd(
     profile_id: String,
     display_name: String,
     deep_scan: Option<bool>,
+    cloud_friend_code: Option<String>,
+    avatar_url: Option<String>,
 ) -> Result<Vec<LanFriendPresence>, String> {
     let friend_code = state.db.get_or_create_friend_code(&profile_id)?;
     set_device_presence(
@@ -1757,6 +1965,10 @@ async fn sync_lan_friends_presence_cmd(
             profile_id: profile_id.clone(),
             friend_code: friend_code.clone(),
             display_name: display_name.clone(),
+            cloud_friend_code: cloud_friend_code
+                .map(|c| c.trim().to_uppercase())
+                .filter(|c| !c.is_empty()),
+            avatar_url: avatar_url.filter(|u| !u.trim().is_empty()),
         },
     );
 
@@ -1896,9 +2108,11 @@ fn init_app(handle: &AppHandle) -> Result<AppState, String> {
         .join("library.db");
 
     let db = Arc::new(Database::open(&db_path)?);
+    let _ = profile_avatar::migrate_filesystem_avatars_to_db(handle, db.as_ref());
     let _ = db.ensure_catalog_addon();
     let _ = saturn_catalog::ensure_defaults(&db);
     let _ = loonex_catalog::ensure_defaults(&db);
+    let _ = youtube_catalog::ensure_defaults(&db);
     let _ = db.sync_empty_child_allowlists();
     let media_root = parking_lot::RwLock::new(resolve_media_root(handle, &db));
     scan_library(&db, media_root.read().as_path())?;
@@ -1965,6 +2179,9 @@ pub fn run() {
             create_profile_cmd,
             delete_profile_cmd,
             update_profile_cmd,
+            set_profile_avatar_cmd,
+            set_profile_avatar_bytes_cmd,
+            get_profile_avatar_data_url_cmd,
             verify_profile_pin_cmd,
             set_profile_pin_cmd,
             remove_profile_pin_cmd,
@@ -1982,6 +2199,9 @@ pub fn run() {
             start_watch_session_cmd,
             update_watch_session_cmd,
             end_watch_session_cmd,
+            get_achievements_state_cmd,
+            sync_achievements_cmd,
+            record_completion_cmd,
             install_addon_cmd,
             remove_addon_cmd,
             list_addons_cmd,
@@ -2003,6 +2223,8 @@ pub fn run() {
             resolve_saturn_stream_cmd,
             fetch_loonex_meta_cmd,
             resolve_loonex_stream_cmd,
+            fetch_youtube_meta_cmd,
+            resolve_youtube_stream_cmd,
             resolve_sc_preview_cmd,
             update_streaming_watch_progress_cmd,
             get_streaming_watch_progress_cmd,

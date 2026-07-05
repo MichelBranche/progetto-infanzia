@@ -84,7 +84,7 @@ export function SectionBrowsePage({
 
   if (items.length === 0) {
     return (
-      <div className="flex min-h-[55vh] flex-col items-center justify-center page-px pt-24">
+      <div className="flex min-h-[55vh] flex-col items-center justify-center page-px pt-8">
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}

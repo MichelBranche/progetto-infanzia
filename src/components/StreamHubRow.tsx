@@ -12,9 +12,9 @@ const HUB_TILES: HubTile[] = [
   {
     id: "cartoni",
     label: "Cartoni",
-    subtitle: "Animazione",
+    subtitle: "Archivio",
     cover: "/hub/copertina-cartoni.png",
-    glow: "group-hover:shadow-[0_0_40px_rgba(59,130,246,0.35)]",
+    glow: "group-hover:shadow-[0_0_40px_rgba(239,68,68,0.32)]",
   },
   {
     id: "film",

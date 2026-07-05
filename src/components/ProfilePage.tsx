@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Clock, Library, Loader2, X } from "lucide-react";
+import { Clock, Library, Loader2, Trophy, Users, X } from "lucide-react";
 import type { Profile } from "../types/profile";
 import type { MediaItem } from "../types/media";
 import type { StremioMetaPreview } from "../types/stremio";
 import { MediaGrid } from "./MediaGrid";
 import { FriendsPage } from "./FriendsPage";
 import { ProfileHero } from "./profile/ProfileHero";
+import { ProfileEmptyState, ProfileTabBar } from "./profile/ProfileUi";
 import { getStreamingWatchHistory } from "../lib/addonsApi";
 import { isWatchInProgress, toBrowseItems } from "../lib/browse";
 import {
@@ -25,8 +26,14 @@ import {
   profileCustomizeToUpdate,
   valueFromProfile,
 } from "./profile/ProfileCustomizeForm";
+import { PROFILE_CARD } from "./profile/ProfileUi";
+import { AchievementsPanel } from "./profile/AchievementsPanel";
+import { useAchievements } from "../hooks/useAchievements";
+import { isTauri } from "@tauri-apps/api/core";
+import { listCloudFriends } from "../lib/cloudFriends";
+import { listFriends } from "../lib/watchPartyApi";
 
-export type ProfileTab = "watched" | "list" | "friends";
+export type ProfileTab = "watched" | "list" | "friends" | "achievements";
 
 interface ProfilePageProps {
   profile: Profile;
@@ -46,10 +53,11 @@ interface ProfilePageProps {
   pendingFriendRequests?: number;
 }
 
-const tabs: { id: ProfileTab; label: string; index: string }[] = [
-  { id: "watched", label: "Guardati", index: "01" },
-  { id: "list", label: "La mia lista", index: "02" },
-  { id: "friends", label: "Amici", index: "03" },
+const tabs: { id: ProfileTab; label: string; icon: typeof Clock }[] = [
+  { id: "watched", label: "Guardati", icon: Clock },
+  { id: "list", label: "La mia lista", icon: Library },
+  { id: "friends", label: "Amici", icon: Users },
+  { id: "achievements", label: "Traguardi", icon: Trophy },
 ];
 
 export function ProfilePage({
@@ -77,6 +85,9 @@ export function ProfilePage({
     profileId,
     profile.name,
     friendsTabActive,
+    cloudPresence.friends,
+    cloudProfile?.friendCode,
+    cloudProfile?.avatarUrl,
   );
 
   const [customizing, setCustomizing] = useState(false);
@@ -86,6 +97,33 @@ export function ProfilePage({
     Awaited<ReturnType<typeof getStreamingWatchHistory>>
   >([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [achievementFriendsBoost, setAchievementFriendsBoost] = useState(0);
+
+  const achievements = useAchievements(profileId, achievementFriendsBoost);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [lanFriends, cloudFriends] = await Promise.all([
+          listFriends(profileId),
+          cloudProfile ? listCloudFriends() : Promise.resolve([]),
+        ]);
+        if (!cancelled) {
+          setAchievementFriendsBoost(
+            isTauri()
+              ? cloudFriends.length
+              : lanFriends.length + cloudFriends.length,
+          );
+        }
+      } catch {
+        if (!cancelled) setAchievementFriendsBoost(0);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [profileId, cloudProfile, friendsTabActive, activeTab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -144,113 +182,108 @@ export function ProfilePage({
         }}
       />
 
-      <div className="page-px mt-8 border-b border-white/[0.06]">
-        <nav className="-mb-px flex gap-6 overflow-x-auto">
-          {tabs.map(({ id, label, index }) => {
-            const active = activeTab === id;
-            const tabBadge =
-              id === "friends" && pendingFriendRequests > 0
-                ? pendingFriendRequests
-                : undefined;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => onTabChange(id)}
-                className={`group relative flex shrink-0 items-center gap-2.5 pb-3 text-[12px] font-medium uppercase tracking-[0.12em] transition-colors ${
-                  active
-                    ? "text-text-primary"
-                    : "text-text-muted hover:text-text-secondary"
-                }`}
-              >
-                <span
-                  className={`text-[10px] tabular-nums ${
-                    active ? "text-text-secondary" : "text-text-muted/50"
-                  }`}
-                >
-                  {index}
-                </span>
-                {label}
-                {tabBadge != null && (
-                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-semibold text-white">
-                    {tabBadge > 9 ? "9+" : tabBadge}
-                  </span>
-                )}
-                <span
-                  className={`absolute bottom-0 left-0 h-px bg-white transition-all duration-300 ${
-                    active ? "w-full" : "w-0 group-hover:w-full group-hover:opacity-30"
-                  }`}
-                />
-              </button>
-            );
-          })}
-        </nav>
+      <div className="page-px mt-8">
+        <div className="mx-auto max-w-3xl">
+          <ProfileTabBar
+            tabs={tabs}
+            active={activeTab}
+            onChange={onTabChange}
+            badge={{ friends: pendingFriendRequests }}
+          />
+        </div>
       </div>
 
-      {activeTab === "watched" && (
-        <div className="mt-8">
-          {historyLoading ? (
-            <div className="flex justify-center py-20">
-              <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+      <div className="page-px mt-8">
+        <div className="mx-auto max-w-6xl">
+          {activeTab === "watched" && (
+            <div>
+              {historyLoading ? (
+                <div className="flex justify-center py-24">
+                  <Loader2 className="h-7 w-7 animate-spin text-text-muted" />
+                </div>
+              ) : watchedItems.length === 0 ? (
+                <ProfileEmptyState
+                  icon={Clock}
+                  title="Nessun titolo guardato"
+                  description="I film e le serie che inizi a guardare con questo profilo compariranno qui, così puoi riprendere da dove avevi lasciato."
+                />
+              ) : (
+                <MediaGrid
+                  items={watchedItems}
+                  onPlay={onPlay}
+                  onPlayStreaming={onPlayStreaming}
+                  onToggleFavorite={onToggleFavorite}
+                  onToggleStreamingList={onToggleStreamingList}
+                  onEdit={onEdit}
+                />
+              )}
             </div>
-          ) : watchedItems.length === 0 ? (
-            <div className="page-px flex flex-col items-center justify-center py-20 text-center">
-              <Clock className="mb-4 h-8 w-8 text-text-muted/40" strokeWidth={1.5} />
-              <p className="max-w-sm text-[15px] text-text-secondary">
-                Non hai ancora guardato nulla con questo profilo.
-              </p>
+          )}
+
+          {activeTab === "list" && (
+            <div>
+              {listItems.length === 0 ? (
+                <ProfileEmptyState
+                  icon={Library}
+                  title="La lista è vuota"
+                  description="Salva i titoli che ti interessano premendo + su un film o una serie. Li troverai tutti qui, pronti da guardare."
+                />
+              ) : (
+                <MediaGrid
+                  items={listItems}
+                  onPlay={onPlay}
+                  onPlayStreaming={onPlayStreaming}
+                  onToggleFavorite={onToggleFavorite}
+                  onToggleStreamingList={onToggleStreamingList}
+                  onEdit={onEdit}
+                />
+              )}
             </div>
-          ) : (
-            <MediaGrid
-              items={watchedItems}
-              onPlay={onPlay}
-              onPlayStreaming={onPlayStreaming}
-              onToggleFavorite={onToggleFavorite}
-              onToggleStreamingList={onToggleStreamingList}
-              onEdit={onEdit}
+          )}
+
+          {activeTab === "friends" && (
+            <FriendsPage
+              embedded
+              profileId={profileId}
+              profileName={profile.name}
+              onJoinSession={onJoinSession}
+              cloudOnline={cloudPresence.onlineFriends}
+              cloudOffline={cloudPresence.offlineFriends}
+              cloudPresenceLoading={cloudPresence.loading}
+              onRefreshCloudPresence={cloudPresence.refresh}
+              lanOnline={lanPresence.onlineFriends}
+              lanOffline={lanPresence.offlineFriends}
+              lanPresenceLoading={lanPresence.loading}
+              onRefreshLanPresence={() => void lanPresence.refresh(true)}
+              onFriendsChanged={() => {
+                void (async () => {
+                  try {
+                    const [lanFriends, cloudFriends] = await Promise.all([
+                      listFriends(profileId),
+                      cloudProfile ? listCloudFriends() : Promise.resolve([]),
+                    ]);
+                    setAchievementFriendsBoost(
+                      isTauri()
+                        ? cloudFriends.length
+                        : lanFriends.length + cloudFriends.length,
+                    );
+                  } catch {
+                    setAchievementFriendsBoost(0);
+                  }
+                  await achievements.sync();
+                })();
+              }}
+            />
+          )}
+
+          {activeTab === "achievements" && (
+            <AchievementsPanel
+              state={achievements.state}
+              loading={achievements.loading}
             />
           )}
         </div>
-      )}
-
-      {activeTab === "list" && (
-        <div className="mt-8">
-          {listItems.length === 0 ? (
-            <div className="page-px flex flex-col items-center justify-center py-20 text-center">
-              <Library className="mb-4 h-8 w-8 text-text-muted/40" strokeWidth={1.5} />
-              <p className="max-w-sm text-[15px] text-text-secondary">
-                La lista è vuota. Premi + su un titolo per salvarlo qui.
-              </p>
-            </div>
-          ) : (
-            <MediaGrid
-              items={listItems}
-              onPlay={onPlay}
-              onPlayStreaming={onPlayStreaming}
-              onToggleFavorite={onToggleFavorite}
-              onToggleStreamingList={onToggleStreamingList}
-              onEdit={onEdit}
-            />
-          )}
-        </div>
-      )}
-
-      {activeTab === "friends" && (
-        <FriendsPage
-          embedded
-          profileId={profileId}
-          profileName={profile.name}
-          onJoinSession={onJoinSession}
-          cloudOnline={cloudPresence.onlineFriends}
-          cloudOffline={cloudPresence.offlineFriends}
-          cloudPresenceLoading={cloudPresence.loading}
-          onRefreshCloudPresence={cloudPresence.refresh}
-          lanOnline={lanPresence.onlineFriends}
-          lanOffline={lanPresence.offlineFriends}
-          lanPresenceLoading={lanPresence.loading}
-          onRefreshLanPresence={() => void lanPresence.refresh(true)}
-        />
-      )}
+      </div>
 
       <AnimatePresence>
         {customizing && (
@@ -258,32 +291,33 @@ export function ProfilePage({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[80] flex items-center justify-center bg-void/90 p-6 backdrop-blur-sm"
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-void/92 p-4 backdrop-blur-md sm:p-6"
           >
             <motion.div
-              initial={{ opacity: 0, y: 16, scale: 0.98 }}
+              initial={{ opacity: 0, y: 20, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 16, scale: 0.98 }}
-              className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/[0.08] bg-[#0a0a0d] p-6 shadow-2xl sm:p-8"
+              exit={{ opacity: 0, y: 16, scale: 0.97 }}
+              className={`relative max-h-[min(90vh,52rem)] w-full max-w-lg overflow-y-auto p-6 shadow-2xl sm:p-8 ${PROFILE_CARD}`}
             >
               <button
                 type="button"
                 onClick={() => setCustomizing(false)}
-                className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full text-text-muted hover:bg-white/[0.06] hover:text-text-primary"
+                className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-white/[0.06] hover:text-text-primary"
                 aria-label="Chiudi"
               >
                 <X className="h-4 w-4" />
               </button>
-              <p className="mb-1 text-[10px] font-medium uppercase tracking-[0.28em] text-text-muted">
+              <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-text-muted">
                 Profilo
               </p>
-              <h2 className="font-display mb-6 text-2xl font-semibold tracking-[-0.03em] text-text-primary">
+              <h2 className="font-display mb-6 mt-1 text-2xl font-semibold tracking-[-0.03em] text-text-primary">
                 Personalizza
               </h2>
               <ProfileCustomizeForm
                 initial={valueFromProfile(profile)}
+                previewProfileId={profileId}
                 showRole={false}
-                submitLabel="Salva"
+                submitLabel="Salva modifiche"
                 submitting={customizeSubmitting}
                 error={customizeError}
                 onCancel={() => setCustomizing(false)}

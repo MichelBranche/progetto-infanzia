@@ -12,6 +12,7 @@ export interface MediaItem {
   episode?: number;
   posterPath?: string;
   posterUrl?: string;
+  backgroundUrl?: string;
   seriesPosterPath?: string;
   seriesPosterUrl?: string;
   watchPosition?: number;

@@ -150,6 +150,15 @@ function episodeProgressPercent(progress?: TitleDetailEpisodeProgress) {
   } as MediaItem);
 }
 
+function isReliableEpisodePoster(url: string): boolean {
+  const trimmed = url.trim();
+  return (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.includes("ytimg.com/")
+  );
+}
+
 export function stremioVideosToDetailEpisodes(
   meta: StremioMeta,
   videos: StremioMeta["videos"],
@@ -158,8 +167,12 @@ export function stremioVideosToDetailEpisodes(
   const isSeries = meta.type === "series" || meta.type === "channel";
   return sortedEpisodes(
     videos.map((video, index) => {
+      const thumb = video.thumbnail?.trim();
+      const sameAsSeriesPoster = Boolean(
+        thumb && meta.poster && thumb === meta.poster,
+      );
       const genericThumb =
-        !video.thumbnail || video.thumbnail === meta.poster;
+        !thumb || (sameAsSeriesPoster && !isReliableEpisodePoster(thumb));
       return {
         id: video.id,
         title: isSeries

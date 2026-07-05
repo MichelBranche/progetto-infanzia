@@ -10,8 +10,11 @@ create table if not exists public.cloud_profiles (
   email text not null,
   display_name text not null,
   friend_code text not null unique,
+  avatar_url text,
   created_at timestamptz not null default now()
 );
+
+alter table public.cloud_profiles add column if not exists avatar_url text;
 
 create index if not exists cloud_profiles_email_idx on public.cloud_profiles (lower(email));
 
@@ -686,3 +689,54 @@ grant execute on function public.dev_feedback_purge_trash() to authenticated;
 -- 4) watch_party_rooms: GET senza codice non deve elencare stanze altrui.
 --    join_watch_party_room('CODICE') registra membership e abilita SELECT/Realtime.
 --    La policy su watch_party_members NON deve leggere watch_party_rooms (ricorsione RLS).
+--
+-- ---------------------------------------------------------------------------
+-- Avatar profilo locale (app desktop)
+-- I profili famiglia (genitore/bambino) salvano la foto JPEG in SQLite locale
+-- (library.db → colonna profiles.avatar_image_jpeg, max 1 MB).
+-- Non serve configurazione Supabase per questi avatar.
+--
+-- Avatar account cloud (sync tra dispositivi / visibile agli amici)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('profile-avatars', 'profile-avatars', true, 1048576, array['image/jpeg'])
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "profile avatars read" on storage.objects;
+create policy "profile avatars read"
+  on storage.objects for select
+  to authenticated
+  using (bucket_id = 'profile-avatars');
+
+drop policy if exists "profile avatars insert own" on storage.objects;
+create policy "profile avatars insert own"
+  on storage.objects for insert
+  to authenticated
+  with check (
+    bucket_id = 'profile-avatars'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
+
+drop policy if exists "profile avatars update own" on storage.objects;
+create policy "profile avatars update own"
+  on storage.objects for update
+  to authenticated
+  using (
+    bucket_id = 'profile-avatars'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  )
+  with check (
+    bucket_id = 'profile-avatars'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
+
+drop policy if exists "profile avatars delete own" on storage.objects;
+create policy "profile avatars delete own"
+  on storage.objects for delete
+  to authenticated
+  using (
+    bucket_id = 'profile-avatars'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );

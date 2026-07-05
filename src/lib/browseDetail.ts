@@ -23,7 +23,8 @@ export function browseDetailAction(
     if (
       preview.catalogPrefix === "sc" ||
       preview.catalogPrefix === "saturn" ||
-      preview.catalogPrefix === "loonex"
+      preview.catalogPrefix === "loonex" ||
+      preview.catalogPrefix === "youtube"
     ) {
       const target = previewToDetailTarget(preview);
       if (!target.slug) return null;

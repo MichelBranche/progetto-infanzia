@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { listStreamingList, toggleStreamingList } from "./addonsApi";
+import { syncAchievements } from "./achievementsApi";
 import {
   markStreamingInMyList,
   previewToListInput,
@@ -41,6 +42,7 @@ export function useMyList(profileId: string) {
       if (!profileId) return false;
       const added = await toggleStreamingList(profileId, previewToListInput(preview));
       await refresh();
+      void syncAchievements(profileId);
       return added;
     },
     [profileId, refresh],

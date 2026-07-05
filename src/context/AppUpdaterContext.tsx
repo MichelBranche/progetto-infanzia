@@ -1,8 +1,9 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { useAppUpdater } from "../hooks/useAppUpdater";
 import { UpdatePrompt } from "../components/UpdatePrompt";
 import type { UpdaterPhase, UpdaterProgress } from "../lib/appUpdater";
+import { playUpdateNotificationSound } from "../lib/updateNotificationSound";
 
 interface AppUpdaterContextValue {
   phase: UpdaterPhase;
@@ -21,6 +22,20 @@ const AppUpdaterContext = createContext<AppUpdaterContextValue | null>(null);
 
 export function AppUpdaterProvider({ children }: { children: ReactNode }) {
   const updater = useAppUpdater({ autoCheck: true });
+  const soundedVersionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (
+      updater.phase !== "available" ||
+      !updater.showPrompt ||
+      !updater.pendingUpdate
+    ) {
+      return;
+    }
+    if (soundedVersionRef.current === updater.pendingUpdate.version) return;
+    soundedVersionRef.current = updater.pendingUpdate.version;
+    playUpdateNotificationSound();
+  }, [updater.phase, updater.showPrompt, updater.pendingUpdate]);
 
   return (
     <AppUpdaterContext.Provider value={updater}>

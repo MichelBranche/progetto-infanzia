@@ -1,6 +1,23 @@
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { useRef, useState, type ReactNode } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Camera,
+  ImagePlus,
+  Palette,
+  Smile,
+  Trash2,
+  Type,
+} from "lucide-react";
+import { isTauri } from "@tauri-apps/api/core";
+import { useCloudAccount } from "../../context/CloudAccountContext";
+import { isCloudEnabled } from "../../lib/cloudConfig";
 import { ProfileAvatar } from "../ProfileAvatar";
+import {
+  PROFILE_AVATAR_ACCEPT,
+  pickProfileAvatarPath,
+  profileAvatarPreviewFromPath,
+  readProfileAvatarFile,
+} from "../../lib/profileAvatar";
 import {
   PROFILE_COLORS,
   PROFILE_EMOJIS,
@@ -19,6 +36,7 @@ export interface ProfileCustomizeValue {
   accentColor?: string;
   avatarStyle: ProfileAvatarStyle;
   avatarEmoji?: string;
+  avatarImagePath?: string;
 }
 
 function toPreview(base: Partial<Profile>, value: ProfileCustomizeValue): Profile {
@@ -30,6 +48,8 @@ function toPreview(base: Partial<Profile>, value: ProfileCustomizeValue): Profil
     accentColor: value.accentColor,
     avatarStyle: value.avatarStyle,
     avatarEmoji: value.avatarStyle === "emoji" ? value.avatarEmoji : undefined,
+    avatarImagePath:
+      value.avatarStyle === "photo" ? value.avatarImagePath : undefined,
     createdAt: base.createdAt ?? "",
     hasPin: base.hasPin ?? false,
   };
@@ -61,12 +81,17 @@ export function profileCustomizeToUpdate(
     avatarStyle: value.avatarStyle,
     avatarEmoji:
       value.avatarStyle === "emoji" ? (value.avatarEmoji ?? null) : null,
+    avatarImagePath:
+      value.avatarStyle === "photo"
+        ? (value.avatarImagePath ?? null)
+        : null,
   };
 }
 
 export function valueFromProfile(profile: Profile): ProfileCustomizeValue {
   const avatarStyle =
-    profile.avatarStyle ?? (profile.avatarEmoji ? "emoji" : "initial");
+    profile.avatarStyle ??
+    (profile.avatarImagePath ? "photo" : profile.avatarEmoji ? "emoji" : "initial");
   return {
     name: profile.name,
     role: profile.role,
@@ -74,17 +99,83 @@ export function valueFromProfile(profile: Profile): ProfileCustomizeValue {
     accentColor: profile.accentColor ?? PROFILE_COLORS[1],
     avatarStyle,
     avatarEmoji: profile.avatarEmoji ?? PROFILE_EMOJIS[2],
+    avatarImagePath: profile.avatarImagePath,
   };
 }
 
-const STYLE_OPTIONS: { id: ProfileAvatarStyle; label: string; hint: string }[] = [
-  { id: "emoji", label: "Emoji", hint: "Scegli un'icona" },
-  { id: "initial", label: "Iniziale", hint: "Lettera del nome" },
-  { id: "gradient", label: "Gradiente", hint: "Due colori" },
+const STYLE_OPTIONS: {
+  id: ProfileAvatarStyle;
+  label: string;
+  icon: typeof Camera;
+}[] = [
+  { id: "photo", label: "Foto", icon: Camera },
+  { id: "emoji", label: "Emoji", icon: Smile },
+  { id: "initial", label: "Lettera", icon: Type },
+  { id: "gradient", label: "Colore", icon: Palette },
 ];
+
+const ROLE_OPTIONS: { id: ProfileRole; label: string; desc: string }[] = [
+  { id: "parent", label: "Genitore", desc: "Controllo completo" },
+  { id: "child", label: "Bambino", desc: "Contenuti filtrati" },
+  { id: "other", label: "Ospite", desc: "Accesso base" },
+];
+
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border border-white/[0.07] bg-[#0a0a0e]/80 p-4 sm:p-5">
+      <h3 className="mb-4 font-display text-[15px] font-medium tracking-[-0.02em] text-text-primary">
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function ColorSwatches({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (color: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {PROFILE_COLORS.map((c) => (
+        <button
+          key={c}
+          type="button"
+          onClick={() => onChange(c)}
+          className={`h-8 w-8 rounded-full transition-transform ${
+            value === c
+              ? "scale-110 ring-2 ring-white ring-offset-2 ring-offset-[#0a0a0e]"
+              : "hover:scale-105"
+          }`}
+          style={{ backgroundColor: c }}
+          aria-label={`Colore ${c}`}
+        />
+      ))}
+      <label className="flex h-9 cursor-pointer items-center gap-2 rounded-full border border-white/10 px-3 text-[12px] text-text-muted transition-colors hover:border-white/20">
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-5 w-5 cursor-pointer rounded-full border-0 bg-transparent p-0"
+        />
+        Altro
+      </label>
+    </div>
+  );
+}
 
 export function ProfileCustomizeForm({
   initial,
+  previewProfileId,
   showRole = true,
   submitLabel,
   submitting,
@@ -93,6 +184,7 @@ export function ProfileCustomizeForm({
   onSubmit,
 }: {
   initial: ProfileCustomizeValue;
+  previewProfileId?: string;
   showRole?: boolean;
   submitLabel: string;
   submitting?: boolean;
@@ -101,210 +193,305 @@ export function ProfileCustomizeForm({
   onSubmit: (value: ProfileCustomizeValue) => Promise<void>;
 }) {
   const [value, setValue] = useState(initial);
-  const preview = toPreview({ id: "preview" }, value);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { profile: cloudProfile, configured: cloudConfigured } = useCloudAccount();
+  const preview = toPreview({ id: previewProfileId ?? "preview" }, value);
+  const showCloudAvatarHint =
+    isCloudEnabled() &&
+    cloudConfigured &&
+    value.avatarStyle === "photo";
 
   const patch = (partial: Partial<ProfileCustomizeValue>) =>
     setValue((current) => ({ ...current, ...partial }));
 
+  const applyImagePath = (path: string) => {
+    patch({ avatarStyle: "photo", avatarImagePath: path });
+    setLocalError(null);
+  };
+
+  const pickPhoto = async () => {
+    try {
+      if (isTauri()) {
+        const path = await pickProfileAvatarPath();
+        if (path) applyImagePath(path);
+        return;
+      }
+      fileInputRef.current?.click();
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const onFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const dataUrl = await readProfileAvatarFile(file);
+      applyImagePath(dataUrl);
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!value.name.trim()) return;
+    if (value.avatarStyle === "photo" && !value.avatarImagePath) {
+      setLocalError("Carica una foto profilo in formato JPEG (.jpg).");
+      return;
+    }
+    setLocalError(null);
     await onSubmit(value);
   };
 
+  const showColorPickers =
+    value.avatarStyle === "emoji" ||
+    value.avatarStyle === "initial" ||
+    value.avatarStyle === "gradient";
+
+  const glow =
+    value.avatarStyle === "gradient"
+      ? `radial-gradient(circle at 50% 50%, ${value.avatarColor}55 0%, ${value.accentColor ?? value.avatarColor}22 45%, transparent 70%)`
+      : `radial-gradient(circle at 50% 50%, ${value.avatarColor}44 0%, transparent 68%)`;
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -12 }}
-      className="mx-auto w-full max-w-md"
+      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+      className="mx-auto w-full max-w-xl pb-8"
     >
-      <div className="mb-8 flex flex-col items-center gap-3">
-        <ProfileAvatar profile={preview} size="xl" />
-        <p className="text-[10px] uppercase tracking-[0.28em] text-text-muted">
-          Anteprima
-        </p>
-      </div>
-
-      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-7">
-        <div>
-          <label className="mb-2 block text-[10px] font-medium uppercase tracking-[0.28em] text-text-muted">
-            Nome
-          </label>
-          <input
-            value={value.name}
-            onChange={(e) => patch({ name: e.target.value })}
-            placeholder="es. Papà, Sofia, Marco..."
-            autoFocus
-            className="w-full border-b border-white/10 bg-transparent px-0 py-2 font-display text-[15px] tracking-[-0.02em] text-text-primary outline-none transition-colors placeholder:text-text-muted/60 focus:border-white/35"
-          />
-        </div>
-
-        {showRole && (
-          <div>
-            <label className="mb-3 block text-[10px] font-medium uppercase tracking-[0.28em] text-text-muted">
-              Tipo profilo
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {(
-                [
-                  ["parent", "Genitore", "Gestisce tutto"],
-                  ["child", "Bambino", "Contenuti filtrati"],
-                  ["other", "Ospite", "Accesso limitato"],
-                ] as const
-              ).map(([id, label, desc]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => patch({ role: id })}
-                  className={`rounded-lg border px-2 py-2.5 text-left transition-colors ${
-                    value.role === id
-                      ? "border-white/25 bg-white/[0.06]"
-                      : "border-white/[0.06] hover:border-white/12"
-                  }`}
-                >
-                  <p className="text-[11px] font-medium text-text-primary">{label}</p>
-                  <p className="mt-0.5 text-[9px] leading-snug text-text-muted">{desc}</p>
-                </button>
-              ))}
-            </div>
-            <p className="mt-2 text-[11px] text-text-muted">
-              Ruolo attuale: {roleLabel(value.role)}
-            </p>
-          </div>
-        )}
-
-        <div>
-          <label className="mb-3 block text-[10px] font-medium uppercase tracking-[0.28em] text-text-muted">
-            Stile avatar
-          </label>
-          <div className="grid grid-cols-3 gap-2">
-            {STYLE_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => patch({ avatarStyle: opt.id })}
-                className={`rounded-lg border px-2 py-2 text-left transition-colors ${
-                  value.avatarStyle === opt.id
-                    ? "border-white/25 bg-white/[0.06]"
-                    : "border-white/[0.06] hover:border-white/12"
-                }`}
-              >
-                <p className="text-[11px] font-medium text-text-primary">{opt.label}</p>
-                <p className="mt-0.5 text-[9px] text-text-muted">{opt.hint}</p>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-3 block text-[10px] font-medium uppercase tracking-[0.28em] text-text-muted">
-            {value.avatarStyle === "gradient" ? "Colore principale" : "Colore"}
-          </label>
-          <div className="flex flex-wrap items-center gap-2">
-            {PROFILE_COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => patch({ avatarColor: c })}
-                className={`h-7 w-7 rounded-full transition-transform ${
-                  value.avatarColor === c
-                    ? "scale-110 ring-2 ring-white ring-offset-2 ring-offset-void"
-                    : ""
-                }`}
-                style={{ backgroundColor: c }}
-                aria-label={`Colore ${c}`}
+      <form onSubmit={(e) => void handleSubmit(e)}>
+        <div className="flex flex-col items-center gap-8">
+          <aside className="flex w-full justify-center">
+            <div
+              className="relative flex w-full max-w-[240px] flex-col items-center rounded-3xl border border-white/[0.08] bg-[#0a0a0e]/90 px-6 py-8"
+              style={{ boxShadow: `0 24px 80px ${value.avatarColor}18` }}
+            >
+              <div
+                className="pointer-events-none absolute inset-0 rounded-3xl opacity-80"
+                style={{ background: glow }}
               />
-            ))}
-            <label className="relative ml-1 flex h-8 cursor-pointer items-center gap-2 rounded-lg border border-white/[0.08] px-2 text-[10px] uppercase tracking-wider text-text-muted hover:border-white/15">
+              <div className="relative mb-5">
+                <ProfileAvatar
+                  profile={preview}
+                  size="xl"
+                  className="h-32 w-32 rounded-full shadow-[0_16px_40px_rgba(0,0,0,0.45)]"
+                />
+              </div>
+              <p className="relative text-center font-display text-[18px] font-semibold tracking-[-0.03em] text-text-primary">
+                {value.name.trim() || "Il tuo profilo"}
+              </p>
+              <p className="relative mt-1 text-[12px] text-text-muted">
+                {roleLabel(value.role)}
+              </p>
+            </div>
+          </aside>
+
+          <div className="w-full max-w-xl space-y-4">
+            <Section title="Nome">
               <input
-                type="color"
-                value={value.avatarColor}
-                onChange={(e) => patch({ avatarColor: e.target.value })}
-                className="h-5 w-5 cursor-pointer rounded border-0 bg-transparent p-0"
+                value={value.name}
+                onChange={(e) => patch({ name: e.target.value })}
+                placeholder="Come ti chiami?"
+                autoFocus
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 font-display text-[16px] tracking-[-0.02em] text-text-primary outline-none transition-colors placeholder:text-text-muted/50 focus:border-white/25 focus:bg-white/[0.05]"
               />
-              Custom
-            </label>
-          </div>
-        </div>
+            </Section>
 
-        {value.avatarStyle === "gradient" && (
-          <div>
-            <label className="mb-3 block text-[10px] font-medium uppercase tracking-[0.28em] text-text-muted">
-              Colore secondario
-            </label>
-            <div className="flex flex-wrap items-center gap-2">
-              {PROFILE_COLORS.map((c) => (
-                <button
-                  key={`accent-${c}`}
-                  type="button"
-                  onClick={() => patch({ accentColor: c })}
-                  className={`h-7 w-7 rounded-full transition-transform ${
-                    value.accentColor === c
-                      ? "scale-110 ring-2 ring-white ring-offset-2 ring-offset-void"
-                      : ""
-                  }`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-              <label className="relative ml-1 flex h-8 cursor-pointer items-center gap-2 rounded-lg border border-white/[0.08] px-2 text-[10px] uppercase tracking-wider text-text-muted">
-                <input
-                  type="color"
-                  value={value.accentColor ?? PROFILE_COLORS[1]}
-                  onChange={(e) => patch({ accentColor: e.target.value })}
-                  className="h-5 w-5 cursor-pointer rounded border-0 bg-transparent p-0"
-                />
-                Custom
-              </label>
+            {showRole && (
+              <Section title="Tipo di profilo">
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {ROLE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => patch({ role: opt.id })}
+                      className={`rounded-xl border px-3 py-3 text-left transition-all ${
+                        value.role === opt.id
+                          ? "border-accent/40 bg-accent/10"
+                          : "border-white/[0.07] bg-white/[0.02] hover:border-white/14"
+                      }`}
+                    >
+                      <p className="text-[13px] font-medium text-text-primary">
+                        {opt.label}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-text-muted">{opt.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            <Section title="Avatar">
+              <div className="mb-4 flex flex-wrap gap-1 rounded-xl bg-white/[0.04] p-1">
+                {STYLE_OPTIONS.map((opt) => {
+                  const Icon = opt.icon;
+                  const active = value.avatarStyle === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => patch({ avatarStyle: opt.id })}
+                      className={`flex flex-1 min-w-[4.5rem] items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-[12px] font-medium transition-all ${
+                        active
+                          ? "bg-white/12 text-text-primary shadow-sm"
+                          : "text-text-muted hover:text-text-secondary"
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <AnimatePresence mode="wait">
+                {value.avatarStyle === "photo" && (
+                  <motion.div
+                    key="photo"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => void pickPhoto()}
+                      className="flex w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-white/14 bg-white/[0.02] px-4 py-8 transition-colors hover:border-accent/35 hover:bg-accent/[0.04]"
+                    >
+                      {value.avatarImagePath ? (
+                        <img
+                          src={profileAvatarPreviewFromPath(value.avatarImagePath)}
+                          alt=""
+                          className="h-24 w-24 rounded-full object-cover ring-2 ring-white/15"
+                        />
+                      ) : (
+                        <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white/[0.06]">
+                          <ImagePlus className="h-6 w-6 text-text-muted" />
+                        </span>
+                      )}
+                      <span className="text-[13px] text-text-secondary">
+                        {value.avatarImagePath
+                          ? "Tocca per cambiare foto"
+                          : "Carica JPEG (.jpg) · max 1 MB"}
+                      </span>
+                      {showCloudAvatarHint && (
+                        <span className="max-w-xs text-center text-[11px] leading-relaxed text-text-muted">
+                          {cloudProfile
+                            ? "Con l'account cloud attivo, la foto sarà visibile agli amici cloud e sincronizzata su altri dispositivi."
+                            : "Accedi all'account cloud per condividere la foto con gli amici e sincronizzarla tra dispositivi."}
+                        </span>
+                      )}
+                    </button>
+                    {value.avatarImagePath && (
+                      <button
+                        type="button"
+                        onClick={() => patch({ avatarImagePath: undefined })}
+                        className="mt-3 inline-flex items-center gap-1.5 text-[12px] text-warm transition-opacity hover:opacity-80"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Rimuovi foto
+                      </button>
+                    )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept={PROFILE_AVATAR_ACCEPT}
+                      className="hidden"
+                      onChange={(e) => void onFileChange(e)}
+                    />
+                  </motion.div>
+                )}
+
+                {value.avatarStyle === "emoji" && (
+                  <motion.div
+                    key="emoji"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="grid grid-cols-8 gap-1.5 sm:grid-cols-10"
+                  >
+                    {PROFILE_EMOJIS.map((e) => (
+                      <button
+                        key={e}
+                        type="button"
+                        onClick={() => patch({ avatarEmoji: e })}
+                        className={`flex aspect-square items-center justify-center rounded-xl text-xl transition-all ${
+                          value.avatarEmoji === e
+                            ? "bg-accent/15 ring-1 ring-accent/40"
+                            : "bg-white/[0.03] hover:bg-white/[0.07]"
+                        }`}
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+
+                {showColorPickers && value.avatarStyle !== "emoji" && (
+                  <motion.div
+                    key="colors"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="space-y-4"
+                  >
+                    <div>
+                      <p className="mb-2 text-[12px] text-text-muted">
+                        {value.avatarStyle === "gradient"
+                          ? "Colore principale"
+                          : "Colore di sfondo"}
+                      </p>
+                      <ColorSwatches
+                        value={value.avatarColor}
+                        onChange={(c) => patch({ avatarColor: c })}
+                      />
+                    </div>
+                    {value.avatarStyle === "gradient" && (
+                      <div>
+                        <p className="mb-2 text-[12px] text-text-muted">
+                          Colore secondario
+                        </p>
+                        <ColorSwatches
+                          value={value.accentColor ?? PROFILE_COLORS[1]}
+                          onChange={(c) => patch({ accentColor: c })}
+                        />
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </Section>
+
+            {(error || localError) && (
+              <p className="rounded-xl border border-warm/20 bg-warm/10 px-4 py-3 text-[13px] text-warm">
+                {error ?? localError}
+              </p>
+            )}
+
+            <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-center">
+              <button
+                type="button"
+                onClick={onCancel}
+                className="rounded-xl border border-white/10 px-5 py-3 text-[14px] font-medium text-text-muted transition-colors hover:border-white/18 hover:text-text-secondary"
+              >
+                Annulla
+              </button>
+              <button
+                type="submit"
+                disabled={submitting || !value.name.trim()}
+                className="rounded-xl bg-accent px-6 py-3 text-[14px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+              >
+                {submitting ? "Salvataggio..." : submitLabel}
+              </button>
             </div>
           </div>
-        )}
-
-        {value.avatarStyle === "emoji" && (
-          <div>
-            <label className="mb-3 block text-[10px] font-medium uppercase tracking-[0.28em] text-text-muted">
-              Emoji
-            </label>
-            <div className="grid grid-cols-8 gap-1.5 sm:grid-cols-10">
-              {PROFILE_EMOJIS.map((e) => (
-                <button
-                  key={e}
-                  type="button"
-                  onClick={() => patch({ avatarEmoji: e })}
-                  className={`flex h-9 w-9 items-center justify-center rounded-lg text-lg transition-colors ${
-                    value.avatarEmoji === e
-                      ? "bg-white/10 ring-1 ring-white/25"
-                      : "bg-white/[0.03] hover:bg-white/[0.06]"
-                  }`}
-                >
-                  {e}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="flex justify-center gap-3 pt-2">
-          <button
-            type="submit"
-            disabled={submitting || !value.name.trim()}
-            className="rounded-full bg-text-primary px-6 py-2.5 text-[12px] font-medium uppercase tracking-[0.12em] text-void hover:bg-white disabled:opacity-50"
-          >
-            {submitting ? "Salvataggio..." : submitLabel}
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-full border border-white/10 px-6 py-2.5 text-[12px] font-medium uppercase tracking-[0.12em] text-text-muted hover:border-white/20 hover:text-text-secondary"
-          >
-            Annulla
-          </button>
         </div>
       </form>
-
-      {error && (
-        <p className="mt-4 text-center text-[13px] text-warm">{error}</p>
-      )}
     </motion.div>
   );
 }

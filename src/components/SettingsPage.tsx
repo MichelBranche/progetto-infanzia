@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { FolderOpen, Library, Loader2, RefreshCw, Settings, Tv, Volume2 } from "lucide-react";
+import {
+  FolderOpen,
+  Library,
+  Loader2,
+  RefreshCw,
+  Tv,
+  Volume2,
+} from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { scanLibrary } from "../lib/api";
 import { setProfilePin, removeProfilePin } from "../lib/profilesApi";
@@ -12,6 +19,13 @@ import { AddonManagerPanel } from "./AddonManagerPanel";
 import { DebridPanel } from "./DebridPanel";
 import { STREMIO_ADDONS_ENABLED } from "../lib/features";
 import type { AppSettings } from "../lib/settingsApi";
+import {
+  SettingsButton,
+  SettingsGroupLabel,
+  SettingsInput,
+  SettingsSection,
+  SettingsToggle,
+} from "./settings/SettingsUi";
 
 interface SettingsPageProps {
   profileId: string;
@@ -142,309 +156,253 @@ export function SettingsPage({ profileId, onRescanComplete, onOpenManage }: Sett
 
   if (loading || !settings) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center pt-24">
-        <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+      <div className="flex min-h-[50vh] items-center justify-center pt-[var(--app-nav-height)]">
+        <Loader2 className="h-7 w-7 animate-spin text-text-muted" />
       </div>
     );
   }
 
   return (
-    <div className="page-px pb-16 pt-24 sm:pt-28">
-      <div className="mb-8 flex items-center gap-3">
-        <Settings className="h-5 w-5 text-accent" />
-        <div>
-          <h2 className="font-display text-3xl font-semibold tracking-[-0.03em] text-text-primary">
+    <div className="page-px pb-24 pt-[calc(var(--app-nav-height)+2rem)] sm:pt-[calc(var(--app-nav-height)+2.5rem)]">
+      <div className="mx-auto w-full max-w-2xl">
+        <header className="mb-10 text-center sm:mb-12">
+          <p className="font-display text-[11px] font-medium tracking-[0.22em] text-text-muted">
+            BRANCHEFY
+          </p>
+          <h1 className="font-display mt-3 text-[clamp(1.75rem,4vw,2.5rem)] font-semibold tracking-[-0.04em] text-text-primary">
             Impostazioni
-          </h2>
-          <p className="mt-1 text-[14px] text-text-secondary">
-            Libreria, abbonamenti e controllo genitori
+          </h1>
+          <p className="mx-auto mt-2 max-w-md text-[14px] leading-relaxed text-text-secondary">
+            Libreria, streaming, account e controllo genitori
           </p>
-        </div>
-      </div>
+        </header>
 
-      {error && (
-        <p className="mb-6 rounded-xl border border-warm/20 bg-warm/10 px-4 py-3 text-[13px] text-warm">
-          {error}
-        </p>
-      )}
+        {error && (
+          <p className="mb-6 rounded-xl border border-warm/20 bg-warm/10 px-4 py-3 text-center text-[13px] text-warm">
+            {error}
+          </p>
+        )}
 
-      <div className="grid max-w-3xl gap-6">
-        <CloudAuthPanel />
+        <div className="space-y-4">
+          <SettingsGroupLabel>Account</SettingsGroupLabel>
+          <CloudAuthPanel />
 
-        <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-          <div className="flex items-center gap-2 text-text-primary">
-            <FolderOpen className="h-4 w-4 text-accent" />
-            <h3 className="text-[15px] font-medium">Libreria locale</h3>
-          </div>
-          <p className="mt-2 break-all text-[13px] text-text-muted">{settings.mediaRoot}</p>
-          {settings.lastScan && (
-            <p className="mt-1 text-[11px] text-text-muted">
-              Ultima scansione: {new Date(settings.lastScan).toLocaleString("it-IT")}
+          <SettingsSection
+            title="PIN profilo genitore"
+            description="Protegge l'accesso al profilo genitore e alle impostazioni"
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              <SettingsInput
+                value={currentPin}
+                onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ""))}
+                placeholder="PIN attuale"
+                maxLength={8}
+                inputMode="numeric"
+              />
+              <SettingsInput
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                placeholder="Nuovo PIN"
+                maxLength={8}
+                inputMode="numeric"
+              />
+              <SettingsInput
+                value={pinConfirm}
+                onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, ""))}
+                placeholder="Conferma PIN"
+                maxLength={8}
+                inputMode="numeric"
+                className="sm:col-span-2"
+              />
+            </div>
+            <div className="mt-4 flex flex-wrap justify-center gap-2 sm:justify-start">
+              <SettingsButton variant="primary" onClick={() => void handleSetPin()}>
+                Salva PIN
+              </SettingsButton>
+              <SettingsButton variant="secondary" onClick={() => void handleRemovePin()}>
+                Rimuovi PIN
+              </SettingsButton>
+            </div>
+            {pinMessage && (
+              <p className="mt-3 text-center text-[12px] text-text-secondary sm:text-left">
+                {pinMessage}
+              </p>
+            )}
+          </SettingsSection>
+
+          <SettingsGroupLabel>Libreria</SettingsGroupLabel>
+
+          <SettingsSection
+            icon={FolderOpen}
+            title="Cartella media"
+            description="I file locali vengono letti da questa cartella. Puoi collegarne una personalizzata se i tuoi video sono altrove."
+          >
+            <p className="break-all rounded-xl bg-white/[0.03] px-4 py-3 font-mono text-[12px] text-text-secondary">
+              {settings.mediaRoot}
             </p>
-          )}
-          <p className="mt-2 text-[12px] leading-relaxed text-text-muted">
-            Nell&apos;app installata la cartella predefinita è in AppData. Se hai già
-            i file altrove (es. la cartella <code className="text-text-secondary">media</code>{" "}
-            del progetto), collegala qui sotto.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void handleChooseMediaFolder()}
-              disabled={scanning || saving}
-              className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-4 py-2 text-[12px] text-text-primary hover:bg-accent/15 disabled:opacity-50"
-            >
-              <FolderOpen className="h-3.5 w-3.5" />
-              Scegli cartella media
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleScan()}
-              disabled={scanning || saving}
-              className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-[12px] text-text-primary hover:bg-white/[0.04] disabled:opacity-50"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${scanning ? "animate-spin" : ""}`} />
-              Scansiona cartella media
-            </button>
-          </div>
-          {scanMessage && (
-            <p className="mt-3 text-[12px] text-mint">{scanMessage}</p>
-          )}
-          {onOpenManage && (
-            <button
-              type="button"
-              onClick={onOpenManage}
-              className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-[12px] text-text-primary hover:bg-white/[0.04]"
-            >
-              <Library className="h-3.5 w-3.5" />
-              Gestisci file libreria
-            </button>
-          )}
-        </section>
+            {settings.lastScan && (
+              <p className="mt-2 text-center text-[11px] text-text-muted sm:text-left">
+                Ultima scansione: {new Date(settings.lastScan).toLocaleString("it-IT")}
+              </p>
+            )}
+            <div className="mt-4 flex flex-wrap justify-center gap-2 sm:justify-start">
+              <SettingsButton
+                variant="accent"
+                disabled={scanning || saving}
+                onClick={() => void handleChooseMediaFolder()}
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                Scegli cartella
+              </SettingsButton>
+              <SettingsButton
+                variant="secondary"
+                disabled={scanning || saving}
+                onClick={() => void handleScan()}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${scanning ? "animate-spin" : ""}`} />
+                Scansiona
+              </SettingsButton>
+              {onOpenManage && (
+                <SettingsButton variant="secondary" onClick={onOpenManage}>
+                  <Library className="h-3.5 w-3.5" />
+                  Gestisci file
+                </SettingsButton>
+              )}
+            </div>
+            {scanMessage && (
+              <p className="mt-3 text-center text-[12px] text-mint sm:text-left">{scanMessage}</p>
+            )}
+          </SettingsSection>
 
-        <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-          <div className="flex items-center gap-2 text-text-primary">
-            <Tv className="h-4 w-4 text-accent" />
-            <h3 className="text-[15px] font-medium">Trasmissione TV</h3>
-          </div>
-          <p className="mt-2 text-[13px] leading-relaxed text-text-muted">
-            Porta streaming LAN: <strong className="text-text-secondary">{settings.streamPort}</strong>.
-            Consenti Branchefy sul firewall Windows per reti private.
-          </p>
-          <div className="mt-4 flex items-center justify-between gap-4">
-            <p className="text-[13px] text-text-secondary">
-              Transcodifica automatica per TV (MKV → MP4)
-            </p>
-            <button
-              type="button"
-              onClick={() =>
+          <SettingsSection
+            title="Metadati TMDB"
+            description="Poster e descrizioni automatici. Chiave gratuita su themoviedb.org"
+          >
+            <SettingsInput
+              type="password"
+              value={settings.tmdbApiKey ?? ""}
+              onChange={(e) => setSettings({ ...settings, tmdbApiKey: e.target.value })}
+              onBlur={() => void saveSettings({ tmdbApiKey: settings.tmdbApiKey ?? "" })}
+              placeholder="Chiave API TMDB"
+            />
+            <div className="mt-3">
+              <SettingsToggle
+                label="Arricchisci alla scansione"
+                description="Scarica poster e sinossi per i nuovi titoli"
+                enabled={settings.tmdbEnrichOnScan}
+                disabled={saving}
+                onChange={() =>
+                  void saveSettings({ tmdbEnrichOnScan: !settings.tmdbEnrichOnScan })
+                }
+              />
+            </div>
+          </SettingsSection>
+
+          <SettingsSection
+            title="Cartelle cloud"
+            description="Monta Mega o altri cloud con rclone dentro media/serie/, poi scansiona la libreria."
+          />
+
+          <SettingsGroupLabel>Streaming e TV</SettingsGroupLabel>
+
+          <SettingsSection
+            icon={Tv}
+            title="Trasmissione TV"
+            description={`Porta LAN ${settings.streamPort}. Consenti Branchefy sul firewall per reti private.`}
+          >
+            <SettingsToggle
+              label="Transcodifica per TV"
+              description="Converte MKV in MP4 per Chromecast e TV"
+              enabled={settings.castTranscodeEnabled}
+              disabled={saving}
+              onChange={() =>
                 void saveSettings({
                   castTranscodeEnabled: !settings.castTranscodeEnabled,
                 })
               }
-              className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
-                settings.castTranscodeEnabled ? "bg-accent" : "bg-white/15"
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition-transform ${
-                  settings.castTranscodeEnabled ? "left-[22px]" : "left-0.5"
-                }`}
-              />
-            </button>
-          </div>
-        </section>
+            />
+          </SettingsSection>
 
-        <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-          <h3 className="text-[15px] font-medium text-text-primary">Metadati TMDB</h3>
-          <p className="mt-1 text-[13px] text-text-muted">
-            Poster e descrizioni automatici. Crea una chiave su themoviedb.org
-          </p>
-          <input
-            type="password"
-            value={settings.tmdbApiKey ?? ""}
-            onChange={(e) =>
-              setSettings({ ...settings, tmdbApiKey: e.target.value })
-            }
-            onBlur={() =>
-              void saveSettings({ tmdbApiKey: settings.tmdbApiKey ?? "" })
-            }
-            placeholder="Chiave API TMDB"
-            className="mt-4 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-[13px] outline-none focus:border-accent/30"
-          />
-          <div className="mt-4 flex items-center justify-between gap-4">
-            <p className="text-[13px] text-text-secondary">
-              Arricchisci automaticamente alla scansione
-            </p>
-            <button
-              type="button"
-              onClick={() =>
-                void saveSettings({
-                  tmdbEnrichOnScan: !settings.tmdbEnrichOnScan,
-                })
-              }
-              className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
-                settings.tmdbEnrichOnScan ? "bg-accent" : "bg-white/15"
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition-transform ${
-                  settings.tmdbEnrichOnScan ? "left-[22px]" : "left-0.5"
-                }`}
-              />
-            </button>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-          <h3 className="text-[15px] font-medium text-text-primary">Cartelle cloud (rclone)</h3>
-          <p className="mt-2 text-[13px] leading-relaxed text-text-muted">
-            Per serie su Mega o cloud senza scaricare tutto: monta la cartella remota con{" "}
-            <code className="text-text-secondary">rclone mount</code> dentro{" "}
-            <code className="text-text-secondary">media/serie/</code>, poi usa «Scansiona cartella media».
-            Vedi <code className="text-text-secondary">media/README.md</code> per i comandi.
-          </p>
-        </section>
-
-        <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <Volume2 className="h-4 w-4 text-accent" />
-              <h3 className="text-[15px] font-medium text-text-primary">Suono intro</h3>
+          <SettingsSection
+            title="I tuoi abbonamenti"
+            description="Per ogni titolo vedi dove è disponibile in streaming"
+          >
+            <div className="flex flex-wrap justify-center gap-2 sm:justify-start">
+              {STREAMING_SERVICES.map((service) => {
+                const active = settings.subscribedServices.includes(service.id);
+                return (
+                  <button
+                    key={service.id}
+                    type="button"
+                    disabled={saving}
+                    onClick={() => toggleService(service.id)}
+                    className={`rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-colors ${
+                      active
+                        ? "border-accent/40 bg-accent/12 text-text-primary"
+                        : "border-white/[0.08] bg-white/[0.02] text-text-muted hover:border-white/15 hover:text-text-secondary"
+                    }`}
+                  >
+                    {service.label}
+                  </button>
+                );
+              })}
             </div>
-            <button
-              type="button"
-              onClick={() =>
-                void saveSettings({ introSoundEnabled: !settings.introSoundEnabled })
-              }
-              className={`relative h-7 w-12 rounded-full transition-colors ${
-                settings.introSoundEnabled ? "bg-accent" : "bg-white/15"
-              }`}
+          </SettingsSection>
+
+          {STREMIO_ADDONS_ENABLED && (
+            <SettingsSection
+              title="Addon Stremio"
+              description="Cataloghi e streaming remoto"
             >
-              <span
-                className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition-transform ${
-                  settings.introSoundEnabled ? "left-[22px]" : "left-0.5"
-                }`}
-              />
-            </button>
-          </div>
-          <p className="mt-2 text-[13px] text-text-muted">
-            Effetto sonoro all&apos;avvio di Branchefy
-          </p>
-        </section>
-
-        <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-          <h3 className="text-[15px] font-medium text-text-primary">I tuoi abbonamenti</h3>
-          <p className="mt-1 text-[13px] text-text-muted">
-            Per ogni titolo potrai vedere «In casa» e i servizi dove cercarlo
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {STREAMING_SERVICES.map((service) => {
-              const active = settings.subscribedServices.includes(service.id);
-              return (
-                <button
-                  key={service.id}
-                  type="button"
-                  disabled={saving}
-                  onClick={() => toggleService(service.id)}
-                  className={`rounded-full border px-3 py-1.5 text-[12px] transition-colors ${
-                    active
-                      ? "border-accent/40 bg-accent/10 text-text-primary"
-                      : "border-white/[0.08] text-text-muted hover:border-white/15"
-                  }`}
-                >
-                  {service.label}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {STREMIO_ADDONS_ENABLED && (
-          <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-            <h3 className="text-[15px] font-medium text-text-primary">
-              Addon Stremio
-            </h3>
-            <p className="mt-1 text-[13px] text-text-muted">
-              Cataloghi e streaming remoto (protocollo addon Stremio)
-            </p>
-            <AddonManagerPanel parentProfileId={profileId} />
-          </section>
-        )}
-
-        {STREMIO_ADDONS_ENABLED && (
-          <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-            <h3 className="text-[15px] font-medium text-text-primary">
-              Debrid (Real-Debrid / AllDebrid)
-            </h3>
-            <p className="mt-1 text-[13px] text-text-muted">
-              Riproduce in-app gli stream torrent degli addon convertendoli in link
-              HTTP diretti col tuo account. Nessun server torrent necessario.
-            </p>
-            <DebridPanel parentProfileId={profileId} />
-          </section>
-        )}
-
-        <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-          <h3 className="text-[15px] font-medium text-text-primary">
-            Limiti profili bambino
-          </h3>
-          <p className="mt-1 text-[13px] text-text-muted">
-            Tempo giornaliero e fascia oraria senza TV
-          </p>
-          <ParentalLimitsPanel parentProfileId={profileId} />
-        </section>
-
-        <AppUpdaterSection />
-
-        <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-          <h3 className="text-[15px] font-medium text-text-primary">PIN profilo genitore</h3>
-          <p className="mt-1 text-[13px] text-text-muted">
-            Protegge l&apos;accesso al profilo genitore e alle impostazioni
-          </p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <input
-              value={currentPin}
-              onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ""))}
-              placeholder="PIN attuale (se già impostato)"
-              maxLength={8}
-              className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-[13px] outline-none focus:border-accent/30"
-            />
-            <input
-              value={pin}
-              onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-              placeholder="Nuovo PIN"
-              maxLength={8}
-              className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-[13px] outline-none focus:border-accent/30"
-            />
-            <input
-              value={pinConfirm}
-              onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, ""))}
-              placeholder="Conferma nuovo PIN"
-              maxLength={8}
-              className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-[13px] outline-none focus:border-accent/30"
-            />
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void handleSetPin()}
-              className="rounded-full bg-text-primary px-4 py-2 text-[12px] font-medium text-void"
-            >
-              Salva PIN
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleRemovePin()}
-              className="rounded-full border border-white/10 px-4 py-2 text-[12px] text-text-secondary"
-            >
-              Rimuovi PIN
-            </button>
-          </div>
-          {pinMessage && (
-            <p className="mt-3 text-[12px] text-text-secondary">{pinMessage}</p>
+              <AddonManagerPanel parentProfileId={profileId} />
+            </SettingsSection>
           )}
-        </section>
+
+          {STREMIO_ADDONS_ENABLED && (
+            <SettingsSection
+              title="Debrid"
+              description="Real-Debrid / AllDebrid per stream torrent in-app"
+            >
+              <DebridPanel parentProfileId={profileId} />
+            </SettingsSection>
+          )}
+
+          <SettingsGroupLabel>Famiglia</SettingsGroupLabel>
+
+          <SettingsSection
+            title="Limiti profili bambino"
+            description="Tempo giornaliero e fascia oraria consentita"
+          >
+            <ParentalLimitsPanel parentProfileId={profileId} />
+          </SettingsSection>
+
+          <SettingsGroupLabel>App</SettingsGroupLabel>
+
+          <SettingsSection
+            icon={Volume2}
+            title="Suono intro"
+            description="Effetto sonoro all'avvio di Branchefy"
+            headerRight={
+              <button
+                type="button"
+                onClick={() =>
+                  void saveSettings({ introSoundEnabled: !settings.introSoundEnabled })
+                }
+                className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
+                  settings.introSoundEnabled ? "bg-accent" : "bg-white/15"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform ${
+                    settings.introSoundEnabled ? "left-[22px]" : "left-0.5"
+                  }`}
+                />
+              </button>
+            }
+          />
+
+          <AppUpdaterSection />
+        </div>
       </div>
     </div>
   );

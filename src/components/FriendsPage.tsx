@@ -45,6 +45,7 @@ interface FriendsPageProps {
   profileName: string;
   embedded?: boolean;
   onJoinSession?: (session: WatchPartySession) => void;
+  onFriendsChanged?: () => void;
   cloudOnline?: EnrichedCloudFriend[];
   cloudOffline?: EnrichedCloudFriend[];
   cloudPresenceLoading?: boolean;
@@ -60,6 +61,7 @@ export function FriendsPage({
   profileName,
   embedded = false,
   onJoinSession,
+  onFriendsChanged,
   cloudOnline = [],
   cloudOffline = [],
   cloudPresenceLoading = false,
@@ -129,6 +131,7 @@ export function FriendsPage({
       setFriendName("");
       await refreshAll();
       setShowAddPanel(false);
+      onFriendsChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -151,6 +154,7 @@ export function FriendsPage({
       });
       await refreshAll();
       setShowAddPanel(false);
+      onFriendsChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -178,6 +182,7 @@ export function FriendsPage({
         title: accept ? "Amicizia accettata" : "Richiesta rifiutata",
       });
       await refreshAll();
+      onFriendsChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -200,21 +205,27 @@ export function FriendsPage({
 
   return (
     <>
-      <div className={`page-px pb-16 ${embedded ? "pt-8" : "pt-24 sm:pt-28"}`}>
-        <div className="mb-8 flex items-end justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-[0.34em] text-text-muted">
-              Social
-            </p>
-            <h2 className="font-display mt-2 text-2xl font-semibold tracking-[-0.03em] text-text-primary sm:text-3xl">
-              Amici
-            </h2>
-          </div>
+      <div className={embedded ? "" : "page-px pb-16 pt-24 sm:pt-28"}>
+        <div
+          className={`flex items-center justify-between gap-4 ${embedded ? "mb-6" : "mb-8"}`}
+        >
+          {!embedded && (
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-[0.34em] text-text-muted">
+                Social
+              </p>
+              <h2 className="font-display mt-2 text-2xl font-semibold tracking-[-0.03em] text-text-primary sm:text-3xl">
+                Amici
+              </h2>
+            </div>
+          )}
           <button
             type="button"
             onClick={() => void refreshAll()}
             disabled={presenceRefreshing}
-            className="inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-text-muted transition-colors hover:text-text-secondary disabled:opacity-50"
+            className={`inline-flex items-center gap-2 text-[12px] font-medium text-text-muted transition-colors hover:text-text-secondary disabled:opacity-50 ${
+              embedded ? "ml-auto" : ""
+            }`}
           >
             <RefreshCw
               className={`h-3.5 w-3.5 ${presenceRefreshing ? "animate-spin" : ""}`}
@@ -229,7 +240,7 @@ export function FriendsPage({
           </p>
         )}
 
-        <div className="mx-auto max-w-3xl space-y-8">
+        <div className={embedded ? "space-y-6" : "mx-auto max-w-3xl space-y-8"}>
           {cloudConfigured && <CloudAuthPanel />}
 
           <ProfileCard>
@@ -248,6 +259,7 @@ export function FriendsPage({
                     key={`cloud-${friend.userId}`}
                     name={friend.displayName}
                     subtitle={formatPresenceLabel(friend.presence)}
+                    avatarUrl={friend.avatarUrl}
                     online
                     away={friend.presence?.status === "away"}
                     trailing={
@@ -267,6 +279,7 @@ export function FriendsPage({
                     key={`lan-${friend.friendCode}`}
                     name={friend.displayName}
                     subtitle={`LAN · ${friend.lastHost ?? "rete locale"}`}
+                    avatarUrl={friend.avatarUrl}
                     online
                     trailing={
                       <button
@@ -295,7 +308,20 @@ export function FriendsPage({
                     key={req.id}
                     className="flex items-center justify-between gap-3 border-b border-white/[0.05] py-3 last:border-0"
                   >
-                    <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/[0.06] font-display text-[14px] font-semibold text-text-primary">
+                        {req.requester?.avatarUrl ? (
+                          <img
+                            src={req.requester.avatarUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                            draggable={false}
+                          />
+                        ) : (
+                          (req.requester?.displayName ?? "?").trim().charAt(0).toUpperCase()
+                        )}
+                      </div>
+                      <div className="min-w-0">
                       <p className="truncate font-display text-[14px] font-medium text-text-primary">
                         {req.requester?.displayName ?? "Utente"}
                       </p>
@@ -304,6 +330,7 @@ export function FriendsPage({
                           ? `Codice ${req.requester.friendCode}`
                           : req.requester?.displayName}
                       </p>
+                    </div>
                     </div>
                     <div className="flex shrink-0 gap-1">
                       <button
@@ -342,6 +369,7 @@ export function FriendsPage({
                     <FriendListRow
                       key={`cloud-off-${friend.userId}`}
                       name={friend.displayName}
+                      avatarUrl={friend.avatarUrl}
                       subtitle={
                         formatPresenceLabel(friend.presence) ??
                         `Codice ${friend.friendCode}`
@@ -363,6 +391,7 @@ export function FriendsPage({
                     <FriendListRow
                       key={`lan-off-${friend.friendCode}`}
                       name={friend.displayName}
+                      avatarUrl={friend.avatarUrl}
                       subtitle={`LAN · ${friend.friendCode}`}
                       online={false}
                       trailing={

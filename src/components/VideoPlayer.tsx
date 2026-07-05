@@ -33,6 +33,8 @@ import {
 } from "../lib/parentalApi";
 import { compareEpisodes, episodeCodeLabel, episodeDisplayTitle, nextEpisode, prevEpisode } from "../lib/browse";
 import { useProfile } from "../context/ProfileContext";
+import { useNotifications } from "../context/NotificationContext";
+import { achievementUnlockNotifications } from "../lib/achievementNotifications";
 import { useCloudAccount } from "../context/CloudAccountContext";
 import { useAppAccess } from "../context/AppAccessContext";
 import { GUEST_DAILY_LIMIT_SECONDS } from "../lib/guestUsage";
@@ -164,6 +166,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     ref,
   ) {
   const { activeProfile } = useProfile();
+  const { notify } = useNotifications();
   const { profile: cloudProfile } = useCloudAccount();
   const profileId = activeProfile?.id ?? "";
   const profileName = activeProfile?.name ?? "Utente";
@@ -287,7 +290,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             remotePlayback.catalogPrefix === "loonex")
         ) {
           try {
-            await saveStreamingWatchProgress(profileId, {
+            const unlocks = await saveStreamingWatchProgress(profileId, {
               catalogPrefix: remotePlayback.catalogPrefix,
               contentType: remotePlayback.contentType,
               titleId:
@@ -306,6 +309,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               positionSecs: position,
               durationSecs: dur > 0 ? dur : undefined,
             });
+            for (const item of achievementUnlockNotifications(unlocks)) {
+              notify(item);
+            }
             void logCloudWatchEvent({
               titleName: remotePlayback.titleName ?? media.title,
               contentType: remotePlayback.contentType,
@@ -333,7 +339,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       saveChainRef.current = saveChainRef.current.then(persist, persist);
       await saveChainRef.current;
     },
-    [media.id, media.title, media.posterUrl, profileId, remotePlayback],
+    [media.id, media.title, media.posterUrl, profileId, remotePlayback, notify],
   );
 
   const saveProgressRef = useRef(saveProgress);
@@ -868,7 +874,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       if (sid) {
         const elapsed = Math.floor((Date.now() - sessionStartRef.current) / 1000);
         void updateWatchSession(sid, elapsed);
-        void endWatchSession(sid, true);
+        void endWatchSession(sid, true).then((unlocks) => {
+          for (const item of achievementUnlockNotifications(unlocks)) {
+            notify(item);
+          }
+        });
         sessionIdRef.current = null;
       }
       setPlaying(false);
@@ -897,7 +907,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       video.removeEventListener("playing", onPlaying);
       void saveProgress(video.currentTime, video.duration);
     };
-  }, [effectiveStreamUrl, resumeAt, saveProgress, nextEp, playNextEpisode, castDevice, onPlayEpisode]);
+  }, [effectiveStreamUrl, resumeAt, saveProgress, nextEp, playNextEpisode, castDevice, onPlayEpisode, notify]);
 
   useEffect(() => {
     const flushOnHide = () => {

@@ -131,11 +131,16 @@ function indexNeedsGenreMetadata(index: StremioMetaPreview[]): boolean {
   return tagged < 20;
 }
 
+function loonexCount(index: StremioMetaPreview[]): number {
+  return index.filter((item) => item.catalogPrefix === "loonex").length;
+}
+
 export function needsCatalogRefresh(payload: BootCatalogPayload | null): boolean {
   if (!payload) return true;
   if (payload.needsBackgroundSync) return true;
   if (payload.error) return true;
   if (indexNeedsGenreMetadata(payload.index)) return true;
+  if (loonexCount(payload.index) < 120) return true;
   return !isCacheFresh(payload);
 }
 

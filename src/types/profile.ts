@@ -1,6 +1,6 @@
 export type ProfileRole = "parent" | "child" | "other";
 
-export type ProfileAvatarStyle = "emoji" | "initial" | "gradient";
+export type ProfileAvatarStyle = "emoji" | "initial" | "gradient" | "photo";
 
 export interface Profile {
   id: string;
@@ -10,6 +10,8 @@ export interface Profile {
   accentColor?: string;
   avatarStyle?: ProfileAvatarStyle;
   avatarEmoji?: string;
+  /** Percorso file locale (Tauri) o data URL (browser dev). */
+  avatarImagePath?: string;
   createdAt: string;
   hasPin: boolean;
 }
@@ -30,6 +32,7 @@ export interface UpdateProfileInput {
   accentColor?: string | null;
   avatarStyle?: ProfileAvatarStyle;
   avatarEmoji?: string | null;
+  avatarImagePath?: string | null;
 }
 
 export const PROFILE_COLORS = [

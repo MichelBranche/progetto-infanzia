@@ -32,32 +32,32 @@ export function useHeroScrollParallax(
             animation: gsap.fromTo(
               mediaRef.current,
               { yPercent: 0, scale: 1 },
-              { yPercent: 22, scale: 1.1, ease: "none" },
+              { yPercent: 14, scale: 1.06, ease: "none" },
             ),
+            invalidateOnRefresh: true,
           }),
         );
       }
 
-      if (contentRef.current) {
-        triggers.push(
-          ScrollTrigger.create({
-            trigger: hero,
-            scroller,
-            start: "top top",
-            end: "55% top",
-            scrub: 0.5,
-            animation: gsap.fromTo(
-              contentRef.current,
-              { y: 0, opacity: 1 },
-              { y: 56, opacity: 0, ease: "none" },
-            ),
-          }),
-        );
-      }
+      const resetIfAtTop = () => {
+        if (scroller.scrollTop > 2) return;
+        if (mediaRef.current) {
+          gsap.set(mediaRef.current, { yPercent: 0, scale: 1 });
+        }
+        if (contentRef.current) {
+          gsap.set(contentRef.current, { y: 0, opacity: 1 });
+        }
+      };
 
-      requestAnimationFrame(() => ScrollTrigger.refresh());
+      ScrollTrigger.addEventListener("refresh", resetIfAtTop);
+
+      requestAnimationFrame(() => {
+        ScrollTrigger.refresh();
+        resetIfAtTop();
+      });
 
       return () => {
+        ScrollTrigger.removeEventListener("refresh", resetIfAtTop);
         for (const trigger of triggers) trigger.kill();
       };
     },

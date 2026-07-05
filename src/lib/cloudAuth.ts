@@ -17,6 +17,7 @@ function mapProfile(row: {
   email: string;
   display_name: string;
   friend_code: string;
+  avatar_url?: string | null;
   created_at: string;
 }): CloudProfile {
   return {
@@ -24,6 +25,7 @@ function mapProfile(row: {
     email: row.email,
     displayName: row.display_name,
     friendCode: row.friend_code,
+    avatarUrl: row.avatar_url ?? undefined,
     createdAt: row.created_at,
   };
 }

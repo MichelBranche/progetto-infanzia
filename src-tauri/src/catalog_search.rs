@@ -3,6 +3,7 @@ use crate::loonex_catalog;
 use crate::saturn_catalog;
 use crate::sc_catalog;
 use crate::sc_playback;
+use crate::youtube_catalog;
 use crate::stremio::StremioMetaPreview;
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
@@ -49,6 +50,7 @@ fn run_search(
     sc_enabled: bool,
     saturn_enabled: bool,
     loonex_enabled: bool,
+    youtube_enabled: bool,
     cdn: &str,
     locale: &str,
 ) -> Vec<StremioMetaPreview> {
@@ -77,6 +79,9 @@ fn run_search(
     if loonex_enabled {
         push_unique(loonex_catalog::search_titles(db, query));
     }
+    if youtube_enabled {
+        push_unique(youtube_catalog::search_titles(db, query));
+    }
 
     out
 }
@@ -87,6 +92,7 @@ fn cached_search(
     sc_enabled: bool,
     saturn_enabled: bool,
     loonex_enabled: bool,
+    youtube_enabled: bool,
     cdn: &str,
     locale: &str,
 ) -> Vec<StremioMetaPreview> {
@@ -104,6 +110,7 @@ fn cached_search(
                 sc_enabled,
                 saturn_enabled,
                 loonex_enabled,
+                youtube_enabled,
                 cdn,
                 locale,
             );
@@ -122,6 +129,7 @@ fn cached_search(
         sc_enabled,
         saturn_enabled,
         loonex_enabled,
+        youtube_enabled,
         cdn,
         locale,
     );
@@ -144,6 +152,7 @@ pub fn search_catalog_page(
     sc_enabled: bool,
     saturn_enabled: bool,
     loonex_enabled: bool,
+    youtube_enabled: bool,
     cdn: &str,
     locale: &str,
 ) -> SearchCatalogPage {
@@ -154,6 +163,7 @@ pub fn search_catalog_page(
         sc_enabled,
         saturn_enabled,
         loonex_enabled,
+        youtube_enabled,
         cdn,
         locale,
     );

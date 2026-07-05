@@ -11,7 +11,10 @@ pub struct Profile {
     pub accent_color: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar_style: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar_emoji: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_image_path: Option<String>,
     pub created_at: String,
     pub has_pin: bool,
 }

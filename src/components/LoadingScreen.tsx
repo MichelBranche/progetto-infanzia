@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import "../styles/netflix-intro.css";
+import { BranchefyShadowIntro } from "./BranchefyShadowIntro";
 import { readIntroSoundPref } from "../lib/settingsApi";
 
-const INTRO_ZOOM_DELAY_MS = 500;
-const INTRO_ZOOM_DURATION_MS = 3500;
-const INTRO_HOLD_MS = 700;
+const INTRO_SOUND_DELAY_MS = 500;
+const INTRO_HOLD_MS = 3500;
+const INTRO_TAIL_MS = 700;
 const FADE_OUT_MS = 700;
 const PREPARE_MIN_MS = 500;
 const INTRO_SOUND_SRC = "/audio/netflix-intro.mp3";
@@ -52,7 +52,7 @@ export function LoadingScreen({
       if (!readIntroSoundPref()) return;
       audio.currentTime = 0;
       void audio.play().catch(() => undefined);
-    }, INTRO_ZOOM_DELAY_MS);
+    }, INTRO_SOUND_DELAY_MS);
 
     return () => {
       window.clearTimeout(playTimer);
@@ -64,7 +64,7 @@ export function LoadingScreen({
   useEffect(() => {
     const holdTimer = window.setTimeout(
       () => setIntroExiting(true),
-      INTRO_ZOOM_DELAY_MS + INTRO_ZOOM_DURATION_MS + INTRO_HOLD_MS,
+      INTRO_SOUND_DELAY_MS + INTRO_HOLD_MS + INTRO_TAIL_MS,
     );
     return () => window.clearTimeout(holdTimer);
   }, []);
@@ -125,7 +125,7 @@ export function LoadingScreen({
 
   return (
     <motion.div
-      className="fixed inset-0 z-[100] bg-black"
+      className={`fixed inset-0 z-[100] ${showPrepare ? "bg-black" : ""}`}
       initial={{ opacity: 1 }}
       animate={{ opacity: prepareExiting ? 0 : 1 }}
       transition={{ duration: FADE_OUT_MS / 1000, ease: "easeInOut" }}
@@ -140,16 +140,7 @@ export function LoadingScreen({
             exit={{ opacity: 0 }}
             transition={{ duration: FADE_OUT_MS / 1000, ease: "easeInOut" }}
           >
-            <div className="netflix-intro-shell relative h-full w-full">
-              <div className="branchefy-intro-zoom">
-                <h1 className="font-display text-[3.25rem] font-bold leading-none tracking-[-0.04em] text-[#e50914]">
-                  Branchefy
-                </h1>
-                <p className="branchefy-intro-tagline mt-5 text-[10px] font-medium uppercase tracking-[0.35em] text-white/55">
-                  La tua capsula del tempo
-                </p>
-              </div>
-            </div>
+            <BranchefyShadowIntro />
           </motion.div>
         )}
 

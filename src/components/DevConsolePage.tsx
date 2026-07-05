@@ -8,7 +8,6 @@ import {
   MessageSquare,
   RotateCcw,
   Shield,
-  Terminal,
   Trash2,
   UserRound,
   Users,
@@ -32,8 +31,39 @@ import {
   type FeedbackBucket,
   type FeedbackType,
 } from "../types/feedback";
+import {
+  DevActionBar,
+  DevActionButton,
+  DevBadge,
+  DevChip,
+  DevDetailHeader,
+  DevDetailPane,
+  DevErrorBanner,
+  DevFilterRow,
+  DevHero,
+  DevListItem,
+  DevLoadingState,
+  DevMasterDetail,
+  DevMetaGrid,
+  DevRowItem,
+  DevRowList,
+  DevSearchInput,
+  DevSidebar,
+  DevStatsGrid,
+  DevUserAvatar,
+  DevWarningBanner,
+  ProfileEmptyState,
+  ProfileSectionLabel,
+  ProfileTabBar,
+} from "./dev/DevConsoleUi";
 
 type DevTab = "cloud" | "local" | "feedback";
+
+const MAIN_TABS: { id: DevTab; label: string; icon: typeof Users }[] = [
+  { id: "cloud", label: "Utenti cloud", icon: Users },
+  { id: "local", label: "Profili locali", icon: UserRound },
+  { id: "feedback", label: "Feedback", icon: MessageSquare },
+];
 
 function formatWhen(iso?: string) {
   if (!iso) return "—";
@@ -54,165 +84,8 @@ function presenceLabel(user: DevCloudUser) {
   return "Offline";
 }
 
-function CloudUserDetail({
-  user,
-  deleteBusy,
-  onDelete,
-}: {
-  user: DevCloudUser;
-  deleteBusy: boolean;
-  onDelete: () => void;
-}) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-6">
-      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-5 py-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="font-display text-xl font-semibold text-text-primary">
-            {user.displayName ?? user.email}
-          </h3>
-          {!user.hasProfile ? (
-            <span className="rounded-full border border-warm/30 bg-warm/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-warm">
-              Non registrato
-            </span>
-          ) : (
-            <span className="rounded-full border border-mint/25 bg-mint/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-mint">
-              Registrato
-            </span>
-          )}
-        </div>
-        <p className="mt-1 text-[13px] text-text-muted">{user.email}</p>
-        <dl className="mt-4 grid gap-2 text-[12px] sm:grid-cols-2">
-          <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2">
-            <dt className="text-text-muted">Creato</dt>
-            <dd className="text-text-primary">{formatWhen(user.authCreatedAt)}</dd>
-          </div>
-          <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2">
-            <dt className="text-text-muted">Ultimo accesso</dt>
-            <dd className="text-text-primary">{formatWhen(user.lastSignInAt)}</dd>
-          </div>
-          <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2">
-            <dt className="text-text-muted">Stato</dt>
-            <dd className="text-text-primary">{presenceLabel(user)}</dd>
-          </div>
-          {user.friendCode && (
-            <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2">
-              <dt className="text-text-muted">Codice amico</dt>
-              <dd className="font-mono text-text-primary">{user.friendCode}</dd>
-            </div>
-          )}
-          {user.appVersion && (
-            <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2">
-              <dt className="text-text-muted">Versione app</dt>
-              <dd className="font-mono text-text-primary">v{user.appVersion}</dd>
-            </div>
-          )}
-          {user.platform && (
-            <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2">
-              <dt className="text-text-muted">Piattaforma</dt>
-              <dd className="capitalize text-text-primary">{user.platform}</dd>
-            </div>
-          )}
-        </dl>
-        <div className="mt-5 border-t border-white/[0.06] pt-4">
-          <button
-            type="button"
-            disabled={deleteBusy}
-            onClick={onDelete}
-            className="inline-flex items-center gap-2 rounded-full border border-red-500/30 bg-red-500/10 px-4 py-2 text-[12px] font-medium text-red-300 transition-colors hover:bg-red-500/15 disabled:opacity-50"
-          >
-            {deleteBusy ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Trash2 className="h-3.5 w-3.5" />
-            )}
-            Elimina account
-          </button>
-        </div>
-      </div>
-
-      <section>
-        <div className="mb-3 flex items-center gap-2">
-          <Users className="h-4 w-4 text-text-muted" />
-          <h4 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-muted">
-            Amici ({user.friends.length})
-          </h4>
-        </div>
-        {!user.hasProfile ? (
-          <p className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-6 text-center text-[13px] text-text-muted">
-            Utente senza profilo app: nessun dato amici.
-          </p>
-        ) : user.friends.length === 0 ? (
-          <p className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-6 text-center text-[13px] text-text-muted">
-            Nessun amico accettato.
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {user.friends.map((friend) => (
-              <li
-                key={friend.friendId}
-                className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-text-primary">
-                    {friend.displayName}
-                  </p>
-                  <p className="truncate text-[12px] text-text-muted">
-                    {friend.email}
-                  </p>
-                </div>
-                <span className="shrink-0 font-mono text-[11px] text-text-secondary">
-                  {friend.friendCode}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="min-h-0 flex-1">
-        <div className="mb-3 flex items-center gap-2">
-          <Film className="h-4 w-4 text-text-muted" />
-          <h4 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-muted">
-            Titoli guardati ({user.recentWatches.length})
-          </h4>
-        </div>
-        {!user.hasProfile ? (
-          <p className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-6 text-center text-[13px] text-text-muted">
-            Utente senza profilo app: nessuna cronologia cloud.
-          </p>
-        ) : user.recentWatches.length === 0 ? (
-          <p className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-6 text-center text-[13px] text-text-muted">
-            Nessun titolo sincronizzato sul cloud. I dati compaiono quando
-            l&apos;utente guarda contenuti con l&apos;app aggiornata.
-          </p>
-        ) : (
-          <ul className="max-h-[min(52vh,520px)] space-y-2 overflow-y-auto pr-1">
-            {user.recentWatches.map((watch, index) => (
-              <li
-                key={`${watch.watchedAt}-${watch.titleName}-${index}`}
-                className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-[14px] font-medium text-text-primary">
-                    {watch.titleName}
-                  </p>
-                  {watch.episodeLabel && (
-                    <p className="truncate text-[12px] text-text-muted">
-                      {watch.episodeLabel}
-                    </p>
-                  )}
-                </div>
-                <div className="shrink-0 text-right text-[11px] text-text-muted">
-                  <p>{formatWhen(watch.watchedAt)}</p>
-                  <p className="tabular-nums">{formatDuration(watch.secondsWatched)}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
-  );
+function isCloudUserOnline(user: DevCloudUser) {
+  return user.presenceStatus === "online" || user.presenceStatus === "away";
 }
 
 function feedbackTypeBadge(type: FeedbackType): string {
@@ -244,6 +117,122 @@ function FeedbackTypeIcon({ type }: { type: FeedbackType }) {
   }
 }
 
+function CloudUserDetail({
+  user,
+  deleteBusy,
+  onDelete,
+}: {
+  user: DevCloudUser;
+  deleteBusy: boolean;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
+      <DevDetailHeader
+        title={user.displayName ?? user.email}
+        subtitle={user.email}
+        avatar={
+          <DevUserAvatar
+            name={user.displayName ?? user.email}
+            online={user.hasProfile ? isCloudUserOnline(user) : undefined}
+          />
+        }
+        badges={
+          user.hasProfile ? (
+            <DevBadge tone="mint">Registrato</DevBadge>
+          ) : (
+            <DevBadge tone="warm">Solo auth</DevBadge>
+          )
+        }
+      />
+
+      <DevMetaGrid
+        items={[
+          { label: "Creato", value: formatWhen(user.authCreatedAt) },
+          { label: "Ultimo accesso", value: formatWhen(user.lastSignInAt) },
+          { label: "Stato", value: presenceLabel(user) },
+          ...(user.friendCode
+            ? [{ label: "Codice amico", value: <span className="font-mono">{user.friendCode}</span> }]
+            : []),
+          ...(user.appVersion
+            ? [{ label: "Versione app", value: <span className="font-mono">v{user.appVersion}</span> }]
+            : []),
+          ...(user.platform
+            ? [{ label: "Piattaforma", value: <span className="capitalize">{user.platform}</span> }]
+            : []),
+        ]}
+      />
+
+      <DevActionBar>
+        <DevActionButton tone="danger" disabled={deleteBusy} onClick={onDelete} icon={deleteBusy ? Loader2 : Trash2}>
+          {deleteBusy ? "Eliminazione…" : "Elimina account"}
+        </DevActionButton>
+      </DevActionBar>
+
+      <section>
+        <ProfileSectionLabel>{`Amici (${user.friends.length})`}</ProfileSectionLabel>
+        {!user.hasProfile ? (
+          <ProfileEmptyState
+            icon={Users}
+            title="Nessun dato amici"
+            description="Utente senza profilo app collegato."
+          />
+        ) : user.friends.length === 0 ? (
+          <ProfileEmptyState
+            icon={Users}
+            title="Nessun amico"
+            description="Nessuna amicizia cloud accettata."
+          />
+        ) : (
+          <DevRowList>
+            {user.friends.map((friend) => (
+              <DevRowItem
+                key={friend.friendId}
+                title={friend.displayName}
+                subtitle={friend.email}
+                trailing={<span className="font-mono text-text-secondary">{friend.friendCode}</span>}
+              />
+            ))}
+          </DevRowList>
+        )}
+      </section>
+
+      <section className="min-h-0 flex-1">
+        <ProfileSectionLabel>{`Titoli guardati (${user.recentWatches.length})`}</ProfileSectionLabel>
+        {!user.hasProfile ? (
+          <ProfileEmptyState
+            icon={Film}
+            title="Nessuna cronologia"
+            description="Utente senza profilo app sul cloud."
+          />
+        ) : user.recentWatches.length === 0 ? (
+          <ProfileEmptyState
+            icon={Film}
+            title="Nessuna visione"
+            description="I dati compaiono quando l'utente guarda contenuti con l'app aggiornata."
+          />
+        ) : (
+          <DevRowList maxHeight="max-h-[min(52vh,520px)]">
+            {user.recentWatches.map((watch, index) => (
+              <DevRowItem
+                key={`${watch.watchedAt}-${watch.titleName}-${index}`}
+                title={watch.titleName}
+                subtitle={watch.episodeLabel}
+                trailing={
+                  <>
+                    <p>{formatWhen(watch.watchedAt)}</p>
+                    <p className="tabular-nums">{formatDuration(watch.secondsWatched)}</p>
+                  </>
+                }
+              />
+            ))}
+          </DevRowList>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function FeedbackDetail({
   item,
   bucket,
@@ -266,7 +255,7 @@ function FeedbackDetail({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
-      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-5 py-4">
+      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-5 py-4">
         <div className="flex flex-wrap items-center gap-2">
           <span
             className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${feedbackTypeBadge(item.type)}`}
@@ -274,20 +263,12 @@ function FeedbackDetail({
             <FeedbackTypeIcon type={item.type} />
             {feedbackTypeLabel(item.type)}
           </span>
-          {item.status === "resolved" && !inTrash && (
-            <span className="rounded-full border border-mint/25 bg-mint/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-mint">
-              Risolto
-            </span>
-          )}
-          {inTrash && (
-            <span className="rounded-full border border-white/15 bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-text-muted">
-              Nel cestino
-            </span>
-          )}
+          {item.status === "resolved" && !inTrash && <DevBadge tone="mint">Risolto</DevBadge>}
+          {inTrash && <DevBadge tone="neutral">Nel cestino</DevBadge>}
           <span className="text-[12px] text-text-muted">{formatWhen(item.createdAt)}</span>
         </div>
         {item.subject && (
-          <h3 className="font-display mt-3 text-xl font-semibold text-text-primary">
+          <h3 className="font-display mt-4 text-xl font-semibold tracking-[-0.03em] text-text-primary">
             {item.subject}
           </h3>
         )}
@@ -296,120 +277,77 @@ function FeedbackDetail({
         </p>
       </div>
 
-      <dl className="grid gap-2 text-[12px] sm:grid-cols-2">
-        <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2">
-          <dt className="text-text-muted">Profilo</dt>
-          <dd className="text-right text-text-primary">
-            {item.profileName}
-            <span className="text-text-muted"> · {item.profileRole}</span>
-          </dd>
-        </div>
-        {item.appVersion && (
-          <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2">
-            <dt className="text-text-muted">Versione app</dt>
-            <dd className="font-mono text-text-primary">{item.appVersion}</dd>
-          </div>
-        )}
-        {item.platform && (
-          <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2">
-            <dt className="text-text-muted">Piattaforma</dt>
-            <dd className="capitalize text-text-primary">{item.platform}</dd>
-          </div>
-        )}
-        {item.context?.activeNav && (
-          <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2">
-            <dt className="text-text-muted">Sezione attiva</dt>
-            <dd className="text-text-primary">{item.context.activeNav}</dd>
-          </div>
-        )}
-        {item.userId && (
-          <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2 sm:col-span-2">
-            <dt className="text-text-muted">User ID</dt>
-            <dd className="truncate font-mono text-[11px] text-text-secondary">
-              {item.userId}
-            </dd>
-          </div>
-        )}
-        {item.resolvedAt && (
-          <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2">
-            <dt className="text-text-muted">Risolto il</dt>
-            <dd className="text-text-primary">{formatWhen(item.resolvedAt)}</dd>
-          </div>
-        )}
-        {inTrash && item.deletedAt && (
-          <div className="flex justify-between gap-3 rounded-lg bg-black/20 px-3 py-2 sm:col-span-2">
-            <dt className="text-text-muted">Eliminazione definitiva</dt>
-            <dd className="text-text-primary">
-              {purgeDays === 0
-                ? "In corso al prossimo aggiornamento"
-                : `Tra ${purgeDays} giorni (${FEEDBACK_TRASH_RETENTION_DAYS} giorni nel cestino)`}
-            </dd>
-          </div>
-        )}
-      </dl>
+      <DevMetaGrid
+        items={[
+          {
+            label: "Profilo",
+            value: (
+              <>
+                {item.profileName}
+                <span className="text-text-muted"> · {item.profileRole}</span>
+              </>
+            ),
+          },
+          ...(item.appVersion
+            ? [{ label: "Versione app", value: <span className="font-mono">{item.appVersion}</span> }]
+            : []),
+          ...(item.platform
+            ? [{ label: "Piattaforma", value: <span className="capitalize">{item.platform}</span> }]
+            : []),
+          ...(item.context?.activeNav
+            ? [{ label: "Sezione attiva", value: item.context.activeNav }]
+            : []),
+          ...(item.userId
+            ? [
+                {
+                  label: "User ID",
+                  value: (
+                    <span className="block max-w-[200px] truncate font-mono text-[11px] text-text-secondary sm:max-w-none">
+                      {item.userId}
+                    </span>
+                  ),
+                },
+              ]
+            : []),
+          ...(item.resolvedAt
+            ? [{ label: "Risolto il", value: formatWhen(item.resolvedAt) }]
+            : []),
+          ...(inTrash && item.deletedAt
+            ? [
+                {
+                  label: "Eliminazione definitiva",
+                  value:
+                    purgeDays === 0
+                      ? "Al prossimo aggiornamento"
+                      : `Tra ${purgeDays} giorni (${FEEDBACK_TRASH_RETENTION_DAYS} nel cestino)`,
+                },
+              ]
+            : []),
+        ]}
+      />
 
-      <div className="flex flex-wrap gap-2 border-t border-white/[0.06] pt-4">
+      <DevActionBar>
         {!inTrash && item.status === "open" && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onResolve}
-            className="inline-flex items-center gap-2 rounded-full border border-mint/25 bg-mint/10 px-4 py-2 text-[12px] font-medium text-mint transition-colors hover:bg-mint/15 disabled:opacity-50"
-          >
-            {busy ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <CheckCircle2 className="h-3.5 w-3.5" />
-            )}
+          <DevActionButton tone="mint" disabled={busy} onClick={onResolve} icon={busy ? Loader2 : CheckCircle2}>
             Segna come risolto
-          </button>
+          </DevActionButton>
         )}
         {!inTrash && item.status === "resolved" && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onReopen}
-            className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-white/[0.04] disabled:opacity-50"
-          >
-            {busy ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RotateCcw className="h-3.5 w-3.5" />
-            )}
+          <DevActionButton tone="neutral" disabled={busy} onClick={onReopen} icon={busy ? Loader2 : RotateCcw}>
             Riapri
-          </button>
+          </DevActionButton>
         )}
         {!inTrash && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onTrash}
-            className="inline-flex items-center gap-2 rounded-full border border-warm/25 bg-warm/10 px-4 py-2 text-[12px] font-medium text-warm transition-colors hover:bg-warm/15 disabled:opacity-50"
-          >
-            {busy ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Trash2 className="h-3.5 w-3.5" />
-            )}
+          <DevActionButton tone="warm" disabled={busy} onClick={onTrash} icon={busy ? Loader2 : Trash2}>
             Sposta nel cestino
-          </button>
+          </DevActionButton>
         )}
         {inTrash && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onRestore}
-            className="inline-flex items-center gap-2 rounded-full border border-accent/25 bg-accent/10 px-4 py-2 text-[12px] font-medium text-accent transition-colors hover:bg-accent/15 disabled:opacity-50"
-          >
-            {busy ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RotateCcw className="h-3.5 w-3.5" />
-            )}
+          <DevActionButton tone="accent" disabled={busy} onClick={onRestore} icon={busy ? Loader2 : RotateCcw}>
             Ripristina
-          </button>
+          </DevActionButton>
         )}
-      </div>
+      </DevActionBar>
     </div>
   );
 }
@@ -417,90 +355,64 @@ function FeedbackDetail({
 function LocalProfileDetail({ profile }: { profile: DevLocalProfileInsight }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
-      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-5 py-4">
-        <h3 className="font-display text-xl font-semibold text-text-primary">
-          {profile.name}
-        </h3>
-        <p className="mt-1 text-[13px] capitalize text-text-muted">{profile.role}</p>
-        <p className="mt-2 text-[12px] text-text-secondary">
-          Profilo locale su questo dispositivo
-        </p>
-      </div>
+      <DevDetailHeader
+        title={profile.name}
+        subtitle="Profilo locale su questo dispositivo"
+        avatar={<DevUserAvatar name={profile.name} />}
+        badges={<DevBadge tone="accent">{profile.role}</DevBadge>}
+      />
 
       <section>
-        <div className="mb-3 flex items-center gap-2">
-          <Users className="h-4 w-4 text-text-muted" />
-          <h4 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-muted">
-            Amici ({profile.friends.length})
-          </h4>
-        </div>
+        <ProfileSectionLabel>{`Amici (${profile.friends.length})`}</ProfileSectionLabel>
         {profile.friends.length === 0 ? (
-          <p className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-6 text-center text-[13px] text-text-muted">
-            Nessun amico aggiunto.
-          </p>
+          <ProfileEmptyState
+            icon={Users}
+            title="Nessun amico"
+            description="Nessun amico LAN aggiunto da questo profilo."
+          />
         ) : (
-          <ul className="space-y-2">
+          <DevRowList>
             {profile.friends.map((friend) => (
-              <li
+              <DevRowItem
                 key={friend.friendCode}
-                className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-text-primary">
-                    {friend.displayName}
-                  </p>
-                  {friend.lastHost && (
-                    <p className="truncate text-[12px] text-text-muted">
-                      Host: {friend.lastHost}
-                    </p>
-                  )}
-                </div>
-                <div className="shrink-0 text-right text-[11px] text-text-muted">
-                  <p className="font-mono text-text-secondary">{friend.friendCode}</p>
-                  <p>{formatWhen(friend.addedAt)}</p>
-                </div>
-              </li>
+                title={friend.displayName}
+                subtitle={friend.lastHost ? `Host: ${friend.lastHost}` : undefined}
+                trailing={
+                  <>
+                    <p className="font-mono text-text-secondary">{friend.friendCode}</p>
+                    <p>{formatWhen(friend.addedAt)}</p>
+                  </>
+                }
+              />
             ))}
-          </ul>
+          </DevRowList>
         )}
       </section>
 
       <section className="min-h-0 flex-1">
-        <div className="mb-3 flex items-center gap-2">
-          <Film className="h-4 w-4 text-text-muted" />
-          <h4 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-muted">
-            Titoli guardati ({profile.recentSessions.length})
-          </h4>
-        </div>
+        <ProfileSectionLabel>{`Titoli guardati (${profile.recentSessions.length})`}</ProfileSectionLabel>
         {profile.recentSessions.length === 0 ? (
-          <p className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-6 text-center text-[13px] text-text-muted">
-            Nessuna sessione di visione registrata.
-          </p>
+          <ProfileEmptyState
+            icon={Film}
+            title="Nessuna sessione"
+            description="Nessuna visione registrata su questo profilo."
+          />
         ) : (
-          <ul className="max-h-[min(52vh,520px)] space-y-2 overflow-y-auto pr-1">
+          <DevRowList maxHeight="max-h-[min(52vh,520px)]">
             {profile.recentSessions.map((session) => (
-              <li
+              <DevRowItem
                 key={session.id}
-                className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-[14px] font-medium text-text-primary">
-                    {session.mediaTitle}
-                  </p>
-                  <p className="text-[12px] text-text-muted">
-                    {session.sourceKind === "addon" ? "Streaming" : "Libreria locale"}
-                    {session.completed ? " · completato" : ""}
-                  </p>
-                </div>
-                <div className="shrink-0 text-right text-[11px] text-text-muted">
-                  <p>{formatWhen(session.startedAt)}</p>
-                  <p className="tabular-nums">
-                    {formatDuration(session.secondsWatched)}
-                  </p>
-                </div>
-              </li>
+                title={session.mediaTitle}
+                subtitle={`${session.sourceKind === "addon" ? "Streaming" : "Libreria locale"}${session.completed ? " · completato" : ""}`}
+                trailing={
+                  <>
+                    <p>{formatWhen(session.startedAt)}</p>
+                    <p className="tabular-nums">{formatDuration(session.secondsWatched)}</p>
+                  </>
+                }
+              />
             ))}
-          </ul>
+          </DevRowList>
         )}
       </section>
     </div>
@@ -510,25 +422,19 @@ function LocalProfileDetail({ profile }: { profile: DevLocalProfileInsight }) {
 export function DevConsolePage() {
   const [tab, setTab] = useState<DevTab>("cloud");
   const [query, setQuery] = useState("");
-  const [feedbackTypeFilter, setFeedbackTypeFilter] = useState<FeedbackType | "all">(
-    "all",
-  );
+  const [feedbackTypeFilter, setFeedbackTypeFilter] = useState<FeedbackType | "all">("all");
   const [feedbackBucket, setFeedbackBucket] = useState<FeedbackBucket>("inbox");
   const [feedbackActionBusy, setFeedbackActionBusy] = useState(false);
   const [deleteUserBusy, setDeleteUserBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cloudUsers, setCloudUsers] = useState<DevCloudUser[]>([]);
-  const [localProfiles, setLocalProfiles] = useState<DevLocalProfileInsight[]>(
-    [],
-  );
+  const [localProfiles, setLocalProfiles] = useState<DevLocalProfileInsight[]>([]);
   const [feedbackItems, setFeedbackItems] = useState<AppFeedbackRecord[]>([]);
   const [feedbackWarning, setFeedbackWarning] = useState<string | null>(null);
   const [selectedCloudId, setSelectedCloudId] = useState<string | null>(null);
   const [selectedLocalId, setSelectedLocalId] = useState<string | null>(null);
-  const [selectedFeedbackId, setSelectedFeedbackId] = useState<string | null>(
-    null,
-  );
+  const [selectedFeedbackId, setSelectedFeedbackId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -541,17 +447,12 @@ export function DevConsolePage() {
         fetchDevFeedback(),
       ]);
 
-      if (cloudResult.status === "rejected") {
-        throw cloudResult.reason;
-      }
-      if (localResult.status === "rejected") {
-        throw localResult.reason;
-      }
+      if (cloudResult.status === "rejected") throw cloudResult.reason;
+      if (localResult.status === "rejected") throw localResult.reason;
 
       const cloud = cloudResult.value;
       const local = localResult.value;
-      const feedback =
-        feedbackResult.status === "fulfilled" ? feedbackResult.value : [];
+      const feedback = feedbackResult.status === "fulfilled" ? feedbackResult.value : [];
 
       if (feedbackResult.status === "rejected") {
         const message =
@@ -569,9 +470,7 @@ export function DevConsolePage() {
       setLocalProfiles(local.profiles);
       setFeedbackItems(feedback);
       setSelectedCloudId((prev) =>
-        prev && cloud.some((u) => u.userId === prev)
-          ? prev
-          : (cloud[0]?.userId ?? null),
+        prev && cloud.some((u) => u.userId === prev) ? prev : (cloud[0]?.userId ?? null),
       );
       setSelectedLocalId((prev) =>
         prev && local.profiles.some((p) => p.id === prev)
@@ -607,9 +506,7 @@ export function DevConsolePage() {
   const filteredLocal = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return localProfiles;
-    return localProfiles.filter((profile) =>
-      profile.name.toLowerCase().includes(q),
-    );
+    return localProfiles.filter((profile) => profile.name.toLowerCase().includes(q));
   }, [localProfiles, query]);
 
   const filteredFeedback = useMemo(() => {
@@ -625,10 +522,7 @@ export function DevConsolePage() {
       } else if (feedbackBucket === "inbox" && item.status !== "open") {
         return false;
       }
-
-      if (feedbackTypeFilter !== "all" && item.type !== feedbackTypeFilter) {
-        return false;
-      }
+      if (feedbackTypeFilter !== "all" && item.type !== feedbackTypeFilter) return false;
       if (!q) return true;
       return (
         item.message.toLowerCase().includes(q) ||
@@ -655,9 +549,7 @@ export function DevConsolePage() {
 
   const registeredCount = cloudUsers.filter((u) => u.hasProfile).length;
   const unregisteredCount = cloudUsers.length - registeredCount;
-  const inboxCount = feedbackItems.filter(
-    (item) => !item.deletedAt && item.status === "open",
-  ).length;
+  const inboxCount = feedbackItems.filter((item) => !item.deletedAt && item.status === "open").length;
   const resolvedCount = feedbackItems.filter(
     (item) => !item.deletedAt && item.status === "resolved",
   ).length;
@@ -688,31 +580,28 @@ export function DevConsolePage() {
     [feedbackBucket],
   );
 
-  const handleDeleteCloudUser = useCallback(
-    async (user: DevCloudUser) => {
-      const label = user.displayName ?? user.email;
-      const confirmed = window.confirm(
-        `Eliminare definitivamente l'account di ${label}?\n\nVerranno rimossi profilo, amici, presenza e dati cloud collegati. L'azione non è reversibile.`,
-      );
-      if (!confirmed) return;
+  const handleDeleteCloudUser = useCallback(async (user: DevCloudUser) => {
+    const label = user.displayName ?? user.email;
+    const confirmed = window.confirm(
+      `Eliminare definitivamente l'account di ${label}?\n\nVerranno rimossi profilo, amici, presenza e dati cloud collegati. L'azione non è reversibile.`,
+    );
+    if (!confirmed) return;
 
-      setDeleteUserBusy(true);
-      try {
-        await deleteDevCloudUser(user.userId);
-        const cloud = await fetchDevCloudUsers();
-        setCloudUsers(cloud);
-        setSelectedCloudId((prev) => {
-          if (prev && cloud.some((u) => u.userId === prev)) return prev;
-          return cloud[0]?.userId ?? null;
-        });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setDeleteUserBusy(false);
-      }
-    },
-    [],
-  );
+    setDeleteUserBusy(true);
+    try {
+      await deleteDevCloudUser(user.userId);
+      const cloud = await fetchDevCloudUsers();
+      setCloudUsers(cloud);
+      setSelectedCloudId((prev) => {
+        if (prev && cloud.some((u) => u.userId === prev)) return prev;
+        return cloud[0]?.userId ?? null;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeleteUserBusy(false);
+    }
+  }, []);
 
   const stats =
     tab === "feedback"
@@ -727,125 +616,69 @@ export function DevConsolePage() {
           { label: "Solo auth", value: unregisteredCount, icon: UserRound },
         ];
 
+  if (loading) {
+    return (
+      <>
+        <DevHero onRefresh={() => void load()} refreshing />
+        <DevLoadingState />
+      </>
+    );
+  }
+
+  if (error) {
+    return (
+      <>
+        <DevHero onRefresh={() => void load()} />
+        <DevErrorBanner message={error} />
+      </>
+    );
+  }
+
   return (
-    <div className="page-px pb-16 pt-24 sm:pt-28">
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-accent/25 bg-accent/10">
-            <Terminal className="h-5 w-5 text-accent" />
-          </div>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-accent">
-              Dev only
-            </p>
-            <h2 className="font-display mt-1 text-3xl font-semibold tracking-[-0.03em] text-text-primary">
-              Console sviluppatore
-            </h2>
-            <p className="mt-1 text-[14px] text-text-secondary">
-              Utenti cloud, profili locali e feedback inviati dagli utenti
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="self-start rounded-full border border-white/10 px-4 py-2 text-[12px] text-text-secondary transition-colors hover:bg-white/[0.04]"
-        >
-          Aggiorna
-        </button>
+    <>
+      <DevHero onRefresh={() => void load()} refreshing={loading} />
+      <DevStatsGrid stats={stats} />
+
+      <div className="page-px mx-auto mt-8 flex max-w-5xl justify-center">
+        <ProfileTabBar tabs={MAIN_TABS} active={tab} onChange={setTab} />
       </div>
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-3">
-        {stats.map((stat) => (
-          <div
-            key={stat.label}
-            className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-4"
-          >
-            <div className="flex items-center gap-2 text-text-muted">
-              <stat.icon className="h-4 w-4" />
-              <p className="text-[11px] uppercase tracking-[0.16em]">
-                {stat.label}
-              </p>
-            </div>
-            <p className="mt-2 font-display text-2xl font-semibold text-text-primary">
-              {stat.value}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="inline-flex rounded-full border border-white/10 bg-white/[0.03] p-1">
-          {(
-            [
-              ["cloud", "Utenti cloud"],
-              ["local", "Profili locali"],
-              ["feedback", "Feedback"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              className={`rounded-full px-4 py-2 text-[12px] font-medium transition-colors ${
-                tab === id
-                  ? "bg-text-primary text-void"
-                  : "text-text-muted hover:text-text-primary"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={
-            tab === "feedback"
-              ? "Cerca messaggio, oggetto o profilo…"
-              : "Cerca email, nome o profilo…"
-          }
-          className="w-full rounded-full border border-white/10 bg-black/20 px-4 py-2.5 text-[13px] text-text-primary outline-none placeholder:text-text-muted focus:border-accent/40 sm:max-w-xs"
-        />
-      </div>
-
-      {tab === "feedback" && feedbackWarning && (
-        <div className="mb-5 rounded-2xl border border-warm/25 bg-warm/10 px-4 py-3 text-[13px] text-warm">
-          {feedbackWarning}
-        </div>
-      )}
-
-      {tab === "feedback" && (
-        <div className="mb-5 flex flex-wrap gap-2">
-          {(
+      <DevFilterRow
+        trailing={
+          <DevSearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder={
+              tab === "feedback"
+                ? "Cerca messaggio, oggetto o profilo…"
+                : "Cerca email, nome o profilo…"
+            }
+          />
+        }
+      >
+        {tab === "feedback" &&
+          (
             [
               ["inbox", "Da fare"],
               ["resolved", "Risolti"],
               ["trash", "Cestino"],
             ] as const
           ).map(([id, label]) => (
-            <button
+            <DevChip
               key={id}
-              type="button"
+              active={feedbackBucket === id}
               onClick={() => {
                 setFeedbackBucket(id);
                 setSelectedFeedbackId(null);
               }}
-              className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
-                feedbackBucket === id
-                  ? "border-accent/40 bg-accent/15 text-accent"
-                  : "border-white/10 text-text-muted hover:border-white/20 hover:text-text-secondary"
-              }`}
             >
               {label}
-            </button>
+            </DevChip>
           ))}
-        </div>
-      )}
+      </DevFilterRow>
 
       {tab === "feedback" && feedbackBucket !== "trash" && (
-        <div className="mb-5 flex flex-wrap gap-2">
+        <DevFilterRow>
           {(
             [
               ["all", "Tutti"],
@@ -855,236 +688,180 @@ export function DevConsolePage() {
               ["title", "Titoli"],
             ] as const
           ).map(([id, label]) => (
-            <button
+            <DevChip
               key={id}
-              type="button"
+              active={feedbackTypeFilter === id}
               onClick={() => setFeedbackTypeFilter(id)}
-              className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
-                feedbackTypeFilter === id
-                  ? "border-accent/40 bg-accent/15 text-accent"
-                  : "border-white/10 text-text-muted hover:border-white/20 hover:text-text-secondary"
-              }`}
             >
               {label}
-            </button>
+            </DevChip>
           ))}
-        </div>
+        </DevFilterRow>
       )}
 
-      {loading ? (
-        <div className="flex min-h-[320px] items-center justify-center">
-          <Loader2 className="h-7 w-7 animate-spin text-text-muted" />
-        </div>
-      ) : error ? (
-        <div className="rounded-2xl border border-warm/25 bg-warm/10 px-4 py-4 text-[13px] text-warm">
-          {error}
-        </div>
-      ) : tab === "cloud" ? (
-        <div className="grid min-h-[420px] gap-4 lg:grid-cols-[minmax(240px,300px)_1fr]">
-          <div className="flex max-h-[min(70vh,680px)] flex-col overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
-            <p className="border-b border-white/[0.06] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
-              Utenti ({filteredCloud.length})
-            </p>
-            <ul className="min-h-0 flex-1 overflow-y-auto p-2">
+      {tab === "feedback" && feedbackWarning && <DevWarningBanner message={feedbackWarning} />}
+
+      {tab === "cloud" && (
+        <DevMasterDetail
+          sidebar={
+            <DevSidebar title={`Utenti (${filteredCloud.length})`}>
               {filteredCloud.length === 0 ? (
-                <li className="px-3 py-6 text-center text-[13px] text-text-muted">
+                <p className="px-3 py-8 text-center text-[13px] text-text-muted">
                   Nessun utente trovato.
-                </li>
+                </p>
               ) : (
-                filteredCloud.map((user) => {
-                  const selected = user.userId === selectedCloudId;
-                  return (
-                    <li key={user.userId}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedCloudId(user.userId)}
-                        className={`mb-1 w-full rounded-xl px-3 py-3 text-left transition-colors ${
-                          selected
-                            ? "bg-accent/15 ring-1 ring-accent/30"
-                            : "hover:bg-white/[0.04]"
-                        }`}
-                      >
-                        <p className="truncate font-medium text-text-primary">
-                          {user.displayName ?? user.email}
-                        </p>
-                        <p className="mt-0.5 truncate text-[11px] text-text-muted">
-                          {user.email}
-                        </p>
-                        <p className="mt-1 text-[10px] text-text-secondary">
-                          {user.friends.length} amici · {user.recentWatches.length}{" "}
-                          visioni
-                          {user.appVersion ? ` · v${user.appVersion}` : ""}
-                        </p>
-                      </button>
-                    </li>
-                  );
-                })
+                filteredCloud.map((user) => (
+                  <DevListItem
+                    key={user.userId}
+                    selected={user.userId === selectedCloudId}
+                    onClick={() => setSelectedCloudId(user.userId)}
+                    title={user.displayName ?? user.email}
+                    subtitle={user.email}
+                    meta={`${user.friends.length} amici · ${user.recentWatches.length} visioni${user.appVersion ? ` · v${user.appVersion}` : ""}`}
+                    leading={
+                      <DevUserAvatar
+                        name={user.displayName ?? user.email}
+                        online={user.hasProfile ? isCloudUserOnline(user) : undefined}
+                      />
+                    }
+                  />
+                ))
               )}
-            </ul>
-          </div>
-
-          <div className="min-h-0 rounded-2xl border border-white/[0.07] bg-white/[0.01] p-4 sm:p-5">
-            {selectedCloudUser ? (
-              <CloudUserDetail
-                user={selectedCloudUser}
-                deleteBusy={deleteUserBusy}
-                onDelete={() => void handleDeleteCloudUser(selectedCloudUser)}
-              />
-            ) : (
-              <p className="flex min-h-[240px] items-center justify-center text-[14px] text-text-muted">
-                Seleziona un utente dalla lista
-              </p>
-            )}
-          </div>
-        </div>
-      ) : tab === "local" ? (
-        <div className="grid min-h-[420px] gap-4 lg:grid-cols-[minmax(240px,300px)_1fr]">
-          <div className="flex max-h-[min(70vh,680px)] flex-col overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
-            <p className="border-b border-white/[0.06] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
-              Profili ({filteredLocal.length})
-            </p>
-            <ul className="min-h-0 flex-1 overflow-y-auto p-2">
-              {filteredLocal.length === 0 ? (
-                <li className="px-3 py-6 text-center text-[13px] text-text-muted">
-                  Nessun profilo locale.
-                </li>
-              ) : (
-                filteredLocal.map((profile) => {
-                  const selected = profile.id === selectedLocalId;
-                  return (
-                    <li key={profile.id}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedLocalId(profile.id)}
-                        className={`mb-1 w-full rounded-xl px-3 py-3 text-left transition-colors ${
-                          selected
-                            ? "bg-accent/15 ring-1 ring-accent/30"
-                            : "hover:bg-white/[0.04]"
-                        }`}
-                      >
-                        <p className="truncate font-medium text-text-primary">
-                          {profile.name}
-                        </p>
-                        <p className="mt-0.5 text-[11px] capitalize text-text-muted">
-                          {profile.role}
-                        </p>
-                        <p className="mt-1 text-[10px] text-text-secondary">
-                          {profile.friends.length} amici ·{" "}
-                          {profile.recentSessions.length} visioni
-                        </p>
-                      </button>
-                    </li>
-                  );
-                })
+            </DevSidebar>
+          }
+          detail={
+            <DevDetailPane
+              empty={
+                <ProfileEmptyState
+                  icon={Users}
+                  title="Seleziona un utente"
+                  description="Scegli un account dalla lista per vedere dettagli, amici e visioni."
+                />
+              }
+            >
+              {selectedCloudUser && (
+                <CloudUserDetail
+                  user={selectedCloudUser}
+                  deleteBusy={deleteUserBusy}
+                  onDelete={() => void handleDeleteCloudUser(selectedCloudUser)}
+                />
               )}
-            </ul>
-          </div>
-
-          <div className="min-h-0 rounded-2xl border border-white/[0.07] bg-white/[0.01] p-4 sm:p-5">
-            {selectedLocalProfile ? (
-              <LocalProfileDetail profile={selectedLocalProfile} />
-            ) : (
-              <p className="flex min-h-[240px] items-center justify-center text-[14px] text-text-muted">
-                Seleziona un profilo dalla lista
-              </p>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="grid min-h-[420px] gap-4 lg:grid-cols-[minmax(240px,300px)_1fr]">
-          <div className="flex max-h-[min(70vh,680px)] flex-col overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
-            <p className="border-b border-white/[0.06] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
-              {feedbackBucket === "trash"
-                ? "Cestino"
-                : feedbackBucket === "resolved"
-                  ? "Risolti"
-                  : "Da fare"}{" "}
-              ({filteredFeedback.length})
-            </p>
-            <ul className="min-h-0 flex-1 overflow-y-auto p-2">
-              {filteredFeedback.length === 0 ? (
-                <li className="px-3 py-6 text-center text-[13px] text-text-muted">
-                  Nessun feedback trovato.
-                </li>
-              ) : (
-                filteredFeedback.map((item) => {
-                  const selected = item.id === selectedFeedbackId;
-                  return (
-                    <li key={item.id}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedFeedbackId(item.id)}
-                        className={`mb-1 w-full rounded-xl px-3 py-3 text-left transition-colors ${
-                          selected
-                            ? "bg-accent/15 ring-1 ring-accent/30"
-                            : "hover:bg-white/[0.04]"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-medium uppercase tracking-wider ${feedbackTypeBadge(item.type)}`}
-                          >
-                            <FeedbackTypeIcon type={item.type} />
-                            {feedbackTypeLabel(item.type)}
-                          </span>
-                          {item.status === "resolved" && feedbackBucket !== "trash" && (
-                            <span className="text-[9px] font-medium uppercase tracking-wider text-mint">
-                              Risolto
-                            </span>
-                          )}
-                          <span className="text-[10px] text-text-muted">
-                            {formatWhen(item.createdAt)}
-                          </span>
-                        </div>
-                        <p className="mt-2 truncate font-medium text-text-primary">
-                          {item.subject ?? item.message}
-                        </p>
-                        <p className="mt-0.5 truncate text-[11px] text-text-muted">
-                          {item.profileName} · {item.profileRole}
-                        </p>
-                      </button>
-                    </li>
-                  );
-                })
-              )}
-            </ul>
-          </div>
-
-          <div className="min-h-0 rounded-2xl border border-white/[0.07] bg-white/[0.01] p-4 sm:p-5">
-            {selectedFeedback ? (
-              <FeedbackDetail
-                item={selectedFeedback}
-                bucket={feedbackBucket}
-                busy={feedbackActionBusy}
-                onResolve={() =>
-                  void runFeedbackAction(() =>
-                    setFeedbackStatus(selectedFeedback.id, "resolved"),
-                  )
-                }
-                onReopen={() =>
-                  void runFeedbackAction(() =>
-                    setFeedbackStatus(selectedFeedback.id, "open"),
-                  )
-                }
-                onTrash={() =>
-                  void runFeedbackAction(() =>
-                    moveFeedbackToTrash(selectedFeedback.id),
-                  )
-                }
-                onRestore={() =>
-                  void runFeedbackAction(() =>
-                    restoreFeedbackFromTrash(selectedFeedback.id),
-                  )
-                }
-              />
-            ) : (
-              <p className="flex min-h-[240px] items-center justify-center text-[14px] text-text-muted">
-                Nessun messaggio da mostrare
-              </p>
-            )}
-          </div>
-        </div>
+            </DevDetailPane>
+          }
+        />
       )}
-    </div>
+
+      {tab === "local" && (
+        <DevMasterDetail
+          sidebar={
+            <DevSidebar title={`Profili (${filteredLocal.length})`}>
+              {filteredLocal.length === 0 ? (
+                <p className="px-3 py-8 text-center text-[13px] text-text-muted">
+                  Nessun profilo locale.
+                </p>
+              ) : (
+                filteredLocal.map((profile) => (
+                  <DevListItem
+                    key={profile.id}
+                    selected={profile.id === selectedLocalId}
+                    onClick={() => setSelectedLocalId(profile.id)}
+                    title={profile.name}
+                    subtitle={profile.role}
+                    meta={`${profile.friends.length} amici · ${profile.recentSessions.length} visioni`}
+                    leading={<DevUserAvatar name={profile.name} />}
+                  />
+                ))
+              )}
+            </DevSidebar>
+          }
+          detail={
+            <DevDetailPane
+              empty={
+                <ProfileEmptyState
+                  icon={UserRound}
+                  title="Seleziona un profilo"
+                  description="Scegli un profilo locale per vedere amici e cronologia visioni."
+                />
+              }
+            >
+              {selectedLocalProfile && <LocalProfileDetail profile={selectedLocalProfile} />}
+            </DevDetailPane>
+          }
+        />
+      )}
+
+      {tab === "feedback" && (
+        <DevMasterDetail
+          sidebar={
+            <DevSidebar
+              title={`${
+                feedbackBucket === "trash"
+                  ? "Cestino"
+                  : feedbackBucket === "resolved"
+                    ? "Risolti"
+                    : "Da fare"
+              } (${filteredFeedback.length})`}
+            >
+              {filteredFeedback.length === 0 ? (
+                <p className="px-3 py-8 text-center text-[13px] text-text-muted">
+                  Nessun feedback trovato.
+                </p>
+              ) : (
+                filteredFeedback.map((item) => (
+                  <DevListItem
+                    key={item.id}
+                    selected={item.id === selectedFeedbackId}
+                    onClick={() => setSelectedFeedbackId(item.id)}
+                    title={item.subject ?? item.message}
+                    subtitle={`${item.profileName} · ${item.profileRole}`}
+                    meta={formatWhen(item.createdAt)}
+                    leading={
+                      <span
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${feedbackTypeBadge(item.type)}`}
+                      >
+                        <FeedbackTypeIcon type={item.type} />
+                      </span>
+                    }
+                  />
+                ))
+              )}
+            </DevSidebar>
+          }
+          detail={
+            <DevDetailPane
+              empty={
+                <ProfileEmptyState
+                  icon={MessageSquare}
+                  title="Nessun messaggio"
+                  description="Seleziona un feedback dalla lista per leggerlo e gestirlo."
+                />
+              }
+            >
+              {selectedFeedback && (
+                <FeedbackDetail
+                  item={selectedFeedback}
+                  bucket={feedbackBucket}
+                  busy={feedbackActionBusy}
+                  onResolve={() =>
+                    void runFeedbackAction(() =>
+                      setFeedbackStatus(selectedFeedback.id, "resolved"),
+                    )
+                  }
+                  onReopen={() =>
+                    void runFeedbackAction(() => setFeedbackStatus(selectedFeedback.id, "open"))
+                  }
+                  onTrash={() =>
+                    void runFeedbackAction(() => moveFeedbackToTrash(selectedFeedback.id))
+                  }
+                  onRestore={() =>
+                    void runFeedbackAction(() => restoreFeedbackFromTrash(selectedFeedback.id))
+                  }
+                />
+              )}
+            </DevDetailPane>
+          }
+        />
+      )}
+    </>
   );
 }

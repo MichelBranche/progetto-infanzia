@@ -18,6 +18,7 @@ export const STREAMING_ID_PREFIX = "stremio:";
 export const SC_STREAMING_ID_PREFIX = "sc:";
 export const SATURN_STREAMING_ID_PREFIX = "saturn:";
 export const LOONEX_STREAMING_ID_PREFIX = "loonex:";
+export const YOUTUBE_STREAMING_ID_PREFIX = "youtube:";
 
 /** Nome visualizzato per anteprime streaming (fallback da slug se name assente). */
 export function streamingPreviewDisplayName(preview: StremioMetaPreview): string {
@@ -66,6 +67,17 @@ export function streamingMediaId(preview: StremioMetaPreview): string {
     }
     return base;
   }
+  if (preview.catalogPrefix === "youtube" && preview.slug) {
+    const base = `${YOUTUBE_STREAMING_ID_PREFIX}${preview.type}:${preview.slug}`;
+    if (
+      isSeries &&
+      preview.resumeVideoId &&
+      preview.resumeVideoId !== preview.id
+    ) {
+      return `${base}:${preview.resumeVideoId}`;
+    }
+    return base;
+  }
   const prefix = STREAMING_ID_PREFIX;
   return `${prefix}${preview.type}:${preview.id}`;
 }
@@ -90,6 +102,7 @@ export function previewToMediaItem(preview: StremioMetaPreview): MediaItem {
     fileName: "",
     description: preview.description,
     posterUrl: preview.poster,
+    backgroundUrl: preview.background,
     isFavorite: preview.inMyList ?? false,
     kidFriendly: true,
     streamingServices: [],
@@ -137,7 +150,8 @@ export function isStreamingMediaId(id: string): boolean {
     id.startsWith(STREAMING_ID_PREFIX) ||
     id.startsWith(SC_STREAMING_ID_PREFIX) ||
     id.startsWith(SATURN_STREAMING_ID_PREFIX) ||
-    id.startsWith(LOONEX_STREAMING_ID_PREFIX)
+    id.startsWith(LOONEX_STREAMING_ID_PREFIX) ||
+    id.startsWith(YOUTUBE_STREAMING_ID_PREFIX)
   );
 }
 
@@ -172,6 +186,27 @@ export function parseStreamingMediaId(id: string): AddonWatchTarget | null {
       metaId: slug,
       slug,
       catalogPrefix: "loonex",
+      videoId,
+    };
+  }
+  if (id.startsWith(YOUTUBE_STREAMING_ID_PREFIX)) {
+    const rest = id.slice(YOUTUBE_STREAMING_ID_PREFIX.length);
+    const parts = rest.split(":");
+    if (parts.length < 2) return null;
+    const contentType = parts[0];
+    const slug = parts[1];
+    if (!contentType || !slug) return null;
+
+    let videoId: string | undefined;
+    if (parts.length >= 3) {
+      videoId = parts.slice(2).join(":");
+    }
+
+    return {
+      contentType,
+      metaId: slug,
+      slug,
+      catalogPrefix: "youtube",
       videoId,
     };
   }
@@ -294,6 +329,15 @@ export function previewToWatchTarget(preview: StremioMetaPreview): AddonWatchTar
       metaId: preview.slug,
       slug: preview.slug,
       catalogPrefix: "loonex",
+      videoId,
+    };
+  }
+  if (preview.catalogPrefix === "youtube" && preview.slug) {
+    return {
+      contentType: preview.type,
+      metaId: preview.slug,
+      slug: preview.slug,
+      catalogPrefix: "youtube",
       videoId,
     };
   }

@@ -1,22 +1,28 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { memo, useEffect, useRef, useState, type RefObject } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Play, Plus, Check, Info } from "lucide-react";
+import { Play, Plus, Check, Info, BadgeCheck } from "lucide-react";
 import type { MediaItem } from "../types/media";
 import { formatDuration, mediaTypeLabel } from "../types/media";
 import { episodeDisplayTitle } from "../lib/browse";
+import type { BrowseItem } from "../lib/browse";
 import {
   isStreamingMediaId,
   parseStreamingMediaId,
+  streamingBrowseItem,
 } from "../lib/streamingBrowse";
 import { mediaItemToStreamingPreview } from "../lib/myList";
-import type { StremioMetaPreview } from "../types/stremio";
 import { HERO_POSTER_MS, HERO_PREVIEW_SEC } from "../lib/preview";
 import { prefetchStreamUrl } from "../lib/streamCache";
 import { prefetchStreamingPreview } from "../lib/streamingPreviewCache";
 import { supportsStreamingPreview } from "../lib/streamingHeroPreview";
 import { useProfile } from "../context/ProfileContext";
 import { usePreviewAudio } from "../context/PreviewAudioContext";
-import { PosterImage } from "./PosterImage";
+import { PosterImage, posterUrlFor } from "./PosterImage";
+import {
+  needsHeroImageUpgrade,
+  prefetchHeroImage,
+  resolveHeroImageUrl,
+} from "../lib/heroImage";
 import { PreviewAudioToggle } from "./PreviewAudioToggle";
 import { VideoPreview } from "./VideoPreview";
 import { StreamingVideoPreview } from "./StreamingVideoPreview";
@@ -25,25 +31,66 @@ import { useHeroScrollParallax } from "../hooks/useHeroScrollParallax";
 interface HeroBannerProps {
   items: MediaItem[];
   scrollContainerRef?: RefObject<HTMLElement | null>;
+  fullPage?: boolean;
   onPlay: (id: string) => void;
   onOpenSeries?: (media: MediaItem) => void;
+  onOpenDetail?: (browse: BrowseItem) => void;
   onToggleFavorite?: (id: string) => void;
-  onToggleStreamingList?: (preview: StremioMetaPreview) => void;
+  onToggleStreamingList?: (preview: import("../types/stremio").StremioMetaPreview) => void;
   onEdit?: (media: MediaItem) => void;
 }
 
 const textMotion = {
-  initial: { opacity: 0, y: 24 },
+  initial: { opacity: 0, y: 16 },
   animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -12 },
-  transition: { duration: 0.35, ease: [0.22, 1, 0.36, 1] as const },
+  exit: { opacity: 0, y: -8 },
+  transition: { duration: 0.4, ease: [0.22, 1, 0.36, 1] as const },
 };
 
-export function HeroBanner({
+function heroSourceBadge(media: MediaItem): string {
+  if (!isStreamingMediaId(media.id)) {
+    return mediaTypeLabel(media.mediaType);
+  }
+  if (media.id.includes(":sc:") || media.id.startsWith("sc:")) {
+    return "In streaming";
+  }
+  if (media.id.includes("saturn:")) return "Anime";
+  if (media.id.includes("loonex:")) return "Archivio Cartoni";
+  if (media.id.includes("youtube:")) return "YouTube";
+  return "In streaming";
+}
+
+function heroPlayLabel(media: MediaItem, resume: boolean): string {
+  if (resume) return "Riprendi";
+  if (media.episode != null) {
+    return `Episodio ${media.episode} / Guarda ora`;
+  }
+  return "Guarda ora";
+}
+
+function heroStatusLine(media: MediaItem, isStreaming: boolean): string {
+  const parts: string[] = [];
+  if (media.season != null) {
+    parts.push(`Stagione ${media.season}`);
+  } else if (media.year) {
+    parts.push(String(media.year));
+  }
+  if (isStreaming) {
+    parts.push("Disponibile ora");
+  } else {
+    const duration = formatDuration(media.watchDuration);
+    if (duration) parts.push(duration);
+  }
+  return parts.join(" · ");
+}
+
+export const HeroBanner = memo(function HeroBanner({
   items,
   scrollContainerRef,
+  fullPage = false,
   onPlay,
   onOpenSeries,
+  onOpenDetail,
   onToggleFavorite,
   onToggleStreamingList,
   onEdit,
@@ -52,6 +99,7 @@ export function HeroBanner({
   const { previewAudio, togglePreviewAudio, isPreviewMuted } = usePreviewAudio();
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState<"poster" | "video">("poster");
+  const [heroImageUrl, setHeroImageUrl] = useState<string | undefined>();
   const slideTimerRef = useRef<number | null>(null);
   const heroRef = useRef<HTMLDivElement>(null);
   const mediaLayerRef = useRef<HTMLDivElement>(null);
@@ -142,11 +190,53 @@ export function HeroBanner({
     setIndex((current) => (current + 1) % items.length);
   };
 
+  useEffect(() => {
+    if (!media) return;
+    let cancelled = false;
+    const heroItem: MediaItem = media.seriesTitle
+      ? {
+          ...media,
+          title: media.seriesTitle,
+          season: undefined,
+          episode: undefined,
+          posterUrl: media.seriesPosterUrl ?? media.posterUrl,
+          backgroundUrl: media.backgroundUrl,
+        }
+      : media;
+    const fallback = posterUrlFor(heroItem, "hero");
+    setHeroImageUrl(fallback);
+
+    if (!needsHeroImageUpgrade(media)) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void resolveHeroImageUrl(media).then((url) => {
+      if (!cancelled && url) setHeroImageUrl(url);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    media?.id,
+    media?.backgroundUrl,
+    media?.posterUrl,
+    media?.seriesPosterUrl,
+    media?.seriesTitle,
+  ]);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    const next = items[(safeIndex + 1) % items.length];
+    if (next) prefetchHeroImage(next);
+  }, [items, safeIndex]);
+
   if (!media) return null;
 
   const episodeTitle = episodeDisplayTitle(media);
   const heroTitle = media.seriesTitle ?? episodeTitle;
-  const durationLabel = formatDuration(media.watchDuration);
   const heroPoster: MediaItem = media.seriesTitle
     ? {
         ...media,
@@ -154,6 +244,7 @@ export function HeroBanner({
         season: undefined,
         episode: undefined,
         posterUrl: media.seriesPosterUrl ?? media.posterUrl,
+        backgroundUrl: media.backgroundUrl,
       }
     : media;
   const resume =
@@ -163,130 +254,161 @@ export function HeroBanner({
       !isStreamingMediaId(item.id) ||
       supportsStreamingPreview(parseStreamingMediaId(item.id)),
   );
+  const statusLine = heroStatusLine(media, isStreaming);
+  const showEpisodeTagline =
+    media.seriesTitle && episodeTitle !== media.seriesTitle;
+
+  const handleInfo = () => {
+    if (isStreaming && onOpenDetail) {
+      const preview = mediaItemToStreamingPreview(media);
+      if (preview) onOpenDetail(streamingBrowseItem(preview));
+      return;
+    }
+    if (onOpenSeries && media.seriesTitle) {
+      onOpenSeries(media);
+    }
+  };
+
+  const mediaClassName =
+    "hero-prime__media absolute inset-0 h-full w-full";
 
   return (
     <div
       ref={heroRef}
-      className="relative h-[52vh] min-h-[320px] max-h-[720px] w-full shrink-0 overflow-hidden bg-black sm:h-[58vh] sm:min-h-[360px] lg:h-[64vh] lg:min-h-[400px]"
+      className={`relative w-full shrink-0 overflow-hidden bg-black ${
+        fullPage
+          ? "h-[100svh] min-h-[560px]"
+          : "h-[72vh] min-h-[420px] max-h-[820px] sm:min-h-[460px] lg:h-[78vh] lg:min-h-[500px]"
+      }`}
     >
-      <div ref={mediaLayerRef} className="absolute inset-0 will-change-transform">
-      <AnimatePresence mode="popLayout" initial={false}>
-        <motion.div
-          key={`${media.id}-poster`}
-          className="absolute inset-0 ken-burns"
-          initial={{ opacity: 0, scale: 1.04 }}
-          animate={{
-            opacity: phase === "poster" ? 1 : 0,
-            scale: phase === "poster" ? 1 : 1.03,
-          }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.9, ease: "easeInOut" }}
-        >
-          <PosterImage item={heroPoster} variant="browse" className="opacity-90" />
-        </motion.div>
-        {!isStreaming && (
+      <div
+        ref={mediaLayerRef}
+        className={`absolute -inset-x-[4%] will-change-transform ${
+          fullPage
+            ? "-top-[var(--app-nav-height)] bottom-0 h-[calc(100%+var(--app-nav-height))]"
+            : "inset-y-0"
+        }`}
+      >
+        <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
-            key={`${media.id}-video`}
-            className="absolute inset-0"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: phase === "video" ? 1 : 0 }}
+            key={`${media.id}-poster`}
+            className="absolute inset-0 ken-burns-hero"
+            initial={{ opacity: 0, scale: 1.03 }}
+            animate={{
+              opacity: phase === "poster" ? 1 : 0,
+              scale: phase === "poster" ? 1 : 1.02,
+            }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.9, ease: "easeInOut" }}
           >
-            <VideoPreview
-              media={media}
-              active={phase === "video"}
-              maxDurationSec={HERO_PREVIEW_SEC}
-              muted={isPreviewMuted("hero", phase === "video")}
-              className="absolute inset-0 h-full w-full object-cover"
-              onEnded={advanceSlide}
-            />
+          <PosterImage
+            item={heroPoster}
+            variant="hero"
+            priority
+            srcOverride={heroImageUrl}
+            className={`${mediaClassName} opacity-100`}
+          />
           </motion.div>
-        )}
-        {canStreamPreview && streamTarget && (
-          <motion.div
-            key={`${media.id}-stream-video`}
-            className="absolute inset-0"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: phase === "video" ? 1 : 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.9, ease: "easeInOut" }}
-          >
-            <StreamingVideoPreview
-              target={streamTarget}
-              active={phase === "video"}
-              maxDurationSec={HERO_PREVIEW_SEC}
-              muted={isPreviewMuted("hero", phase === "video")}
-              className="absolute inset-0 h-full w-full object-cover"
-              onEnded={advanceSlide}
-              onUnavailable={advanceSlide}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+          {!isStreaming && (
+            <motion.div
+              key={`${media.id}-video`}
+              className="absolute inset-0"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: phase === "video" ? 1 : 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.9, ease: "easeInOut" }}
+            >
+              <VideoPreview
+                media={media}
+                active={phase === "video"}
+                maxDurationSec={HERO_PREVIEW_SEC}
+                muted={isPreviewMuted("hero", phase === "video")}
+                className={mediaClassName}
+                onEnded={advanceSlide}
+              />
+            </motion.div>
+          )}
+          {canStreamPreview && streamTarget && (
+            <motion.div
+              key={`${media.id}-stream-video`}
+              className="absolute inset-0"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: phase === "video" ? 1 : 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.9, ease: "easeInOut" }}
+            >
+              <StreamingVideoPreview
+                target={streamTarget}
+                active={phase === "video"}
+                maxDurationSec={HERO_PREVIEW_SEC}
+                muted={isPreviewMuted("hero", phase === "video")}
+                className={mediaClassName}
+                onEnded={advanceSlide}
+                onUnavailable={advanceSlide}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
-      <div className="absolute inset-0 bg-gradient-to-t from-void via-void/70 to-void/10" />
-      <div className="absolute inset-0 bg-gradient-to-r from-void/95 via-void/35 to-transparent" />
-      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-void to-transparent" />
-      <div className="hero-vignette absolute inset-0" />
+      <div
+        className={`hero-prime__scrim ${
+          phase === "video" ? "hero-prime__scrim--video" : ""
+        }`}
+      />
 
       {hasVideoPreview && (
         <PreviewAudioToggle
           enabled={previewAudio}
           onToggle={togglePreviewAudio}
-          className="absolute bottom-24 right-4 z-20 sm:bottom-28 sm:right-8 lg:right-12"
+          className="absolute right-4 bottom-20 z-20 sm:right-8 sm:bottom-24"
         />
       )}
 
       <div
         ref={contentLayerRef}
-        className="page-px relative flex h-full flex-col justify-end pb-24 pt-24 will-change-transform sm:pb-32 sm:pt-28"
+        className={`page-px relative z-10 flex h-full flex-col justify-end will-change-transform ${
+          fullPage ? "pb-[max(5.5rem,12vh)] sm:pb-[max(6.5rem,14vh)]" : "pb-16 sm:pb-20"
+        }`}
       >
         <AnimatePresence mode="wait" initial={false}>
-          <motion.div key={media.id} {...textMotion} className="max-w-[40rem]">
-            <p className="mb-3 text-[12px] font-medium uppercase tracking-[0.2em] text-white/55">
-              {isStreaming ? "In streaming" : mediaTypeLabel(media.mediaType)}
-              {media.year ? ` · ${media.year}` : ""}
-              {durationLabel ? ` · ${durationLabel}` : ""}
-            </p>
+          <motion.div key={media.id} {...textMotion} className="max-w-[34rem]">
+            <span className="inline-flex items-center rounded-[3px] bg-[#1a98ff] px-2 py-0.5 text-[11px] font-bold tracking-[0.04em] text-white uppercase">
+              {heroSourceBadge(media)}
+            </span>
 
-            <h1 className="title-safe font-display text-[clamp(2.5rem,5vw,4.25rem)] font-bold leading-[0.95] tracking-[-0.03em] text-white drop-shadow-[0_2px_24px_rgba(0,0,0,0.55)]">
-              {heroTitle}
-            </h1>
-
-            {media.seriesTitle && episodeTitle !== media.seriesTitle && (
-              <p className="title-clip mt-3 text-[15px] text-white/75">
+            {showEpisodeTagline && (
+              <p className="title-clip mt-3 text-[13px] leading-snug text-white/72 sm:text-[14px]">
                 {episodeTitle}
               </p>
             )}
 
+            <h1 className="title-safe mt-2 font-display text-[clamp(2.75rem,6.5vw,5.5rem)] font-bold leading-[0.9] tracking-[-0.04em] text-white">
+              {heroTitle}
+            </h1>
+
+            {statusLine && (
+              <p className="mt-3 flex items-center gap-2 text-[13px] text-emerald-400 sm:text-[14px]">
+                <BadgeCheck className="h-4 w-4 shrink-0" strokeWidth={2.25} />
+                <span>{statusLine}</span>
+              </p>
+            )}
+
             {media.description ? (
-              <p className="title-safe mt-4 line-clamp-3 max-w-xl text-[15px] leading-relaxed text-white/70">
+              <p className="title-safe mt-3 line-clamp-2 max-w-xl text-[14px] leading-relaxed text-white/82 sm:text-[15px]">
                 {media.description}
               </p>
             ) : null}
 
-            <div className="mt-7 flex flex-wrap items-center gap-3">
+            <div className="mt-5 flex flex-wrap items-center gap-2.5 sm:mt-6 sm:gap-3">
               <button
                 type="button"
                 onClick={() => onPlay(media.id)}
-                className="group flex min-w-[132px] items-center justify-center gap-2.5 rounded-[4px] bg-white px-7 py-2.5 text-[15px] font-semibold text-black transition-colors hover:bg-white/90"
+                className="inline-flex min-h-[44px] min-w-[168px] items-center justify-center gap-2.5 rounded-[6px] bg-white px-5 py-2.5 text-[15px] font-semibold text-black transition-colors hover:bg-white/92 sm:px-6"
               >
-                <Play className="h-5 w-5 fill-black" />
-                {resume ? "Riprendi" : "Guarda"}
+                <Play className="h-[18px] w-[18px] fill-black" />
+                {heroPlayLabel(media, resume)}
               </button>
-
-              {onOpenSeries && media.seriesTitle && (
-                <button
-                  type="button"
-                  onClick={() => onOpenSeries(media)}
-                  className="flex items-center gap-2 rounded-[4px] bg-white/20 px-6 py-2.5 text-[15px] font-semibold text-white backdrop-blur-md transition-colors hover:bg-white/30"
-                >
-                  <Info className="h-5 w-5" strokeWidth={2} />
-                  Episodi
-                </button>
-              )}
 
               {(onToggleFavorite || onToggleStreamingList) && (
                 <button
@@ -301,14 +423,25 @@ export function HeroBanner({
                       onToggleFavorite(media.id);
                     }
                   }}
-                  className="flex h-[42px] w-[42px] items-center justify-center rounded-full border-2 border-white/35 bg-black/35 text-white backdrop-blur-sm transition-colors hover:border-white/60 hover:bg-black/50"
+                  className="flex h-11 w-11 items-center justify-center rounded-full border border-white/45 bg-black/35 text-white backdrop-blur-[2px] transition-colors hover:border-white/70 hover:bg-black/50"
                   aria-label={media.isFavorite ? "In lista" : "La mia lista"}
                 >
                   {media.isFavorite ? (
-                    <Check className="h-5 w-5" strokeWidth={2.5} />
+                    <Check className="h-[18px] w-[18px]" strokeWidth={2.5} />
                   ) : (
-                    <Plus className="h-5 w-5" strokeWidth={2} />
+                    <Plus className="h-[18px] w-[18px]" strokeWidth={2} />
                   )}
+                </button>
+              )}
+
+              {(onOpenDetail || onOpenSeries) && (
+                <button
+                  type="button"
+                  onClick={handleInfo}
+                  className="flex h-11 w-11 items-center justify-center rounded-full border border-white/45 bg-black/35 text-white backdrop-blur-[2px] transition-colors hover:border-white/70 hover:bg-black/50"
+                  aria-label="Dettagli"
+                >
+                  <Info className="h-[18px] w-[18px]" strokeWidth={2} />
                 </button>
               )}
 
@@ -316,33 +449,44 @@ export function HeroBanner({
                 <button
                   type="button"
                   onClick={() => onEdit(media)}
-                  className="rounded-[4px] border border-white/25 px-5 py-2.5 text-[14px] font-medium text-white/85 transition-colors hover:border-white/45 hover:text-white"
+                  className="rounded-[6px] border border-white/30 px-4 py-2.5 text-[14px] font-medium text-white/88 transition-colors hover:border-white/50 hover:text-white"
                 >
                   Modifica
                 </button>
               )}
             </div>
+
+            {isStreaming && (
+              <p className="mt-3 flex items-center gap-1.5 text-[12px] text-white/55">
+                <Check className="h-3.5 w-3.5 text-[#1a98ff]" strokeWidth={2.5} />
+                Incluso nel catalogo
+              </p>
+            )}
           </motion.div>
         </AnimatePresence>
-
-        {items.length > 1 && (
-          <div className="absolute bottom-6 left-4 flex gap-1.5 sm:bottom-8 sm:left-8 lg:left-12">
-            {items.map((item, dotIndex) => (
-              <button
-                key={item.id}
-                type="button"
-                aria-label={`Vai a ${item.title}`}
-                onClick={() => goToSlide(dotIndex)}
-                className={`h-[3px] rounded-full transition-all ${
-                  dotIndex === safeIndex
-                    ? "w-8 bg-white"
-                    : "w-5 bg-white/30 hover:bg-white/50"
-                }`}
-              />
-            ))}
-          </div>
-        )}
       </div>
+
+      {items.length > 1 && (
+        <div
+          className={`pointer-events-none absolute inset-x-0 z-20 flex justify-center gap-2 ${
+            fullPage ? "bottom-[max(2rem,5vh)]" : "bottom-6 sm:bottom-8"
+          }`}
+        >
+          {items.map((item, dotIndex) => (
+            <button
+              key={item.id}
+              type="button"
+              aria-label={`Vai a ${item.title}`}
+              onClick={() => goToSlide(dotIndex)}
+              className={`pointer-events-auto rounded-full transition-all ${
+                dotIndex === safeIndex
+                  ? "h-2 w-7 bg-white"
+                  : "h-2 w-2 bg-white/35 hover:bg-white/55"
+              }`}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
-}
+});

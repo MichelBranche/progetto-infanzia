@@ -44,10 +44,12 @@ pub struct StremioMetaPreview {
     pub id: String,
     pub r#type: String,
     pub name: String,
-    #[serde(default)]
-    pub poster: Option<String>,
-    #[serde(default)]
-    pub poster_shape: Option<String>,
+  #[serde(default)]
+  pub poster: Option<String>,
+  #[serde(default)]
+  pub background: Option<String>,
+  #[serde(default)]
+  pub poster_shape: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]

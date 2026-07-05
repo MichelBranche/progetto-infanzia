@@ -270,6 +270,14 @@ export function useStreamingCatalogs(profileId: string): UseStreamingCatalogsRes
 
       const cached = getBootCatalogCache();
       if (!cancelled && needsCatalogRefresh(cached)) {
+        const deferMs = hasBootData ? 2_500 : 0;
+        if (deferMs > 0) {
+          await new Promise<void>((resolve) => {
+            window.setTimeout(resolve, deferMs);
+          });
+        }
+        if (cancelled) return;
+
         setSyncingIndex(true);
         try {
           const refreshed = await scheduleCatalogRefresh();

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Hls from "hls.js";
 import { getCachedStreamingPreview } from "../lib/streamingPreviewCache";
 import type { AddonWatchTarget } from "../lib/streamingBrowse";
@@ -14,6 +14,16 @@ interface StreamingVideoPreviewProps {
   onUnavailable?: () => void;
 }
 
+function targetKey(target: AddonWatchTarget): string {
+  return [
+    target.catalogPrefix,
+    target.slug,
+    target.metaId,
+    target.contentType ?? "",
+    target.videoId ?? "",
+  ].join("|");
+}
+
 export function StreamingVideoPreview({
   target,
   active,
@@ -26,77 +36,105 @@ export function StreamingVideoPreview({
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const startedAtRef = useRef<number | null>(null);
+  const loadedClipKeyRef = useRef<string | null>(null);
+  const onUnavailableRef = useRef(onUnavailable);
   const [ready, setReady] = useState(false);
   const [resolving, setResolving] = useState(false);
+  const stableTargetKey = useMemo(() => targetKey(target), [target]);
+  const targetRef = useRef(target);
+  targetRef.current = target;
+  onUnavailableRef.current = onUnavailable;
 
   useEffect(() => {
     if (!active) {
       setReady(false);
       setResolving(false);
+      loadedClipKeyRef.current = null;
     }
-  }, [active, target.metaId, target.slug, target.catalogPrefix]);
+  }, [active, stableTargetKey]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !active) return;
 
+    if (
+      loadedClipKeyRef.current === stableTargetKey &&
+      video.readyState >= 2 &&
+      !video.paused
+    ) {
+      return;
+    }
+
+    if (
+      loadedClipKeyRef.current === stableTargetKey &&
+      video.readyState >= 2
+    ) {
+      void video.play().catch(() => undefined);
+      return;
+    }
+
     let cancelled = false;
     setResolving(true);
     setReady(false);
 
-    void getCachedStreamingPreview(target, maxDurationSec).then((clip) => {
-      if (cancelled || !video) return;
-      setResolving(false);
+    void getCachedStreamingPreview(targetRef.current, maxDurationSec).then(
+      (clip) => {
+        if (cancelled || !video) return;
+        setResolving(false);
 
-      if (!clip) {
-        onUnavailable?.();
-        return;
-      }
-
-      const cleanup = () => {
-        if (hlsRef.current) {
-          hlsRef.current.destroy();
-          hlsRef.current = null;
+        if (!clip) {
+          onUnavailableRef.current?.();
+          return;
         }
-      };
 
-      const onLoaded = () => {
-        try {
-          const duration =
-            Number.isFinite(video.duration) && video.duration > 0
-              ? video.duration
-              : 0;
-          const safeStart =
-            duration > 1
-              ? Math.min(Math.max(0, clip.startTimeSec), duration - 1)
-              : Math.max(0, clip.startTimeSec);
-          video.currentTime = safeStart;
-        } catch {
-          // ignore seek errors
+        const cleanup = () => {
+          if (hlsRef.current) {
+            hlsRef.current.destroy();
+            hlsRef.current = null;
+          }
+        };
+
+        const onLoaded = () => {
+          try {
+            const duration =
+              Number.isFinite(video.duration) && video.duration > 0
+                ? video.duration
+                : 0;
+            const safeStart =
+              duration > 1
+                ? Math.min(Math.max(0, clip.startTimeSec), duration - 1)
+                : Math.max(0, clip.startTimeSec);
+            if (loadedClipKeyRef.current !== stableTargetKey) {
+              video.currentTime = safeStart;
+            }
+          } catch {
+            // ignore seek errors
+          }
+          void video.play().catch(() => undefined);
+          startedAtRef.current = performance.now();
+          loadedClipKeyRef.current = stableTargetKey;
+          setReady(true);
+        };
+
+        cleanup();
+
+        if (clip.isHls && Hls.isSupported()) {
+          const hls = new Hls({ enableWorker: true, maxBufferLength: 15 });
+          hlsRef.current = hls;
+          hls.loadSource(clip.url);
+          hls.attachMedia(video);
+          hls.on(Hls.Events.MANIFEST_PARSED, onLoaded);
+        } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+          video.src = clip.url;
+          if (video.readyState >= 1) onLoaded();
+          else video.addEventListener("loadedmetadata", onLoaded, { once: true });
+        } else {
+          video.src = clip.url;
+          if (video.readyState >= 1) onLoaded();
+          else video.addEventListener("loadedmetadata", onLoaded, { once: true });
         }
-        void video.play().catch(() => undefined);
-        startedAtRef.current = performance.now();
-        setReady(true);
-      };
-
-      cleanup();
-
-      if (clip.isHls && Hls.isSupported()) {
-        const hls = new Hls({ enableWorker: true, maxBufferLength: 15 });
-        hlsRef.current = hls;
-        hls.loadSource(clip.url);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, onLoaded);
-      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = clip.url;
-        if (video.readyState >= 1) onLoaded();
-        else video.addEventListener("loadedmetadata", onLoaded, { once: true });
-      } else {
-        video.src = clip.url;
-        if (video.readyState >= 1) onLoaded();
-        else video.addEventListener("loadedmetadata", onLoaded, { once: true });
-      }
-    });
+      },
+    );
 
     return () => {
       cancelled = true;
@@ -104,12 +142,15 @@ export function StreamingVideoPreview({
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
-      video.pause();
-      video.removeAttribute("src");
-      video.load();
-      startedAtRef.current = null;
+      if (!active) {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+        startedAtRef.current = null;
+        loadedClipKeyRef.current = null;
+      }
     };
-  }, [target, active, maxDurationSec, onUnavailable]);
+  }, [stableTargetKey, active, maxDurationSec]);
 
   useEffect(() => {
     const video = videoRef.current;

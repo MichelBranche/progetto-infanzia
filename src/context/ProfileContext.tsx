@@ -54,8 +54,14 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const refreshProfiles = useCallback(async () => {
     setLoading(true);
     try {
+      const { importCloudAvatarToMatchingProfile } = await import("../lib/cloudAvatar");
+      await importCloudAvatarToMatchingProfile().catch(() => {});
       const data = await fetchProfiles();
       setProfiles(data);
+      setActiveProfile((current) => {
+        if (!current) return current;
+        return data.find((p) => p.id === current.id) ?? current;
+      });
     } finally {
       setLoading(false);
     }
@@ -63,6 +69,16 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refreshProfiles();
+  }, [refreshProfiles]);
+
+  useEffect(() => {
+    const onProfilesChanged = () => {
+      void refreshProfiles();
+    };
+    window.addEventListener("branchefy:profiles-changed", onProfilesChanged);
+    return () => {
+      window.removeEventListener("branchefy:profiles-changed", onProfilesChanged);
+    };
   }, [refreshProfiles]);
 
   const selectProfile = useCallback((profile: Profile) => {
