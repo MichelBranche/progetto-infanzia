@@ -40,12 +40,30 @@ export function useMyList(profileId: string) {
   const toggleStreaming = useCallback(
     async (preview: StremioMetaPreview) => {
       if (!profileId) return false;
-      const added = await toggleStreamingList(profileId, previewToListInput(preview));
-      await refresh();
-      void syncAchievements(profileId);
-      return added;
+      const key = streamingListKey(preview);
+      const wasInList = streamingListKeys.has(key);
+
+      setStreamingList((current) => {
+        if (wasInList) {
+          return current.filter((item) => streamingListKey(item) !== key);
+        }
+        return [...current, { ...preview, inMyList: true }];
+      });
+
+      try {
+        const added = await toggleStreamingList(
+          profileId,
+          previewToListInput(preview),
+        );
+        await refresh();
+        void syncAchievements(profileId);
+        return added;
+      } catch {
+        await refresh();
+        return wasInList;
+      }
     },
-    [profileId, refresh],
+    [profileId, refresh, streamingListKeys],
   );
 
   const withMyListFlags = useCallback(

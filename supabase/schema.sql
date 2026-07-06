@@ -565,7 +565,8 @@ begin
 end;
 $$;
 
-create or replace function public.ensure_watch_party_chat(room_code text)
+drop function if exists public.ensure_watch_party_chat(text);
+create function public.ensure_watch_party_chat(lookup_code text)
 returns uuid
 language plpgsql
 security definer
@@ -573,7 +574,7 @@ set search_path = public
 as $$
 declare
   me uuid := auth.uid();
-  v_code text := upper(trim(room_code));
+  v_code text := upper(trim(lookup_code));
   conv_id uuid;
   room_row public.watch_party_rooms%rowtype;
   member_row record;
@@ -585,10 +586,21 @@ begin
   if conv_id is null then
     insert into public.chat_conversations (kind, title, watch_party_code, created_by)
     values ('watch_party', 'Stanza ' || v_code, v_code, room_row.host_id)
+    on conflict (watch_party_code) where watch_party_code is not null do nothing
     returning id into conv_id;
+    if conv_id is null then
+      select id into conv_id from public.chat_conversations where watch_party_code = v_code limit 1;
+    end if;
+  end if;
+  if conv_id is null then
+    raise exception 'Impossibile aprire la chat della stanza';
   end if;
   insert into public.chat_members (conversation_id, user_id) values (conv_id, room_row.host_id) on conflict do nothing;
-  for member_row in select user_id from public.watch_party_members where room_code = v_code loop
+  for member_row in
+    select m.user_id
+    from public.watch_party_members m
+    where m.room_code = v_code
+  loop
     insert into public.chat_members (conversation_id, user_id) values (conv_id, member_row.user_id) on conflict do nothing;
   end loop;
   insert into public.chat_members (conversation_id, user_id) values (conv_id, me) on conflict do nothing;

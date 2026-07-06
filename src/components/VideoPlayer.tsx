@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
 import Hls, { type Level, type MediaPlaylist } from "hls.js";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -239,7 +240,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     () => parseRemoteProxyId(effectiveStreamUrl),
     [effectiveStreamUrl],
   );
-  const canCast = Boolean(remoteProxyId || media.filePath);
+  const canCast =
+    isTauri() && Boolean(remoteProxyId || media.filePath);
 
   const partyMediaId = useMemo(() => {
     if (

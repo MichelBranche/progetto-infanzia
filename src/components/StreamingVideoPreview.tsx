@@ -12,6 +12,7 @@ interface StreamingVideoPreviewProps {
   muted?: boolean;
   onEnded?: () => void;
   onUnavailable?: () => void;
+  onReady?: () => void;
 }
 
 function targetKey(target: AddonWatchTarget): string {
@@ -32,18 +33,21 @@ export function StreamingVideoPreview({
   muted = true,
   onEnded,
   onUnavailable,
+  onReady,
 }: StreamingVideoPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const loadedClipKeyRef = useRef<string | null>(null);
   const onUnavailableRef = useRef(onUnavailable);
+  const onReadyRef = useRef(onReady);
   const [ready, setReady] = useState(false);
   const [resolving, setResolving] = useState(false);
   const stableTargetKey = useMemo(() => targetKey(target), [target]);
   const targetRef = useRef(target);
   targetRef.current = target;
   onUnavailableRef.current = onUnavailable;
+  onReadyRef.current = onReady;
 
   useEffect(() => {
     if (!active) {
@@ -114,6 +118,7 @@ export function StreamingVideoPreview({
           startedAtRef.current = performance.now();
           loadedClipKeyRef.current = stableTargetKey;
           setReady(true);
+          onReadyRef.current?.();
         };
 
         cleanup();

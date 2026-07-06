@@ -6,9 +6,13 @@ import { streamingBrowseItem } from "../lib/streamingBrowse";
 import { CARD_HOVER_DELAY_MS, CARD_PREVIEW_SEC } from "../lib/preview";
 import { top10NumberPad, useCardDimensions } from "../lib/useCardDimensions";
 import { prefetchStreamingPreview } from "../lib/streamingPreviewCache";
-import { previewToStreamingTarget } from "../lib/streamingHeroPreview";
+import {
+  previewToStreamingTarget,
+  supportsStreamingPreviewForItem,
+} from "../lib/streamingHeroPreview";
 import { streamingPreviewDisplayName } from "../lib/streamingBrowse";
 import { usePreviewAudio } from "../context/PreviewAudioContext";
+import { useDelayedCardPreview } from "../hooks/useDelayedCardPreview";
 import { PreviewAudioToggle } from "./PreviewAudioToggle";
 import { StreamingVideoPreview } from "./StreamingVideoPreview";
 import {
@@ -18,6 +22,78 @@ import {
 } from "../hooks/useRowScrollContainer";
 
 const TOP10_COUNT = 10;
+
+function Top10Poster({
+  preview,
+  isHovered,
+  posterWidth,
+  posterHeight,
+  previewId,
+  isPreviewMuted,
+  previewAudio,
+  togglePreviewAudio,
+}: {
+  preview: StremioMetaPreview;
+  isHovered: boolean;
+  posterWidth: number;
+  posterHeight: number;
+  previewId: string;
+  isPreviewMuted: (id: string, active: boolean) => boolean;
+  previewAudio: boolean;
+  togglePreviewAudio: () => void;
+}) {
+  const streamTarget = previewToStreamingTarget(preview);
+  const canPreview = supportsStreamingPreviewForItem(preview);
+  const previewActive = useDelayedCardPreview(isHovered, canPreview);
+  const [previewVisible, setPreviewVisible] = useState(false);
+
+  useEffect(() => {
+    if (!previewActive) setPreviewVisible(false);
+  }, [previewActive]);
+
+  return (
+  <div
+    className="relative z-[2] ml-auto shrink-0 overflow-hidden rounded-md bg-[#1a1a1a] shadow-[0_8px_24px_rgba(0,0,0,0.45)] ring-1 ring-white/10 transition-transform duration-200 group-hover/item:scale-[1.05] group-hover/item:ring-white/25"
+    style={{ width: posterWidth, height: posterHeight }}
+  >
+    {canPreview && streamTarget && (
+      <StreamingVideoPreview
+        target={streamTarget}
+        active={previewActive}
+        maxDurationSec={CARD_PREVIEW_SEC}
+        muted={isPreviewMuted(previewId, previewActive)}
+        onReady={() => setPreviewVisible(true)}
+        className="absolute inset-0 z-[1] h-full w-full object-cover"
+      />
+    )}
+    {preview.poster ? (
+      <img
+        src={preview.poster}
+        alt=""
+        loading="eager"
+        decoding="async"
+        className={`h-full w-full object-cover transition-opacity duration-500 ${
+          previewVisible ? "opacity-0" : ""
+        }`}
+      />
+    ) : (
+      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-indigo-950 to-violet-950 px-2 text-center text-[11px] text-white/70">
+        {streamingPreviewDisplayName(preview)}
+      </div>
+    )}
+    <div className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity group-hover/item:opacity-100" />
+    {previewActive && canPreview && (
+      <div className="absolute right-1.5 top-1.5 z-[10]">
+        <PreviewAudioToggle
+          enabled={previewAudio}
+          onToggle={togglePreviewAudio}
+          className="!h-8 !w-8"
+        />
+      </div>
+    )}
+  </div>
+  );
+}
 
 interface NetflixTop10RowProps {
   title: string;
@@ -34,7 +110,7 @@ export function NetflixTop10Row({
 }: NetflixTop10RowProps) {
   const { scrollRef, collapseEpoch, scrollProps } = useRowScrollContainer();
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pointerDragRef = useRef({ active: false, x: 0, y: 0 });
+  const pointerDragRef = useRef({ pressed: false, active: false, x: 0, y: 0 });
   const { collapsed: posterWidth } = useCardDimensions();
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const {
@@ -101,7 +177,7 @@ export function NetflixTop10Row({
 
   return (
     <RowInteractionContext.Provider value={{ collapseEpoch }}>
-      <section className="group/top10 relative z-10 -mt-2 overflow-visible py-3 hover:z-30 sm:-mt-4 sm:py-4">
+      <section className="group/top10 row-pointer-pass relative z-10 -mt-2 overflow-visible py-3 hover:z-30 sm:-mt-4 sm:py-4">
         <div className="page-px">
           <div className="mb-4 flex flex-col items-center gap-3 sm:mb-5">
             <h2 className="font-display text-center text-xl font-semibold tracking-[-0.02em] text-text-primary sm:text-2xl">
@@ -138,8 +214,6 @@ export function NetflixTop10Row({
               const rank = index + 1;
               const previewId = `top10:${preview.id}`;
               const numberPad = top10NumberPad(rank, posterWidth);
-              const streamTarget = previewToStreamingTarget(preview);
-              const canPreview = streamTarget != null;
               const isHovered = hoveredId === previewId;
 
               return (
@@ -159,6 +233,7 @@ export function NetflixTop10Row({
                   }}
                   onPointerDown={(event) => {
                     pointerDragRef.current = {
+                      pressed: true,
                       active: false,
                       x: event.clientX,
                       y: event.clientY,
@@ -167,6 +242,7 @@ export function NetflixTop10Row({
                   }}
                   onPointerMove={(event) => {
                     const pointer = pointerDragRef.current;
+                    if (!pointer.pressed) return;
                     if (
                       Math.hypot(
                         event.clientX - pointer.x,
@@ -180,7 +256,12 @@ export function NetflixTop10Row({
                   }}
                   onPointerUp={() => {
                     window.setTimeout(() => {
-                      pointerDragRef.current.active = false;
+                      pointerDragRef.current = {
+                        pressed: false,
+                        active: false,
+                        x: 0,
+                        y: 0,
+                      };
                     }, 0);
                   }}
                   onMouseEnter={() => handleItemEnter(preview)}
@@ -206,45 +287,16 @@ export function NetflixTop10Row({
                     >
                       {rank}
                     </span>
-                    <div
-                      className="relative z-[2] ml-auto shrink-0 overflow-hidden rounded-md bg-[#1a1a1a] shadow-[0_8px_24px_rgba(0,0,0,0.45)] ring-1 ring-white/10 transition-transform duration-200 group-hover/item:scale-[1.05] group-hover/item:ring-white/25"
-                      style={{ width: posterWidth, height: posterHeight }}
-                    >
-                      {canPreview && isHovered && streamTarget && (
-                        <StreamingVideoPreview
-                          target={streamTarget}
-                          active={isHovered}
-                          maxDurationSec={CARD_PREVIEW_SEC}
-                          muted={isPreviewMuted(previewId, isHovered)}
-                          className="absolute inset-0 z-[1] h-full w-full object-cover"
-                        />
-                      )}
-                      {preview.poster ? (
-                        <img
-                          src={preview.poster}
-                          alt=""
-                          loading="eager"
-                          decoding="async"
-                          className={`h-full w-full object-cover transition-opacity duration-200 ${
-                            canPreview && isHovered ? "opacity-0" : ""
-                          }`}
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-indigo-950 to-violet-950 px-2 text-center text-[11px] text-white/70">
-                          {streamingPreviewDisplayName(preview)}
-                        </div>
-                      )}
-                      <div className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity group-hover/item:opacity-100" />
-                      {canPreview && isHovered && (
-                        <div className="absolute right-1.5 top-1.5 z-[10]">
-                          <PreviewAudioToggle
-                            enabled={previewAudio}
-                            onToggle={togglePreviewAudio}
-                            className="!h-8 !w-8"
-                          />
-                        </div>
-                      )}
-                    </div>
+                    <Top10Poster
+                      preview={preview}
+                      isHovered={isHovered}
+                      posterWidth={posterWidth}
+                      posterHeight={posterHeight}
+                      previewId={previewId}
+                      isPreviewMuted={isPreviewMuted}
+                      previewAudio={previewAudio}
+                      togglePreviewAudio={togglePreviewAudio}
+                    />
                   </div>
                   <p
                     className="title-clip mt-1.5 w-full text-center text-[11px] font-medium leading-tight text-text-primary sm:text-[12px]"

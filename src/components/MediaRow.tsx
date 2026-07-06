@@ -111,7 +111,7 @@ export function MediaRow({
     <Section
       className={`group/row page-px relative overflow-visible ${
         usePremiumCards || hasStreamingCards
-          ? "group/stream-row z-10 py-3 hover:z-30 sm:py-4"
+          ? "group/stream-row stream-row-section z-10 hover:z-30"
           : "py-4 sm:py-5"
       }`}
       {...sectionProps}

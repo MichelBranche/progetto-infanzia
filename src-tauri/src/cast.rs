@@ -222,7 +222,7 @@ pub async fn play_on_device(
     let metadata = build_didl_metadata_minimal(title, stream_url, mime);
     set_av_transport_uri(&client, device, stream_url, &metadata).await?;
 
-    sleep(Duration::from_millis(250)).await;
+    sleep(Duration::from_millis(500)).await;
 
     let play_body = soap_envelope(&format!(
         r#"<u:Play xmlns:u="{AV_TRANSPORT}">

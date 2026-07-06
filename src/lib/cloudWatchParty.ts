@@ -149,6 +149,16 @@ export async function updateCloudWatchPartySync(
   if (error) throw new Error(error.message);
 }
 
+/** Heartbeat leggero: mantiene la stanza viva per la pulizia server, non per la sync. */
+export async function touchCloudWatchPartyRoom(
+  code: string,
+  hostId: string,
+  playing: boolean,
+  position: number,
+): Promise<void> {
+  await updateCloudWatchPartySync(code, hostId, playing, position);
+}
+
 export async function closeCloudWatchParty(
   code: string,
   hostId: string,

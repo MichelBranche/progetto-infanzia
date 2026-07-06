@@ -1714,7 +1714,7 @@ fn get_stream_info(
 
 #[tauri::command]
 async fn discover_cast_devices_cmd() -> Result<Vec<CastDevice>, String> {
-    cast::discover_devices(6500).await
+    cast::discover_devices(8500).await
 }
 
 #[tauri::command]

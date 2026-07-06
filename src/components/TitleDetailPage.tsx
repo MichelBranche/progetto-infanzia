@@ -17,6 +17,7 @@ import {
   sortedEpisodes,
 } from "../lib/titleDetail";
 import { EpisodeThumbnail } from "./EpisodeThumbnail";
+import { SparkleActionButton } from "./SparkleActionButton";
 type DetailTab = "overview" | "details" | "trailer";
 
 export interface TitleDetailPageProps {
@@ -61,15 +62,18 @@ function CircleActionButton({
   children,
   onClick,
   disabled,
+  checked = false,
 }: {
   label: string;
   children: ReactNode;
   onClick?: () => void;
   disabled?: boolean;
+  checked?: boolean;
 }) {
   return (
-    <button
-      type="button"
+    <SparkleActionButton
+      sparkle="list"
+      checked={checked}
       onClick={onClick}
       disabled={disabled}
       title={label}
@@ -77,7 +81,7 @@ function CircleActionButton({
       className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 border-white/25 bg-black/35 text-white backdrop-blur-sm transition-colors hover:border-white/45 hover:bg-black/50 disabled:opacity-50"
     >
       {children}
-    </button>
+    </SparkleActionButton>
   );
 }
 
@@ -587,6 +591,7 @@ export function TitleDetailPage({
                 label={isInMyList ? "Rimuovi dalla mia lista" : "La mia lista"}
                 onClick={onToggleMyList}
                 disabled={!onToggleMyList || myListLoading}
+                checked={isInMyList}
               >
                 {myListLoading ? (
                   <Loader2 className="h-5 w-5 animate-spin" />

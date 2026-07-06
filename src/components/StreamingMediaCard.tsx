@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Ban, Check, Play, Plus } from "lucide-react";
 import type { BrowseItem } from "../lib/browse";
 import { browseItemTitle } from "../lib/browse";
@@ -12,8 +12,19 @@ import { streamingProviderIncluded } from "../lib/streamingProvider";
 import { useStreamCardDimensions } from "../lib/useStreamCardDimensions";
 import type { StremioMetaPreview } from "../types/stremio";
 import { watchProgressPercent } from "../types/media";
+import { CARD_PREVIEW_SEC } from "../lib/preview";
+import {
+  previewToStreamingTarget,
+  supportsStreamingPreviewForItem,
+} from "../lib/streamingHeroPreview";
+import { prefetchStreamingPreview } from "../lib/streamingPreviewCache";
+import { usePreviewAudio } from "../context/PreviewAudioContext";
+import { useDelayedCardPreview } from "../hooks/useDelayedCardPreview";
 import { PosterImage } from "./PosterImage";
+import { PreviewAudioToggle } from "./PreviewAudioToggle";
 import { StreamingProviderBadge } from "./StreamingProviderBadge";
+import { StreamingVideoPreview } from "./StreamingVideoPreview";
+import { SparkleActionButton } from "./SparkleActionButton";
 import { useRowInteraction, isRowDragging } from "../hooks/useRowScrollContainer";
 
 const STREAM_DRAG_THRESHOLD_PX = 8;
@@ -62,10 +73,33 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
 
   const preview = browse.preview;
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pointerDragRef = useRef({ active: false, x: 0, y: 0 });
+  const pointerDragRef = useRef({
+    pressed: false,
+    active: false,
+    x: 0,
+    y: 0,
+  });
   const [expanded, setExpanded] = useState(false);
+  const [inList, setInList] = useState(() =>
+    Boolean(preview.inMyList ?? previewToMediaItem(preview).isFavorite),
+  );
+  const [previewVisible, setPreviewVisible] = useState(false);
   const { collapseEpoch } = useRowInteraction();
   const dims = useStreamCardDimensions();
+  const previewId = `${preview.catalogPrefix ?? "sc"}:${preview.type}:${preview.id}`;
+  const streamPreviewTarget = useMemo(
+    () => previewToStreamingTarget(preview),
+    [preview],
+  );
+  const canStreamPreview = supportsStreamingPreviewForItem(preview);
+  const previewActive = useDelayedCardPreview(expanded, canStreamPreview);
+  const {
+    previewAudio,
+    togglePreviewAudio,
+    claimCardPreviewFocus,
+    releaseCardPreviewFocus,
+    isPreviewMuted,
+  } = usePreviewAudio();
 
   const item = previewToMediaItem(preview);
   const title = browseItemTitle(browse);
@@ -109,25 +143,38 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
     onPlayStreaming?.(preview);
   };
 
+  const handleToggleList = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!onToggleStreamingList) return;
+    setInList((current) => !current);
+    onToggleStreamingList(preview);
+  };
+
   const handleEnter = () => {
     if (isRowDragging()) return;
+    if (hoverTimer.current) {
+      window.clearTimeout(hoverTimer.current);
+    }
     hoverTimer.current = window.setTimeout(() => {
       if (isRowDragging()) return;
       setExpanded(true);
     }, STREAM_HOVER_DELAY_MS);
   };
 
-  const handleLeave = () => {
+  const handleLeave = (event: React.MouseEvent<HTMLElement>) => {
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
     if (hoverTimer.current) {
       window.clearTimeout(hoverTimer.current);
       hoverTimer.current = null;
     }
     setExpanded(false);
-    pointerDragRef.current.active = false;
+    pointerDragRef.current = { pressed: false, active: false, x: 0, y: 0 };
   };
 
   const handlePointerDown = (event: React.PointerEvent) => {
     pointerDragRef.current = {
+      pressed: true,
       active: false,
       x: event.clientX,
       y: event.clientY,
@@ -140,6 +187,7 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
 
   const handlePointerMove = (event: React.PointerEvent) => {
     const pointer = pointerDragRef.current;
+    if (!pointer.pressed) return;
     if (
       Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) >=
       STREAM_DRAG_THRESHOLD_PX
@@ -155,9 +203,33 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
 
   const handlePointerUp = () => {
     window.setTimeout(() => {
-      pointerDragRef.current.active = false;
+      pointerDragRef.current = { pressed: false, active: false, x: 0, y: 0 };
     }, 0);
   };
+
+  useEffect(() => {
+    setInList(Boolean(preview.inMyList));
+  }, [preview.inMyList, preview.id, preview.type, preview.catalogPrefix]);
+
+  useEffect(() => {
+    if (!previewActive) {
+      setPreviewVisible(false);
+    }
+  }, [previewActive]);
+
+  useEffect(() => {
+    if (!expanded || !canStreamPreview || !streamPreviewTarget) return;
+    prefetchStreamingPreview(streamPreviewTarget, CARD_PREVIEW_SEC);
+    claimCardPreviewFocus(previewId);
+    return () => releaseCardPreviewFocus(previewId);
+  }, [
+    expanded,
+    canStreamPreview,
+    streamPreviewTarget,
+    previewId,
+    claimCardPreviewFocus,
+    releaseCardPreviewFocus,
+  ]);
 
   useEffect(() => {
     if (hoverTimer.current) {
@@ -179,6 +251,7 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
     ? dims.expandedImageHeight
     : dims.collapsedHeight;
   const radius = expanded ? dims.radiusExpanded : dims.radius;
+  const slotHeight = expanded ? dims.expandedTotalHeight : dims.collapsedHeight;
 
   return (
     <article
@@ -187,16 +260,29 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
       }`}
       style={{
         width: cardWidth,
-        height: dims.collapsedHeight,
+        height: slotHeight,
         zIndex: expanded ? 80 : 1,
-        transition: "width 260ms cubic-bezier(0.25, 0.46, 0.45, 0.94)",
+        transition:
+          "width 260ms cubic-bezier(0.25, 0.46, 0.45, 0.94), height 260ms cubic-bezier(0.25, 0.46, 0.45, 0.94)",
       }}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        handlePointerDown(event);
+      }}
+      onPointerMove={(event) => {
+        event.stopPropagation();
+        handlePointerMove(event);
+      }}
+      onPointerUp={(event) => {
+        event.stopPropagation();
+        handlePointerUp();
+      }}
+      onPointerCancel={(event) => {
+        event.stopPropagation();
+        handlePointerUp();
+      }}
       onClick={handleOpenDetail}
     >
       <div
@@ -230,11 +316,35 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
                     : "stream-card-media"
               }
             >
-              <PosterImage item={item} variant="browse" />
+              {expanded && canStreamPreview && streamPreviewTarget && (
+                <StreamingVideoPreview
+                  target={streamPreviewTarget}
+                  active={previewActive}
+                  maxDurationSec={CARD_PREVIEW_SEC}
+                  muted={isPreviewMuted(previewId, previewActive)}
+                  onReady={() => setPreviewVisible(true)}
+                  className="absolute inset-0 z-[1] h-full w-full object-cover"
+                />
+              )}
+              <PosterImage
+                item={item}
+                variant="browse"
+                className={
+                  previewVisible
+                    ? "opacity-0 transition-opacity duration-500"
+                    : undefined
+                }
+              />
             </div>
 
             {!expanded && showResumeBadge && (
               <span className="stream-card-status-badge">In riproduzione</span>
+            )}
+
+            {!expanded && inList && (
+              <span className="stream-card-list-badge" aria-label="Nella tua lista">
+                <Check className="h-3 w-3" strokeWidth={2.5} />
+              </span>
             )}
 
             {!expanded && (
@@ -249,6 +359,16 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
                 <div
                   className="stream-card-progress-fill"
                   style={{ width: `${Math.min(progress, 100)}%` }}
+                />
+              </div>
+            )}
+
+            {expanded && previewActive && canStreamPreview && (
+              <div className="absolute right-2 top-2 z-[4]">
+                <PreviewAudioToggle
+                  enabled={previewAudio}
+                  onToggle={togglePreviewAudio}
+                  className="!h-8 !w-8"
                 />
               </div>
             )}
@@ -282,25 +402,21 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
                 </button>
 
                 {onToggleStreamingList && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleStreamingList(preview);
-                    }}
+                  <SparkleActionButton
+                    sparkle="list"
+                    checked={inList}
+                    onClick={handleToggleList}
                     className="stream-card-icon-btn"
                     aria-label={
-                      item.isFavorite
-                        ? "Rimuovi dalla lista"
-                        : "Aggiungi alla lista"
+                      inList ? "Rimuovi dalla lista" : "Aggiungi alla lista"
                     }
                   >
-                    {item.isFavorite ? (
-                      <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                    {inList ? (
+                      <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
                     ) : (
                       <Plus className="h-3.5 w-3.5" strokeWidth={2} />
                     )}
-                  </button>
+                  </SparkleActionButton>
                 )}
 
                 <button

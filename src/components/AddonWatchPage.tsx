@@ -617,9 +617,15 @@ export function AddonWatchPage({
   }
 
   if (loading) {
+    const guestParty = watchPartySession?.role === "guest";
     return (
-      <div className="flex h-full items-center justify-center bg-void">
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-void px-8 text-center">
         <Loader2 className="h-8 w-8 animate-spin text-text-muted" />
+        <p className="max-w-sm text-[14px] text-text-secondary">
+          {guestParty
+            ? "Caricamento del titolo condiviso dall'host…"
+            : "Caricamento…"}
+        </p>
       </div>
     );
   }

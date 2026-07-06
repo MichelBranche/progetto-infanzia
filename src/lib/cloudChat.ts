@@ -99,7 +99,7 @@ export async function ensureWatchPartyChat(roomCode: string): Promise<string> {
   if (!supabase) throw new Error("Cloud non configurato");
 
   const { data, error } = await supabase.rpc("ensure_watch_party_chat", {
-    room_code: roomCode.trim().toUpperCase(),
+    lookup_code: roomCode.trim().toUpperCase(),
   });
   if (error) throw new Error(error.message);
   return String(data);

@@ -15,6 +15,7 @@ import { isCloudEnabled } from "../lib/cloudConfig";
 import { isLanFeaturesEnabled } from "../lib/platform";
 import { ensureWatchPartyChat } from "../lib/cloudChat";
 import { createCloudWatchParty, joinCloudWatchParty } from "../lib/cloudWatchParty";
+import { useWatchPartyChat } from "../hooks/useWatchPartyChat";
 import { isPrivateOrLanHost } from "../lib/watchPartyNetwork";
 import {
   createWatchParty,
@@ -83,27 +84,12 @@ export function WatchPartyPanel({
   );
   const [useCloudRelay, setUseCloudRelay] = useState(Boolean(cloudProfile) || !lanEnabled);
   const [createdRoom, setCreatedRoom] = useState<WatchPartySession | null>(null);
-  const [partyChatId, setPartyChatId] = useState<string | null>(null);
 
   const activeSession = session ?? createdRoom;
-
-  useEffect(() => {
-    if (!activeSession || activeSession.relay !== "cloud" || !cloudProfile) {
-      setPartyChatId(null);
-      return;
-    }
-    let cancelled = false;
-    void ensureWatchPartyChat(activeSession.room.code)
-      .then((id) => {
-        if (!cancelled) setPartyChatId(id);
-      })
-      .catch(() => {
-        if (!cancelled) setPartyChatId(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSession, cloudProfile]);
+  const { conversationId: partyChatId, error: partyChatError } = useWatchPartyChat(
+    activeSession?.relay === "cloud" ? activeSession : null,
+    cloudProfile?.id,
+  );
 
   useEffect(() => {
     if (!open) {
@@ -224,6 +210,11 @@ export function WatchPartyPanel({
       try {
         const room = await joinCloudWatchParty(code);
         if (room) {
+          try {
+            await ensureWatchPartyChat(room.code);
+          } catch {
+            // join ok anche se la chat non parte subito
+          }
           onSessionReady({ role: "guest", room, relay: "cloud" });
           onClose();
           return;
@@ -446,6 +437,9 @@ export function WatchPartyPanel({
                         className="max-h-[280px]"
                       />
                     </div>
+                  )}
+                  {activeSession.relay === "cloud" && cloudProfile && !partyChatId && partyChatError && (
+                    <p className="mt-4 text-[12px] text-warm">{partyChatError}</p>
                   )}
                 </section>
               )}

@@ -652,9 +652,34 @@ video.player-video::cue {
   gap: var(--stream-card-gap);
   padding-bottom: 4px;
   align-items: flex-end;
-  /* Spazio sopra le card: l'espansione hover cresce qui dentro (overflow-x taglia fuori) */
-  padding-top: var(--stream-card-expand-overflow);
+}
+
+/* Spazio interno per espansione hover; il margine negativo annulla il gap visivo tra righe */
+.stream-row-section {
   margin-top: calc(-1 * var(--stream-card-expand-overflow));
+  padding-top: calc(var(--stream-card-expand-overflow) + 0.75rem);
+  padding-bottom: 0.25rem;
+  pointer-events: none;
+}
+
+.stream-row-section > * {
+  pointer-events: auto;
+}
+
+@media (min-width: 640px) {
+  .stream-row-section {
+    padding-top: calc(var(--stream-card-expand-overflow) + 0.875rem);
+    padding-bottom: 0.375rem;
+  }
+}
+
+/* Righe con margine negativo: non intercettare click nell'area vuota sovrapposta */
+.row-pointer-pass {
+  pointer-events: none;
+}
+
+.row-pointer-pass > * {
+  pointer-events: auto;
 }
 
 .stream-row-chevron {
@@ -684,10 +709,127 @@ video.player-video::cue {
   pointer-events: auto;
 }
 
+/* ── Sparkle action buttons (+ / info) ── */
+.sparkle-action-btn {
+  position: relative;
+  overflow: visible;
+}
+
+.sparkle-action-btn__icon {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.sparkle-action-btn--pop .sparkle-action-btn__icon {
+  animation: sparkle-icon-pop 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.sparkle-action-btn--checked.sparkle-action-btn--list {
+  border-color: rgba(255, 255, 255, 0.62) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  color: #111 !important;
+}
+
+.sparkle-burst {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.sparkle-burst--list {
+  --sparkle-color: rgba(255, 255, 255, 0.88);
+}
+
+.sparkle-burst--info {
+  --sparkle-color: rgba(196, 220, 255, 0.9);
+}
+
+.sparkle-particle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--sparkle-size, 4px);
+  height: var(--sparkle-size, 4px);
+  color: var(--sparkle-color);
+  opacity: 0;
+  animation: sparkle-fly 480ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--sparkle-delay, 0ms);
+}
+
+@keyframes sparkle-icon-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes sparkle-fly {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.2) rotate(0deg);
+  }
+  22% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(
+        calc(-50% + var(--sparkle-x)),
+        calc(-50% + var(--sparkle-y))
+      )
+      scale(0.25) rotate(var(--sparkle-rotate, 40deg));
+  }
+}
+
+.stream-card-list-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 4;
+  display: flex;
+  height: 22px;
+  width: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: #fff;
+  color: #111;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  animation: stream-card-list-badge-in 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes stream-card-list-badge-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .shimmer,
   .shimmer-bg,
   .ken-burns {
+    animation: none;
+  }
+
+  .sparkle-action-btn--pop .sparkle-action-btn__icon,
+  .sparkle-particle,
+  .stream-card-list-badge {
     animation: none;
   }
 }

@@ -47,7 +47,7 @@ import {
 } from "./lib/streamingBrowse";
 import { useStreamingCatalogs } from "./lib/useStreamingCatalogs";
 import { useMyList } from "./lib/useMyList";
-import { markStreamingInMyList } from "./lib/myList";
+import { markStreamingInMyList, mediaItemToStreamingPreview, streamingListKey } from "./lib/myList";
 import { splitTop10Row } from "./lib/streamingRows";
 import { STREMIO_ADDONS_ENABLED, isBuiltinStreamingCatalog } from "./lib/features";
 import { isDevAdminEmail } from "./lib/devAdmin";
@@ -223,7 +223,17 @@ function AppContent() {
 
   const handleToggleStreamingList = useCallback(
     async (preview: StremioMetaPreview) => {
-      await toggleStreaming(preview);
+      const added = await toggleStreaming(preview);
+      const key = streamingListKey(preview);
+      setHeroItems((items) =>
+        items.map((item) => {
+          const heroPreview = mediaItemToStreamingPreview(item);
+          if (!heroPreview || streamingListKey(heroPreview) !== key) {
+            return item;
+          }
+          return { ...item, isFavorite: added };
+        }),
+      );
     },
     [toggleStreaming],
   );
@@ -1078,9 +1088,9 @@ function AppContent() {
                         onToggleStreamingList={handleToggleStreamingList}
                       />
                     )}
-                    <div className="relative z-10 bg-void">
+                    <div className="relative bg-void">
                     {continueHomeRow && (
-                      <div className="relative z-20 -mt-2 sm:-mt-3">
+                      <div className="relative">
                         <MediaRow
                           key={continueHomeRow.key}
                           index="01"
@@ -1108,7 +1118,7 @@ function AppContent() {
                       </SuspenseRoute>
                     )}
                     {(homeCatalogRows.length > 0 || streamingError) && (
-                      <div className="relative -mt-4 space-y-0.5 overflow-visible sm:-mt-5">
+                      <div className="relative space-y-0.5 overflow-visible">
                         {homeCatalogRows.map((row, i) => (
                             <MediaRow
                               key={row.key}

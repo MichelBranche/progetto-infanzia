@@ -49,13 +49,27 @@ export function useRowScrollContainer(): RowScrollContainerResult {
   }, []);
 
   useEffect(() => {
-    const element = scrollRef.current;
-    if (!element) return;
+    const clearStuckDrag = () => {
+      const element = scrollRef.current;
+      if (!element?.dataset.rowDragging) return;
+      delete element.dataset.rowDragging;
+      pointerRef.current = {
+        active: false,
+        dragging: false,
+        startX: 0,
+        startY: 0,
+      };
+    };
 
-    const onScroll = () => bumpCollapse();
-    element.addEventListener("scroll", onScroll, { passive: true });
-    return () => element.removeEventListener("scroll", onScroll);
-  }, [bumpCollapse]);
+    window.addEventListener("pointerup", clearStuckDrag);
+    window.addEventListener("pointercancel", clearStuckDrag);
+    window.addEventListener("blur", clearStuckDrag);
+    return () => {
+      window.removeEventListener("pointerup", clearStuckDrag);
+      window.removeEventListener("pointercancel", clearStuckDrag);
+      window.removeEventListener("blur", clearStuckDrag);
+    };
+  }, []);
 
   const endPointer = useCallback((element: HTMLDivElement) => {
     if (pointerRef.current.dragging) {
@@ -83,9 +97,8 @@ export function useRowScrollContainer(): RowScrollContainerResult {
         startX: event.clientX,
         startY: event.clientY,
       };
-      bumpCollapse();
     },
-    [bumpCollapse],
+    [],
   );
 
   const onPointerMove = useCallback(

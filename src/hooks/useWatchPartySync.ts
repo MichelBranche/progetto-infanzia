@@ -2,16 +2,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   closeCloudWatchParty,
   fetchCloudWatchParty,
-  pollCloudWatchParty,
-  subscribeCloudWatchParty,
-  updateCloudWatchPartySync,
+  touchCloudWatchPartyRoom,
 } from "../lib/cloudWatchParty";
+import {
+  connectWatchPartyBroadcast,
+  type WatchPartyBroadcastConnection,
+  type WatchPartyBroadcastSync,
+} from "../lib/cloudWatchPartyBroadcast";
 import { lanWatchPartyErrorMessage } from "../lib/watchPartyNetwork";
 import {
   lanWatchPartyWsUrl,
   localhostWatchPartyWsUrl,
 } from "../lib/watchPartyApi";
 import type {
+  WatchPartyContent,
   WatchPartyMember,
   WatchPartyRole,
   WatchPartyRoom,
@@ -21,7 +25,7 @@ import type {
 export const DRIFT_THRESHOLD_SEC = 0.75;
 const HOST_HEARTBEAT_MS = 1500;
 const CLOUD_KEEPALIVE_MS = 45_000;
-const SYNC_THROTTLE_MS = 350;
+const SYNC_THROTTLE_MS = 120;
 const MAX_EXTRAPOLATE_SEC = 4;
 const LAN_RECONNECT_BASE_MS = 1200;
 
@@ -33,6 +37,10 @@ function extrapolatePosition(
   if (!playing || !sentAt) return position;
   const ageSec = (Date.now() - sentAt) / 1000;
   return position + Math.min(Math.max(ageSec, 0), MAX_EXTRAPOLATE_SEC);
+}
+
+function shouldApplyGuestContent(content: WatchPartyContent): boolean {
+  return Boolean(content.streamUrl) && content.contentKind !== "streaming";
 }
 
 interface UseWatchPartySyncOptions {
@@ -62,13 +70,13 @@ export function useWatchPartySync({
   onGuestContent,
 }: UseWatchPartySyncOptions) {
   const wsRef = useRef<WebSocket | null>(null);
+  const broadcastRef = useRef<WatchPartyBroadcastConnection | null>(null);
   const applyingRemoteRef = useRef(false);
   const lastSentRef = useRef(0);
   const playingRef = useRef(playing);
   const currentTimeRef = useRef(currentTime);
   const onRemoteSyncRef = useRef(onRemoteSync);
   const onGuestContentRef = useRef(onGuestContent);
-  const lastCloudUpdatedAtRef = useRef<string | null>(null);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
   const [members, setMembers] = useState<WatchPartyMember[]>(
@@ -78,6 +86,7 @@ export function useWatchPartySync({
   const [error, setError] = useState<string | null>(null);
 
   const isCloud = session?.relay === "cloud";
+  const presenceId = cloudUserId ?? profileId;
 
   playingRef.current = playing;
   currentTimeRef.current = currentTime;
@@ -96,24 +105,30 @@ export function useWatchPartySync({
     [],
   );
 
-  const pushCloudSync = useCallback(
-    async (force = false) => {
-      if (!session || session.role !== "host" || !cloudUserId) return;
+  const applyGuestContent = useCallback((content: WatchPartyContent) => {
+    if (!shouldApplyGuestContent(content)) return;
+    onGuestContentRef.current?.(content.streamUrl, content.isHls);
+  }, []);
+
+  const buildSyncPayload = useCallback(
+    (forcePosition?: number): WatchPartyBroadcastSync => ({
+      playing: playingRef.current,
+      position: forcePosition ?? currentTimeRef.current,
+      sentAt: Date.now(),
+    }),
+    [],
+  );
+
+  const sendCloudSync = useCallback(
+    (force = false, forcePosition?: number) => {
+      const conn = broadcastRef.current;
+      if (!session || session.role !== "host" || !conn) return;
       const now = Date.now();
       if (!force && now - lastSentRef.current < SYNC_THROTTLE_MS) return;
       lastSentRef.current = now;
-      try {
-        await updateCloudWatchPartySync(
-          session.room.code,
-          cloudUserId,
-          playingRef.current,
-          currentTimeRef.current,
-        );
-      } catch {
-        setError("Sync cloud non riuscita");
-      }
+      conn.sendSync(buildSyncPayload(forcePosition));
     },
-    [session, cloudUserId],
+    [session, buildSyncPayload],
   );
 
   const sendLanSync = useCallback(
@@ -137,49 +152,31 @@ export function useWatchPartySync({
   );
 
   const sendSync = useCallback(
-    (force = false) => {
+    (force = false, forcePosition?: number) => {
       if (isCloud) {
-        void pushCloudSync(force);
+        sendCloudSync(force, forcePosition);
       } else {
         sendLanSync(force);
       }
     },
-    [isCloud, pushCloudSync, sendLanSync],
+    [isCloud, sendCloudSync, sendLanSync],
   );
 
   useEffect(() => {
     if (!session) {
       setMembers([]);
       setConnected(false);
+      broadcastRef.current?.close();
+      broadcastRef.current = null;
       return;
     }
 
     if (isCloud) {
       setError(null);
-      lastCloudUpdatedAtRef.current = null;
 
-      const applyRoom = (room: WatchPartyRoom) => {
-        if (
-          room.updatedAt &&
-          lastCloudUpdatedAtRef.current &&
-          room.updatedAt <= lastCloudUpdatedAtRef.current
-        ) {
-          return;
-        }
-        if (room.updatedAt) {
-          lastCloudUpdatedAtRef.current = room.updatedAt;
-        }
-
+      const applyRoomSnapshot = (room: WatchPartyRoom) => {
         if (session.role === "guest") {
-          if (
-            room.content.streamUrl &&
-            room.content.contentKind !== "streaming"
-          ) {
-            onGuestContentRef.current?.(
-              room.content.streamUrl,
-              room.content.isHls,
-            );
-          }
+          applyGuestContent(room.content);
           applyRemoteSync(
             room.playing,
             room.positionSecs,
@@ -189,82 +186,62 @@ export function useWatchPartySync({
       };
 
       if (session.role === "guest") {
-        const content = session.room.content;
-        if (content.streamUrl && content.contentKind !== "streaming") {
-          onGuestContentRef.current?.(content.streamUrl, content.isHls);
-        }
-        applyRemoteSync(
-          session.room.playing,
-          session.room.positionSecs,
-          session.room.updatedAt
-            ? Date.parse(session.room.updatedAt)
-            : undefined,
-        );
+        applyRoomSnapshot(session.room);
       }
-
-      let realtimeOk = false;
-      let stopPoll: (() => void) | null = null;
 
       const handleClosed = () => {
         if (session.role === "guest") {
           setError("La stanza è stata chiusa dall'host");
           setConnected(false);
-          stopPoll?.();
-          stopPoll = null;
         }
       };
 
-      const unsubscribeRealtime = subscribeCloudWatchParty(
+      const conn = connectWatchPartyBroadcast(
         session.room.code,
-        applyRoom,
-        (status) => {
-          if (status === "SUBSCRIBED") {
-            realtimeOk = true;
-            setConnected(true);
-            setError(null);
-            stopPoll?.();
-            stopPoll = null;
-          } else if (
-            status === "CHANNEL_ERROR" ||
-            status === "TIMED_OUT"
-          ) {
-            setError(
-              "Sync live non disponibile — uso aggiornamento periodico",
-            );
-            if (!stopPoll) {
-              stopPoll = pollCloudWatchParty(
-                session.room.code,
-                (room) => {
-                  setConnected(true);
-                  applyRoom(room);
-                },
-                handleClosed,
-              );
-            }
-          }
-        },
-        handleClosed,
-      );
-
-      const pollFallbackTimer = window.setTimeout(() => {
-        if (!realtimeOk && !stopPoll) {
-          stopPoll = pollCloudWatchParty(
-            session.room.code,
-            (room) => {
+        session.role,
+        presenceId,
+        profileName,
+        {
+          onSync: (msg) => {
+            if (session.role !== "guest") return;
+            applyRemoteSync(msg.playing, msg.position, msg.sentAt);
+          },
+          onContent: (content) => {
+            if (session.role !== "guest") return;
+            applyGuestContent(content);
+          },
+          onStateRequest: () => {
+            if (session.role !== "host") return;
+            conn.sendStateResponse({
+              ...buildSyncPayload(),
+              content: session.room.content,
+            });
+          },
+          onStateResponse: (msg) => {
+            if (session.role !== "guest") return;
+            if (msg.content) applyGuestContent(msg.content);
+            applyRemoteSync(msg.playing, msg.position, msg.sentAt);
+          },
+          onRoomClosed: handleClosed,
+          onMembers: setMembers,
+          onStatus: (status) => {
+            if (status === "SUBSCRIBED") {
               setConnected(true);
-              applyRoom(room);
-            },
-            handleClosed,
-          );
-        }
-      }, 4000);
+              setError(null);
+            } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+              setError("Connessione live instabile — riprova ad aprire la stanza");
+              setConnected(false);
+            }
+          },
+        },
+      );
+      broadcastRef.current = conn;
 
       void fetchCloudWatchParty(session.room.code)
         .then((room) => {
           if (room) {
-            setConnected(true);
             if (session.role === "guest") {
-              applyRoom(room);
+              applyRoomSnapshot(room);
             }
           } else if (session.role === "guest") {
             setError("Stanza non trovata o chiusa dall'host");
@@ -278,12 +255,15 @@ export function useWatchPartySync({
 
       if (session.role === "host") {
         setConnected(true);
+        conn.sendContent(session.room.content);
       }
 
       return () => {
-        window.clearTimeout(pollFallbackTimer);
-        unsubscribeRealtime();
-        stopPoll?.();
+        if (session.role === "host") {
+          conn.sendRoomClosed();
+        }
+        conn.close();
+        broadcastRef.current = null;
         setConnected(false);
       };
     }
@@ -374,9 +354,12 @@ export function useWatchPartySync({
     session,
     profileId,
     profileName,
+    presenceId,
     isCloud,
     sendLanSync,
     applyRemoteSync,
+    applyGuestContent,
+    buildSyncPayload,
   ]);
 
   useEffect(() => {
@@ -394,28 +377,32 @@ export function useWatchPartySync({
     return () => window.clearInterval(timer);
   }, [session, sendSync]);
 
-  // Keepalive cloud: mantiene updated_at fresco anche in pausa, così la
-  // pulizia server (stanze senza heartbeat da 15 min) non tocca stanze in uso.
   useEffect(() => {
-    if (!session || session.role !== "host" || !isCloud) return;
+    if (!session || session.role !== "host" || !isCloud || !cloudUserId) return;
     const timer = window.setInterval(() => {
-      if (!playingRef.current) void pushCloudSync(true);
+      void touchCloudWatchPartyRoom(
+        session.room.code,
+        cloudUserId,
+        playingRef.current,
+        currentTimeRef.current,
+      );
     }, CLOUD_KEEPALIVE_MS);
     return () => window.clearInterval(timer);
-  }, [session, isCloud, pushCloudSync]);
+  }, [session, isCloud, cloudUserId]);
 
   const notifySeek = useCallback(
     (position: number, nextPlaying?: boolean) => {
       if (!session || session.role !== "host") return;
 
       const nextPlay = nextPlaying ?? playingRef.current;
-      if (isCloud && cloudUserId) {
-        void updateCloudWatchPartySync(
-          session.room.code,
-          cloudUserId,
-          nextPlay,
+      if (isCloud) {
+        const conn = broadcastRef.current;
+        if (!conn) return;
+        conn.sendSync({
+          playing: nextPlay,
           position,
-        );
+          sentAt: Date.now(),
+        });
         lastSentRef.current = Date.now();
         return;
       }
@@ -433,7 +420,7 @@ export function useWatchPartySync({
       );
       lastSentRef.current = now;
     },
-    [session, isCloud, cloudUserId],
+    [session, isCloud],
   );
 
   return {

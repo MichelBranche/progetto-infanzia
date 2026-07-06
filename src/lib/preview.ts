@@ -4,6 +4,8 @@ export const HERO_POSTER_MS = 5000;
 export const HERO_PREVIEW_SEC = 15;
 export const CARD_PREVIEW_SEC = 30;
 export const CARD_HOVER_DELAY_MS = 350;
+/** Attesa dopo espansione hover prima di avviare trailer/anteprima sulla card */
+export const CARD_PREVIEW_START_DELAY_MS = 2500;
 /** Fallback when CSS variables are unavailable */
 export const CARD_WIDTH_COLLAPSED = 188;
 export const CARD_WIDTH_EXPANDED = 328;

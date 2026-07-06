@@ -24,6 +24,7 @@ import {
   resolveHeroImageUrl,
 } from "../lib/heroImage";
 import { PreviewAudioToggle } from "./PreviewAudioToggle";
+import { SparkleActionButton } from "./SparkleActionButton";
 import { VideoPreview } from "./VideoPreview";
 import { StreamingVideoPreview } from "./StreamingVideoPreview";
 import { useHeroScrollParallax } from "../hooks/useHeroScrollParallax";
@@ -275,7 +276,7 @@ export const HeroBanner = memo(function HeroBanner({
   return (
     <div
       ref={heroRef}
-      className={`relative w-full shrink-0 overflow-hidden bg-black ${
+      className={`pointer-events-none relative z-20 w-full shrink-0 overflow-hidden bg-black ${
         fullPage
           ? "h-[100svh] min-h-[560px]"
           : "h-[72vh] min-h-[420px] max-h-[820px] sm:min-h-[460px] lg:h-[78vh] lg:min-h-[500px]"
@@ -283,7 +284,7 @@ export const HeroBanner = memo(function HeroBanner({
     >
       <div
         ref={mediaLayerRef}
-        className={`absolute -inset-x-[4%] will-change-transform ${
+        className={`pointer-events-none absolute -inset-x-[4%] will-change-transform ${
           fullPage
             ? "-top-[var(--app-nav-height)] bottom-0 h-[calc(100%+var(--app-nav-height))]"
             : "inset-y-0"
@@ -361,18 +362,18 @@ export const HeroBanner = memo(function HeroBanner({
         <PreviewAudioToggle
           enabled={previewAudio}
           onToggle={togglePreviewAudio}
-          className="absolute right-4 bottom-20 z-20 sm:right-8 sm:bottom-24"
+          className="pointer-events-auto absolute right-4 bottom-20 z-20 sm:right-8 sm:bottom-24"
         />
       )}
 
       <div
         ref={contentLayerRef}
-        className={`page-px relative z-10 flex h-full flex-col justify-end will-change-transform ${
+        className={`page-px pointer-events-none relative z-10 flex h-full flex-col justify-end will-change-transform ${
           fullPage ? "pb-[max(5.5rem,12vh)] sm:pb-[max(6.5rem,14vh)]" : "pb-16 sm:pb-20"
         }`}
       >
         <AnimatePresence mode="wait" initial={false}>
-          <motion.div key={media.id} {...textMotion} className="max-w-[34rem]">
+          <motion.div key={media.id} {...textMotion} className="pointer-events-auto max-w-[34rem]">
             <span className="inline-flex items-center rounded-[3px] bg-[#1a98ff] px-2 py-0.5 text-[11px] font-bold tracking-[0.04em] text-white uppercase">
               {heroSourceBadge(media)}
             </span>
@@ -411,8 +412,9 @@ export const HeroBanner = memo(function HeroBanner({
               </button>
 
               {(onToggleFavorite || onToggleStreamingList) && (
-                <button
-                  type="button"
+                <SparkleActionButton
+                  sparkle="list"
+                  checked={media.isFavorite}
                   onClick={() => {
                     if (isStreaming && onToggleStreamingList) {
                       const preview = mediaItemToStreamingPreview(media);
@@ -431,18 +433,18 @@ export const HeroBanner = memo(function HeroBanner({
                   ) : (
                     <Plus className="h-[18px] w-[18px]" strokeWidth={2} />
                   )}
-                </button>
+                </SparkleActionButton>
               )}
 
               {(onOpenDetail || onOpenSeries) && (
-                <button
-                  type="button"
+                <SparkleActionButton
+                  sparkle="info"
                   onClick={handleInfo}
                   className="flex h-11 w-11 items-center justify-center rounded-full border border-white/45 bg-black/35 text-white backdrop-blur-[2px] transition-colors hover:border-white/70 hover:bg-black/50"
                   aria-label="Dettagli"
                 >
                   <Info className="h-[18px] w-[18px]" strokeWidth={2} />
-                </button>
+                </SparkleActionButton>
               )}
 
               {onEdit && !isStreaming && (

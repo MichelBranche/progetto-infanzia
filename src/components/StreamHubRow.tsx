@@ -66,7 +66,7 @@ const tileMotion = {
 
 export function StreamHubRow({ onNavigate }: StreamHubRowProps) {
   return (
-    <section className="page-px relative z-10 -mt-2 py-4 sm:py-6">
+    <section className="page-px row-pointer-pass relative z-10 -mt-2 py-4 sm:py-6">
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         whileInView={{ opacity: 1, y: 0 }}

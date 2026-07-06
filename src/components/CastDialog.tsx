@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { isTauri } from "@tauri-apps/api/core";
 import { Cast, Loader2, RefreshCw, Tv, X, Wifi } from "lucide-react";
 import {
   castMedia,
@@ -52,6 +53,15 @@ export function CastDialog({
   const runDiscovery = useCallback(async () => {
     setLoading(true);
     setError(null);
+    if (!isTauri()) {
+      setDevices([]);
+      setLanHost(null);
+      setError(
+        "La trasmissione alla TV è disponibile solo nell'app desktop Branchefy.",
+      );
+      setLoading(false);
+      return;
+    }
     try {
       const [found, host] = await Promise.all([
         discoverCastDevices(),
@@ -77,6 +87,12 @@ export function CastDialog({
   }, [open, mediaId, runDiscovery]);
 
   const handleCast = async (device: CastDevice) => {
+    if (!isTauri()) {
+      setError(
+        "La trasmissione alla TV è disponibile solo nell'app desktop Branchefy.",
+      );
+      return;
+    }
     setCastingId(device.id);
     setError(null);
     try {
@@ -105,6 +121,12 @@ export function CastDialog({
   const handleManualProbe = async () => {
     const host = manualIp.trim();
     if (!host) return;
+    if (!isTauri()) {
+      setError(
+        "La trasmissione alla TV è disponibile solo nell'app desktop Branchefy.",
+      );
+      return;
+    }
     setProbing(true);
     setError(null);
     try {

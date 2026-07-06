@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Check, Plus } from "lucide-react";
 import type { MangaBrowseItem } from "../types/mangadex";
 import { mangaCoverThumbUrl } from "../lib/mangadexCovers";
+import { SparkleActionButton } from "./SparkleActionButton";
 
 function isAdultRating(rating?: string) {
   return rating === "erotica" || rating === "pornographic";
@@ -125,11 +126,10 @@ export const MangaCard = memo(function MangaCard({
             18+
           </span>
         )}
-        <button
-          type="button"
+        <SparkleActionButton
+          sparkle="list"
           onClick={handleSave}
           aria-label={saved ? "Rimuovi" : "Salva"}
-
           className={`absolute bottom-1.5 right-1.5 z-[3] flex h-7 w-7 items-center justify-center rounded-full ring-1 backdrop-blur-sm transition ${
             saved
               ? "bg-[#ff6740] text-white ring-[#ff6740]/60"
@@ -137,7 +137,7 @@ export const MangaCard = memo(function MangaCard({
           }`}
         >
           {saved ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-        </button>
+        </SparkleActionButton>
         <div className="absolute inset-x-0 bottom-0 z-[2] p-2 pr-9">
           <p className="line-clamp-2 text-[12px] font-semibold leading-snug text-white">
             {item.title}

@@ -25,7 +25,7 @@ export function BranchefyShadowIntro() {
             </span>
           ))}
         </h1>
-        <p className="branchefy-shadow-intro__tagline">La tua capsula del tempo</p>
+        <p className="branchefy-shadow-intro__tagline">e fanculo l&apos;abbonamento</p>
       </div>
     </div>
   );
