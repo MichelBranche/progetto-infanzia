@@ -1,3 +1,4 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import type {
   MangaBrowseItem,
   MangaChapterItem,
@@ -11,9 +12,11 @@ import type {
 } from "../types/mangadex";
 import { mangaDexCache } from "./mangadexCache";
 import { dedupeMangaChapters } from "./mangadexChapters";
+import packageJson from "../../package.json";
 
 const API_BASE = "https://api.mangadex.org";
 const UPLOADS_BASE = "https://uploads.mangadex.org/covers";
+const MANGA_USER_AGENT = `Branchefy/${packageJson.version} (https://github.com/MichelBranche/progetto-infanzia)`;
 
 const BASE_RATINGS = ["safe", "suggestive"] as const;
 const ADULT_RATINGS = ["safe", "suggestive", "erotica", "pornographic"] as const;
@@ -47,9 +50,22 @@ function buildQuery(params: Record<string, string | number | readonly string[]>)
 }
 
 async function mdFetch<T>(path: string, query?: Record<string, string | number | readonly string[]>): Promise<T> {
-  const qs = query ? `?${buildQuery(query)}` : "";
-  const res = await fetch(`${API_BASE}${path}${qs}`, {
-    headers: { Accept: "application/json" },
+  const qs = query ? buildQuery(query) : "";
+
+  if (isTauri()) {
+    const body = await invoke<string>("mangadex_fetch_cmd", {
+      path,
+      query: qs || null,
+    });
+    return JSON.parse(body) as T;
+  }
+
+  const suffix = qs ? `?${qs}` : "";
+  const res = await fetch(`${API_BASE}${path}${suffix}`, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": MANGA_USER_AGENT,
+    },
   });
   if (!res.ok) {
     throw new MangaDexApiError(`MangaDex API ${res.status}`, res.status);

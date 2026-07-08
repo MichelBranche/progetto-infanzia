@@ -16,6 +16,7 @@ mod profiles;
 mod profile_avatar;
 mod loonex_catalog;
 mod loonex_playback;
+mod mangadex;
 mod youtube_catalog;
 mod youtube_playback;
 mod saturn_catalog;
@@ -2261,6 +2262,7 @@ pub fn run() {
             cast_transport_cmd,
             cast_position_cmd,
             get_lan_host_cmd,
+            mangadex::mangadex_fetch_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

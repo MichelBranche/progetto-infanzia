@@ -52,6 +52,7 @@ export function MangaPage({
   const [browseItems, setBrowseItems] = useState<MangaBrowseItem[]>([]);
   const [browseLoading, setBrowseLoading] = useState(false);
   const [browseLoadingMore, setBrowseLoadingMore] = useState(false);
+  const [browseError, setBrowseError] = useState<string | null>(null);
   const [browseHasMore, setBrowseHasMore] = useState(false);
   const browseOffsetRef = useRef(0);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -90,7 +91,7 @@ export function MangaPage({
   }, []);
 
   const [showGenres, setShowGenres] = useState(false);
-  const [visibleRowCount, setVisibleRowCount] = useState(1);
+  const [visibleRowCount, setVisibleRowCount] = useState(3);
   const rowSentinelRef = useRef<HTMLDivElement | null>(null);
 
   const visibleCategories = useMemo(
@@ -109,7 +110,7 @@ export function MangaPage({
   );
 
   useEffect(() => {
-    setVisibleRowCount(1);
+    setVisibleRowCount(3);
   }, [includeAdult, profileId]);
 
   useEffect(() => {
@@ -137,6 +138,7 @@ export function MangaPage({
 
       if (initial) {
         setBrowseLoading(true);
+        setBrowseError(null);
         browseOffsetRef.current = 0;
         setBrowseItems([]);
       } else {
@@ -169,6 +171,14 @@ export function MangaPage({
         );
         setBrowseHasMore(page.hasMore);
         browseOffsetRef.current += page.items.length;
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Impossibile caricare i manga.";
+        if (initial) {
+          setBrowseError(message);
+          setBrowseItems([]);
+          setBrowseHasMore(false);
+        }
       } finally {
         setBrowseLoading(false);
         setBrowseLoadingMore(false);
@@ -321,6 +331,10 @@ export function MangaPage({
               <div className="flex justify-center py-20">
                 <LoadingSpinner size="md" className="border-t-[#ff6740]" />
               </div>
+            ) : browseError && browseItems.length === 0 ? (
+              <p className="py-16 text-center text-[13px] text-red-400/90">
+                {browseError}
+              </p>
             ) : browseItems.length === 0 ? (
               <p className="py-16 text-center text-[13px] text-text-muted">
                 Nessun manga trovato.
