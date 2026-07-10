@@ -52,6 +52,6 @@ await merge("/it/archive");
 await merge("/it/archive?type=movie");
 await merge("/it/archive?type=tv");
 for (const g of genres.slice(0, 5)) {
-  await merge(`/it/archive?genre=${g.id}`);
+  await merge(`/it/archive?type=movie&genres=${g.id}`);
 }
 console.log("sample total after partial genres", all.size);
