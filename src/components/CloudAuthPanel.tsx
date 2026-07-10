@@ -10,7 +10,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { useCloudAccount } from "../context/CloudAccountContext";
-import { SETTINGS_CARD } from "./settings/SettingsUi";
+import { SettingsCard } from "./settings/SettingsUi";
 
 type AuthMode = "login" | "register";
 
@@ -38,7 +38,7 @@ export function CloudAuthPanel() {
 
   if (!configured) {
     return (
-      <section className={SETTINGS_CARD}>
+      <SettingsCard>
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.05]">
             <Cloud className="h-5 w-5 text-text-muted" />
@@ -52,16 +52,18 @@ export function CloudAuthPanel() {
             </p>
           </div>
         </div>
-      </section>
+      </SettingsCard>
     );
   }
 
   if (loading) {
     return (
-      <div className={`flex items-center gap-2 ${SETTINGS_CARD} px-5 py-8`}>
-        <Loader2 className="h-4 w-4 animate-spin text-text-muted" />
-        <span className="text-[13px] text-text-muted">Verifica account cloud…</span>
-      </div>
+      <SettingsCard>
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin text-text-muted" />
+          <span className="text-[13px] text-text-muted">Verifica account cloud…</span>
+        </div>
+      </SettingsCard>
     );
   }
 
@@ -146,7 +148,7 @@ export function CloudAuthPanel() {
   };
 
   return (
-    <section className={SETTINGS_CARD}>
+    <SettingsCard>
       <div className="mb-5 flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10">
           <Cloud className="h-5 w-5 text-accent" />
@@ -288,6 +290,6 @@ export function CloudAuthPanel() {
           {mode === "register" ? "Crea account" : "Accedi"}
         </button>
       </form>
-    </section>
+    </SettingsCard>
   );
 }

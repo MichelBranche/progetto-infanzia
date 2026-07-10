@@ -560,6 +560,7 @@ fn card_to_preview(db: &Database, card: &SaturnCard) -> StremioMetaPreview {
             .as_deref()
             .and_then(|src| resolve_poster_url(db, src)),
         background: None,
+        logo: None,
         poster_shape: Some("poster".to_string()),
         description: None,
         release_info: format_release_info(card),

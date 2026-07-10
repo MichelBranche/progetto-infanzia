@@ -5,7 +5,7 @@ import type {
 } from "../types/stremio";
 import type { BrowseItem } from "./browse";
 import { browseItemId, isWatchInProgress, toBrowseItems } from "./browse";
-import { isHeroEligibleLocalItem, isHeroEligiblePreview, isHeroPriorityLocalItem, isHeroPriorityPreview } from "./heroImage";
+import { isHeroEligibleLocalItem, isHeroPriorityLocalItem, isHeroPriorityPreview, isScHeroWithLogo } from "./heroImage";
 import type { StreamingRow } from "./useStreamingCatalogs";
 import { decodeHtmlEntities } from "./htmlText";
 import {
@@ -220,7 +220,7 @@ export function buildRandomHeroItems(
     push(item, isHeroPriorityLocalItem(item));
   }
   for (const preview of streamingPreviews) {
-    if (!isHeroEligiblePreview(preview)) continue;
+    if (!isScHeroWithLogo(preview)) continue;
     push(toMediaItem(preview), isHeroPriorityPreview(preview));
   }
 
@@ -308,6 +308,14 @@ function padHomeRowItems(
   return stableBrowseItems(padded).slice(0, HOME_ROW_DISPLAY_LIMIT);
 }
 
+function isGenreStreamingContext(context: {
+  rowKey?: string;
+  rowTitle?: string;
+}): boolean {
+  const text = `${context.rowKey ?? ""} ${context.rowTitle ?? ""}`.toLowerCase();
+  return text.includes("sc-genre-") || /\bgenre\b/.test(text);
+}
+
 function buildStreamingContextByKey(
   streamingRows: StreamingRow[],
 ): Map<string, { rowKey: string; rowTitle: string }> {
@@ -318,6 +326,10 @@ function buildStreamingContextByKey(
       const key = `${item.type}:${item.id}`;
       const existing = contextByKey.get(key);
       if (!existing) {
+        contextByKey.set(key, context);
+        continue;
+      }
+      if (isGenreStreamingContext(context) && !isGenreStreamingContext(existing)) {
         contextByKey.set(key, context);
         continue;
       }

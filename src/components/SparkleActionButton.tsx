@@ -17,10 +17,14 @@ interface SparkleActionButtonProps extends ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const SPARKLE_PARTICLES = [
-  { x: 0, y: -14, size: 4, delay: 0, rotate: 8 },
-  { x: 11, y: -5, size: 3, delay: 18, rotate: 52 },
-  { x: -11, y: -5, size: 3, delay: 28, rotate: -48 },
-  { x: 0, y: 9, size: 3, delay: 12, rotate: 118 },
+  { x: 0, y: -22, size: 5, delay: 0, rotate: 8 },
+  { x: 17, y: -13, size: 4, delay: 24, rotate: 52 },
+  { x: -17, y: -13, size: 4, delay: 36, rotate: -48 },
+  { x: 22, y: 3, size: 3, delay: 12, rotate: 118 },
+  { x: -22, y: 3, size: 3, delay: 44, rotate: -122 },
+  { x: 12, y: 16, size: 4, delay: 30, rotate: 74 },
+  { x: -12, y: 16, size: 3, delay: 18, rotate: -80 },
+  { x: 0, y: 24, size: 3, delay: 52, rotate: 160 },
 ] as const;
 
 function usePrefersReducedMotion(): boolean {

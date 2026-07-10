@@ -4,6 +4,7 @@ import { ArrowLeft, Plus, Pencil, Trash2, Lock, Settings2 } from "lucide-react";
 import { useProfile } from "../context/ProfileContext";
 import { useAppAccess } from "../context/AppAccessContext";
 import { isBrowserDevMode } from "../lib/tauriEnv";
+import { BootLiquidBackground } from "./LiquidBackground";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { setProfileAvatar, updateProfile } from "../lib/profilesApi";
 import { roleLabel, type Profile } from "../types/profile";
@@ -44,7 +45,7 @@ function ProfileTile({
 }) {
   const avatar = (
     <div className="relative">
-      <div className="rounded-full p-[3px] transition-all duration-300 group-hover:bg-white/20 group-focus-visible:bg-white/25">
+      <div className="rounded-full p-[3px] transition-all duration-300 group-hover:bg-white/25 group-hover:shadow-[0_0_36px_rgba(255,255,255,0.18)] group-focus-visible:bg-white/25 group-focus-visible:shadow-[0_0_36px_rgba(255,255,255,0.18)]">
         <ProfileAvatar
           profile={profile}
           size="xl"
@@ -149,8 +150,8 @@ export function ProfileSelectScreen() {
 
   if (loading) {
     return (
-      <div className="fixed inset-0 z-[10] flex items-center justify-center bg-void">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-accent" />
+      <div className="fixed inset-0 z-[10] flex items-center justify-center bg-[#05000d]">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-white/80" />
       </div>
     );
   }
@@ -158,9 +159,10 @@ export function ProfileSelectScreen() {
   const formTitle = creating ? "Nuovo profilo" : "Modifica profilo";
 
   return (
-    <div className="fixed inset-0 z-[10] overflow-y-auto overflow-x-hidden bg-[#050507]">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(107,127,255,0.12),transparent)]" />
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/40 to-transparent" />
+    <div className="fixed inset-0 z-[10] overflow-y-auto overflow-x-hidden bg-[#05000d]">
+      <BootLiquidBackground />
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_center,transparent_40%,rgba(0,0,0,0.5)_100%)]" />
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/45 to-transparent" />
 
       <div className="relative z-[1] flex min-h-full w-full flex-col items-center justify-center px-5 py-10 sm:px-8">
         <div className={`w-full ${isFormView ? "max-w-4xl" : "max-w-3xl"}`}>
@@ -185,10 +187,10 @@ export function ProfileSelectScreen() {
           </header>
         ) : (
           <header className="mb-14 text-center sm:mb-16">
-            <p className="font-display text-[13px] font-medium tracking-[0.2em] text-text-muted">
-              BRANCHEFY
-            </p>
-            <h1 className="font-display mt-5 text-[clamp(1.75rem,4.5vw,2.75rem)] font-semibold tracking-[-0.04em] text-text-primary">
+            <span className="chromatic-logo chromatic-logo--skew">
+              Branchefy
+            </span>
+            <h1 className="font-display mt-6 text-[clamp(1.75rem,4.5vw,2.75rem)] font-semibold tracking-[-0.04em] text-text-primary">
               Chi sta guardando?
             </h1>
             <p className="mx-auto mt-3 max-w-sm text-[14px] leading-relaxed text-text-secondary">

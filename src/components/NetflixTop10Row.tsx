@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { StremioMetaPreview } from "../types/stremio";
+import { maximizePosterUrl } from "../lib/posterUrl";
 import type { BrowseItem } from "../lib/browse";
 import { streamingBrowseItem } from "../lib/streamingBrowse";
 import { CARD_HOVER_DELAY_MS, CARD_PREVIEW_SEC } from "../lib/preview";
@@ -68,11 +69,11 @@ function Top10Poster({
     )}
     {preview.poster ? (
       <img
-        src={preview.poster}
+        src={maximizePosterUrl(preview.poster)}
         alt=""
         loading="eager"
         decoding="async"
-        className={`h-full w-full object-cover transition-opacity duration-500 ${
+        className={`h-full w-full object-contain object-center transition-opacity duration-500 ${
           previewVisible ? "opacity-0" : ""
         }`}
       />
@@ -177,7 +178,7 @@ export function NetflixTop10Row({
 
   return (
     <RowInteractionContext.Provider value={{ collapseEpoch }}>
-      <section className="group/top10 row-pointer-pass relative z-10 -mt-2 overflow-visible py-3 hover:z-30 sm:-mt-4 sm:py-4">
+      <section className="group/top10 row-pointer-pass relative z-10 overflow-visible py-3 hover:z-30 sm:py-4">
         <div className="page-px">
           <div className="mb-4 flex flex-col items-center gap-3 sm:mb-5">
             <h2 className="font-display text-center text-xl font-semibold tracking-[-0.02em] text-text-primary sm:text-2xl">
@@ -204,10 +205,10 @@ export function NetflixTop10Row({
           </div>
         </div>
 
-        <div className="row-edge-fade relative px-[var(--page-px)] pb-2">
+        <div className="lf-row-scroll relative px-[var(--page-px)] pb-2">
           <div
             ref={scrollRef}
-            className="scrollbar-hide flex items-center justify-start gap-2 overflow-x-auto overflow-y-visible pb-2 pt-1 sm:gap-3"
+            className="lf-row-scroll__track lf-row-scroll__track--center scrollbar-hide flex items-center justify-start gap-2 pb-2 pt-1 sm:gap-3"
             {...scrollProps}
           >
             {visibleItems.map((preview, index) => {

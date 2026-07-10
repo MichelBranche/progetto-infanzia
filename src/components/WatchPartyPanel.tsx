@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Copy,
+  Check,
   Loader2,
   LogOut,
   MessageSquare,
@@ -79,6 +80,7 @@ export function WatchPartyPanel({
   const [error, setError] = useState<string | null>(null);
   const [roomCode, setRoomCode] = useState("");
   const [hostIp, setHostIp] = useState("");
+  const [copied, setCopied] = useState(false);
   const [joinRelay, setJoinRelay] = useState<"lan" | "cloud">(
     cloudProfile ? "cloud" : lanEnabled ? "lan" : "cloud",
   );
@@ -96,6 +98,7 @@ export function WatchPartyPanel({
       setError(null);
       setRoomCode("");
       setHostIp("");
+      setCopied(false);
       if (!session) setCreatedRoom(null);
       return;
     }
@@ -112,6 +115,15 @@ export function WatchPartyPanel({
   useEffect(() => {
     if (session) setCreatedRoom(null);
   }, [session]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
 
   const handleCreate = useCallback(async () => {
     if (!mediaId || !title || !streamUrl) {
@@ -203,45 +215,38 @@ export function WatchPartyPanel({
       return;
     }
 
-    // Con account cloud: prova sempre prima la stanza online (amici lontani).
-    if (cloudProfile) {
+    // Modalità online: solo stanze cloud, comportamento prevedibile.
+    if (joinRelay === "cloud") {
+      if (!cloudProfile) {
+        setError("Accedi al tuo account Branchefy per unirti online");
+        return;
+      }
       setLoading(true);
       setError(null);
       try {
         const room = await joinCloudWatchParty(code);
-        if (room) {
-          try {
-            await ensureWatchPartyChat(room.code);
-          } catch {
-            // join ok anche se la chat non parte subito
-          }
-          onSessionReady({ role: "guest", room, relay: "cloud" });
-          onClose();
-          return;
-        }
-        if (joinRelay === "cloud") {
+        if (!room) {
           setError(
             "Stanza online non trovata. L'host deve creare la stanza con «Stanza online» attiva.",
           );
           return;
         }
+        try {
+          await ensureWatchPartyChat(room.code);
+        } catch {
+          // join ok anche se la chat non parte subito
+        }
+        onSessionReady({ role: "guest", room, relay: "cloud" });
+        onClose();
       } catch (err) {
-        if (joinRelay === "cloud") {
-          setError(err instanceof Error ? err.message : String(err));
-          return;
-        }
+        setError(err instanceof Error ? err.message : String(err));
       } finally {
-        if (joinRelay === "cloud") {
-          setLoading(false);
-          return;
-        }
         setLoading(false);
       }
-    } else if (joinRelay === "cloud") {
-      setError("Accedi al tuo account Branchefy per unirti online");
       return;
     }
 
+    // Modalità stessa rete (LAN).
     if (!lanEnabled) {
       setError("Le stanze LAN non sono disponibili su mobile. Usa modalità Online.");
       return;
@@ -263,34 +268,28 @@ export function WatchPartyPanel({
       return;
     }
 
-    setLoading(true);
-    setError(null);
-    try {
-      onSessionReady({
-        role: "guest",
+    onSessionReady({
+      role: "guest",
+      hostIp: host,
+      relay: "lan",
+      room: {
+        code,
+        hostProfileId: "",
+        hostName: "Host",
         hostIp: host,
-        relay: "lan",
-        room: {
-          code,
-          hostProfileId: "",
-          hostName: "Host",
-          hostIp: host,
-          content: {
-            mediaId: `party:${code}`,
-            title: "In attesa dell'host…",
-            streamUrl: "",
-            isHls: false,
-            contentKind: "local",
-          },
-          playing: false,
-          positionSecs: 0,
-          members: [],
+        content: {
+          mediaId: `party:${code}`,
+          title: "In attesa dell'host…",
+          streamUrl: "",
+          isHls: false,
+          contentKind: "local",
         },
-      });
-      onClose();
-    } finally {
-      setLoading(false);
-    }
+        playing: false,
+        positionSecs: 0,
+        members: [],
+      },
+    });
+    onClose();
   }, [
     roomCode,
     hostIp,
@@ -319,6 +318,8 @@ export function WatchPartyPanel({
       .join("\n");
     try {
       await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
     } catch {
       // ignore
     }
@@ -327,106 +328,109 @@ export function WatchPartyPanel({
   return (
     <AnimatePresence>
       {open && (
-        <>
-          <motion.button
-            type="button"
-            aria-label="Chiudi pannello"
-            className="fixed inset-0 z-[58] bg-black/50 backdrop-blur-[2px]"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            onClick={onClose}
-          />
-
-          <motion.aside
-            className="fixed inset-y-0 right-0 z-[60] flex w-full max-w-[380px] flex-col border-l border-white/[0.08] bg-[#0c0c10] shadow-2xl"
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "100%" }}
-            transition={{ type: "spring", damping: 28, stiffness: 320 }}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/65 p-4 backdrop-blur-md sm:items-center sm:p-6"
+          onClick={onClose}
+        >
+          <motion.div
+            role="dialog"
+            aria-labelledby="watch-party-title"
+            initial={{ opacity: 0, y: 28, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.98 }}
+            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative flex max-h-[min(88vh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0a0a0c] shadow-[0_32px_80px_rgba(0,0,0,0.65)]"
           >
-            <div className="flex items-start justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15">
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-accent/20 via-accent/5 to-transparent" />
+            <div className="noise-overlay pointer-events-none absolute inset-0 opacity-[0.08]" />
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="absolute right-3 top-3 z-10 rounded-full border border-white/10 bg-black/30 p-2 text-text-muted backdrop-blur-sm transition-colors hover:border-white/20 hover:text-text-primary"
+              aria-label="Chiudi"
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            <div className="relative px-6 pb-4 pt-6 sm:px-7 sm:pt-7">
+              <div className="flex items-start gap-4 pr-8">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-accent/25 bg-accent/10 shadow-[0_0_32px_rgba(94,234,212,0.12)]">
                   <Users className="h-5 w-5 text-accent" />
                 </div>
-                <div>
-                  <h2 className="text-[16px] font-semibold text-text-primary">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-accent">
+                    Watch party
+                  </p>
+                  <h2
+                    id="watch-party-title"
+                    className="font-display mt-1.5 text-[clamp(1.5rem,3vw,1.85rem)] font-semibold leading-none tracking-[-0.03em] text-text-primary"
+                  >
                     Guarda insieme
                   </h2>
-                  <p className="text-[12px] text-text-muted">
-                    {lanEnabled ? "Stanze LAN o online" : "Stanze online"}
+                  <p className="mt-2 text-[12px] text-text-muted">
+                    {lanEnabled
+                      ? "Stanze online o sulla stessa rete Wi‑Fi"
+                      : "Stanze online con account Branchefy"}
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg p-2 text-text-muted transition-colors hover:bg-white/5 hover:text-text-primary"
-                aria-label="Chiudi"
-              >
-                <X className="h-4 w-4" />
-              </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-5 py-4">
-              {activeSession && (
-                <section className="mb-5 rounded-2xl border border-accent/25 bg-accent/5 p-4">
-                  <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">
-                    <Radio className="h-3.5 w-3.5" />
-                    {activeSession.relay === "cloud" ? "Stanza online" : "Stanza LAN"}
-                  </div>
-                  <p className="font-display mt-3 text-center text-3xl font-bold tracking-[0.22em] text-text-primary">
-                    {activeSession.room.code}
-                  </p>
-                  <p className="mt-2 text-center text-[13px] text-text-secondary">
-                    {activeSession.room.content.title}
-                  </p>
-                  <p className="mt-1 text-center text-[12px] text-text-muted">
-                    {activeSession.role === "host" ? "Sei l'host" : "Sei ospite"}
-                    {partyConnected
-                      ? ` · ${partyMembers.length} in stanza`
-                      : " · Connessione…"}
-                  </p>
-                  {activeSession.relay === "lan" && activeSession.room.hostIp && (
-                    <p className="mt-2 text-center text-[12px] text-text-muted">
-                      IP host:{" "}
-                      <span className="text-text-secondary">
-                        {activeSession.room.hostIp}
-                      </span>
+            <div className="relative min-h-0 flex-1 overflow-y-auto px-6 pb-6 sm:px-7">
+              {activeSession ? (
+                <section>
+                  <div className="rounded-xl border border-accent/20 bg-accent/[0.06] px-4 py-5">
+                    <div className="flex items-center justify-center gap-2 text-[10px] font-semibold uppercase tracking-[0.28em] text-accent">
+                      {activeSession.relay === "cloud" ? (
+                        <Radio className="h-3.5 w-3.5" />
+                      ) : (
+                        <Wifi className="h-3.5 w-3.5" />
+                      )}
+                      {activeSession.relay === "cloud"
+                        ? "Stanza online"
+                        : "Stanza LAN"}
+                    </div>
+                    <p className="font-display mt-3 text-center text-4xl font-bold tracking-[0.24em] text-text-primary">
+                      {activeSession.room.code}
                     </p>
-                  )}
+                    <p className="mt-3 text-center text-[13px] text-text-secondary">
+                      {activeSession.room.content.title}
+                    </p>
+                    <p className="mt-1.5 flex items-center justify-center gap-1.5 text-[12px] text-text-muted">
+                      <span
+                        className={`inline-block h-1.5 w-1.5 rounded-full ${
+                          partyConnected ? "bg-mint" : "bg-warm animate-pulse"
+                        }`}
+                      />
+                      {activeSession.role === "host" ? "Sei l'host" : "Sei ospite"}
+                      {partyConnected
+                        ? ` · ${partyMembers.length} in stanza`
+                        : " · Connessione…"}
+                    </p>
+                    {activeSession.relay === "lan" && activeSession.room.hostIp && (
+                      <p className="mt-2 text-center text-[12px] text-text-muted">
+                        IP host:{" "}
+                        <span className="tabular-nums text-text-secondary">
+                          {activeSession.room.hostIp}
+                        </span>
+                      </p>
+                    )}
+                  </div>
+
                   {partyError && (
-                    <p className="mt-3 rounded-lg border border-warm/20 bg-warm/10 px-3 py-2 text-[12px] text-warm">
+                    <p className="mt-4 rounded-xl border border-warm/25 bg-warm/10 px-3.5 py-3 text-[12px] leading-relaxed text-warm">
                       {partyError}
                     </p>
                   )}
-                  <div className="mt-4 flex flex-col gap-2">
-                    {activeSession.role === "host" && (
-                      <button
-                        type="button"
-                        onClick={() => void copyInvite(activeSession)}
-                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 px-4 py-2.5 text-[13px] text-text-primary hover:bg-white/[0.04]"
-                      >
-                        <Copy className="h-4 w-4" />
-                        Copia invito
-                      </button>
-                    )}
-                    {onLeaveParty && (
-                      <button
-                        type="button"
-                        onClick={() => onLeaveParty()}
-                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-warm/30 px-4 py-2.5 text-[13px] text-warm hover:bg-warm/10"
-                      >
-                        <LogOut className="h-4 w-4" />
-                        Esci dalla stanza
-                      </button>
-                    )}
-                  </div>
+
                   {activeSession.relay === "cloud" && cloudProfile && partyChatId && (
-                    <div className="mt-4 border-t border-white/[0.06] pt-4">
-                      <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+                    <div className="mt-5">
+                      <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.28em] text-text-muted">
                         <MessageSquare className="h-3.5 w-3.5" />
                         Chat stanza
                       </div>
@@ -434,26 +438,27 @@ export function WatchPartyPanel({
                         conversationId={partyChatId}
                         currentUserId={cloudProfile.id}
                         compact
-                        className="max-h-[280px]"
+                        className="max-h-[240px]"
                       />
                     </div>
                   )}
-                  {activeSession.relay === "cloud" && cloudProfile && !partyChatId && partyChatError && (
-                    <p className="mt-4 text-[12px] text-warm">{partyChatError}</p>
-                  )}
+                  {activeSession.relay === "cloud" &&
+                    cloudProfile &&
+                    !partyChatId &&
+                    partyChatError && (
+                      <p className="mt-4 text-[12px] text-warm">{partyChatError}</p>
+                    )}
                 </section>
-              )}
-
-              {!activeSession && (
+              ) : (
                 <>
-                  <div className="mb-4 flex gap-2 rounded-full bg-white/[0.04] p-1">
+                  <div className="mb-4 flex gap-1 rounded-full border border-white/[0.06] bg-white/[0.03] p-1">
                     {canCreate && (
                       <button
                         type="button"
                         onClick={() => setTab("create")}
                         className={`flex-1 rounded-full px-3 py-2 text-[12px] font-medium transition-colors ${
                           tab === "create"
-                            ? "bg-white text-black"
+                            ? "bg-text-primary text-void"
                             : "text-text-muted hover:text-text-primary"
                         }`}
                       >
@@ -465,7 +470,7 @@ export function WatchPartyPanel({
                       onClick={() => setTab("join")}
                       className={`flex-1 rounded-full px-3 py-2 text-[12px] font-medium transition-colors ${
                         tab === "join"
-                          ? "bg-white text-black"
+                          ? "bg-text-primary text-void"
                           : "text-text-muted hover:text-text-primary"
                       }`}
                     >
@@ -474,24 +479,24 @@ export function WatchPartyPanel({
                   </div>
 
                   {error && (
-                    <p className="mb-4 rounded-xl border border-warm/20 bg-warm/10 px-3 py-2 text-[12px] text-warm">
+                    <p className="mb-4 rounded-xl border border-warm/25 bg-warm/10 px-3.5 py-3 text-[12px] leading-relaxed text-warm">
                       {error}
                     </p>
                   )}
 
                   {tab === "create" && canCreate && (
-                    <div className="space-y-4">
-                      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-                        <p className="text-[11px] uppercase tracking-[0.12em] text-text-muted">
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-white/[0.04] bg-white/[0.02] px-4 py-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-text-muted">
                           Stai condividendo
                         </p>
-                        <p className="mt-1 text-[15px] font-medium text-text-primary">
+                        <p className="mt-1.5 text-[14px] font-medium leading-snug text-text-primary">
                           {title}
                         </p>
                       </div>
 
                       {cloudProfile && (
-                        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-accent/25 bg-accent/5 px-3 py-3">
+                        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-accent/20 bg-accent/[0.06] px-4 py-3">
                           <input
                             type="checkbox"
                             checked={useCloudRelay}
@@ -502,66 +507,50 @@ export function WatchPartyPanel({
                             <span className="block text-[13px] font-medium text-text-primary">
                               Stanza online (consigliata)
                             </span>
-                            <span className="mt-0.5 block text-[12px] text-text-muted">
+                            <span className="mt-0.5 block text-[12px] leading-relaxed text-text-muted">
                               Per amici su reti diverse: entrambi con account
                               Branchefy. Sync play/pause; ognuno carica il
-                              proprio stream (streaming consigliato).
+                              proprio stream.
                             </span>
                           </span>
                         </label>
                       )}
 
                       {cloudProfile && lanEnabled && !useCloudRelay && (
-                        <p className="rounded-xl border border-warm/20 bg-warm/10 px-3 py-2 text-[12px] text-warm">
+                        <p className="rounded-xl border border-warm/25 bg-warm/10 px-3.5 py-3 text-[12px] leading-relaxed text-warm">
                           Senza «Stanza online» gli amici lontani non potranno
                           connettersi — serve la stessa rete Wi‑Fi.
                         </p>
                       )}
 
                       {!cloudProfile && cloudConfigured && lanEnabled && (
-                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-3 text-[12px] text-text-muted">
-                          <p>
-                            Per guardare con amici lontani, accedi al tuo account
-                            Branchefy in Profilo → Account online.
-                          </p>
-                        </div>
+                        <p className="rounded-xl border border-white/[0.04] bg-white/[0.02] px-4 py-3 text-[12px] leading-relaxed text-text-muted">
+                          Per guardare con amici lontani, accedi al tuo account
+                          Branchefy in Profilo → Account online.
+                        </p>
                       )}
 
                       {!cloudConfigured && lanEnabled && (
-                        <div className="flex items-start gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3 text-[12px] text-text-muted">
+                        <p className="flex items-start gap-2.5 rounded-xl border border-white/[0.04] bg-white/[0.02] px-4 py-3 text-[12px] leading-relaxed text-text-muted">
                           <Wifi className="mt-0.5 h-4 w-4 shrink-0" />
                           La stanza sarà in LAN: gli ospiti devono essere sulla
                           stessa rete Wi‑Fi.
-                        </div>
+                        </p>
                       )}
-
-                      <button
-                        type="button"
-                        disabled={loading}
-                        onClick={() => void handleCreate()}
-                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-[14px] font-semibold text-black disabled:opacity-60"
-                      >
-                        {loading ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Users className="h-4 w-4" />
-                        )}
-                        Crea stanza
-                      </button>
                     </div>
                   )}
 
                   {tab === "join" && (
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       {cloudProfile && lanEnabled && (
-                        <div className="flex gap-2">
+                        <div className="flex gap-1 rounded-full border border-white/[0.06] bg-white/[0.03] p-1">
                           <button
                             type="button"
                             onClick={() => setJoinRelay("cloud")}
-                            className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-2 text-[12px] ${
+                            className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-2 text-[12px] font-medium transition-colors ${
                               joinRelay === "cloud"
-                                ? "bg-white text-black"
-                                : "border border-white/10 text-text-muted"
+                                ? "bg-text-primary text-void"
+                                : "text-text-muted hover:text-text-primary"
                             }`}
                           >
                             <Radio className="h-3.5 w-3.5" />
@@ -570,10 +559,10 @@ export function WatchPartyPanel({
                           <button
                             type="button"
                             onClick={() => setJoinRelay("lan")}
-                            className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-2 text-[12px] ${
+                            className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-2 text-[12px] font-medium transition-colors ${
                               joinRelay === "lan"
-                                ? "bg-white text-black"
-                                : "border border-white/10 text-text-muted"
+                                ? "bg-text-primary text-void"
+                                : "text-text-muted hover:text-text-primary"
                             }`}
                           >
                             <Wifi className="h-3.5 w-3.5" />
@@ -583,7 +572,7 @@ export function WatchPartyPanel({
                       )}
 
                       <label className="block">
-                        <span className="mb-1.5 block text-[12px] text-text-muted">
+                        <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.28em] text-text-muted">
                           Codice stanza
                         </span>
                         <input
@@ -591,21 +580,21 @@ export function WatchPartyPanel({
                           onChange={(e) =>
                             setRoomCode(e.target.value.toUpperCase())
                           }
-                          placeholder="Es. AB12CD"
-                          className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-3 text-[15px] uppercase tracking-[0.2em] outline-none focus:border-accent/30"
+                          placeholder="ES. AB12CD"
+                          className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-center font-display text-[18px] font-semibold uppercase tracking-[0.3em] text-text-primary outline-none transition-colors placeholder:text-text-muted/50 focus:border-accent/40"
                         />
                       </label>
 
                       {joinRelay === "lan" && lanEnabled && (
                         <label className="block">
-                          <span className="mb-1.5 block text-[12px] text-text-muted">
-                            IP dell&apos;host (solo stessa rete)
+                          <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.28em] text-text-muted">
+                            IP dell&apos;host (stessa rete)
                           </span>
                           <input
                             value={hostIp}
                             onChange={(e) => setHostIp(e.target.value)}
                             placeholder="Es. 192.168.1.42"
-                            className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-3 text-[14px] outline-none focus:border-accent/30"
+                            className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-[14px] tabular-nums text-text-primary outline-none transition-colors placeholder:text-text-muted/50 focus:border-accent/40"
                           />
                         </label>
                       )}
@@ -617,26 +606,83 @@ export function WatchPartyPanel({
                           una stanza con «Stanza online» attiva.
                         </p>
                       )}
-
-                      <button
-                        type="button"
-                        disabled={loading}
-                        onClick={() => void handleJoin()}
-                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-[14px] font-semibold text-black disabled:opacity-60"
-                      >
-                        {loading ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          "Entra nella stanza"
-                        )}
-                      </button>
                     </div>
                   )}
                 </>
               )}
             </div>
-          </motion.aside>
-        </>
+
+            <div className="relative border-t border-white/[0.06] bg-black/30 px-6 py-4 sm:px-7">
+              {activeSession ? (
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+                  {onLeaveParty && (
+                    <button
+                      type="button"
+                      onClick={() => onLeaveParty()}
+                      className="inline-flex items-center justify-center gap-2 rounded-full border border-warm/30 px-5 py-2.5 text-[12px] font-medium text-warm transition-colors hover:bg-warm/10"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Esci dalla stanza
+                    </button>
+                  )}
+                  {activeSession.role === "host" && (
+                    <button
+                      type="button"
+                      onClick={() => void copyInvite(activeSession)}
+                      className="inline-flex items-center justify-center gap-2 rounded-full bg-text-primary px-5 py-2.5 text-[12px] font-semibold text-void transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                    >
+                      {copied ? (
+                        <Check className="h-4 w-4" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                      {copied ? "Copiato!" : "Copia invito"}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="rounded-full border border-white/10 px-5 py-2.5 text-[12px] font-medium text-text-secondary transition-colors hover:border-white/20 hover:bg-white/[0.04] hover:text-text-primary"
+                  >
+                    Annulla
+                  </button>
+                  {tab === "create" && canCreate ? (
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => void handleCreate()}
+                      className="inline-flex items-center justify-center gap-2 rounded-full bg-text-primary px-5 py-2.5 text-[12px] font-semibold text-void transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60"
+                    >
+                      {loading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Users className="h-4 w-4" />
+                      )}
+                      Crea stanza
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => void handleJoin()}
+                      className="inline-flex items-center justify-center gap-2 rounded-full bg-text-primary px-5 py-2.5 text-[12px] font-semibold text-void transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60"
+                    >
+                      {loading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Radio className="h-4 w-4" />
+                      )}
+                      Entra nella stanza
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </motion.div>
       )}
     </AnimatePresence>
   );

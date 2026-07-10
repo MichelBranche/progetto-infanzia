@@ -268,7 +268,7 @@ fn download_poster(
     media_id: &str,
     poster_path: &str,
 ) -> Result<String, String> {
-    let url = format!("https://image.tmdb.org/t/p/w500{poster_path}");
+    let url = format!("https://image.tmdb.org/t/p/original{poster_path}");
     let bytes = client()?
         .get(&url)
         .send()

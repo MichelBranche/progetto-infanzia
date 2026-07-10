@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { MediaCard } from "./MediaCard";
+import { LordFlixPosterCard } from "./LordFlixPosterCard";
 import type { BrowseItem } from "../lib/browse";
 import { browseItemId } from "../lib/browse";
 
@@ -20,9 +20,6 @@ export function MediaGrid({
   onPlay,
   onPlayStreaming,
   onOpenSeries,
-  onToggleFavorite,
-  onToggleStreamingList,
-  onEdit,
 }: MediaGridProps) {
   if (items.length === 0) {
     return (
@@ -38,18 +35,14 @@ export function MediaGrid({
       animate={{ opacity: 1 }}
       className="page-px browse-grid pt-6 pb-16"
     >
-      {items.map((browse, i) => (
-        <MediaCard
+      {items.map((browse) => (
+        <LordFlixPosterCard
           key={browseItemId(browse)}
           browse={browse}
-          index={i}
           layout="grid"
           onPlay={onPlay}
           onPlayStreaming={onPlayStreaming}
           onOpenSeries={onOpenSeries}
-          onToggleFavorite={onToggleFavorite}
-          onToggleStreamingList={onToggleStreamingList}
-          onEdit={onEdit}
         />
       ))}
     </motion.div>

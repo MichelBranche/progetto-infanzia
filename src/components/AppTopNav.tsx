@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import {
   Bell,
   CircleUser,
+  Home,
   LogOut,
   MoreHorizontal,
   Search,
+  Settings,
   Users,
   X,
 } from "lucide-react";
@@ -21,10 +23,14 @@ import {
   animateNavLinkHover,
   useAppTopNavEntrance,
 } from "../hooks/useAppTopNavMotion";
+import { useGlassNavIndicator } from "../hooks/useGlassNavIndicator";
 
 gsap.registerPlugin(useGSAP);
 
-export const APP_NAV_HEIGHT = 64;
+export const APP_NAV_BAR_HEIGHT = 68;
+/** Altezza totale riservata (barra + distacco dal bordo superiore). */
+export const APP_NAV_HEIGHT =
+  "var(--app-nav-height)" as const;
 
 interface AppTopNavProps {
   activeId: string;
@@ -40,8 +46,6 @@ interface AppTopNavProps {
   searchActive: boolean;
   onSwitchProfile: () => void;
   onLogout: () => void;
-  scrollContainerRef?: RefObject<HTMLElement | null>;
-  immersive?: boolean;
 }
 
 const PRIMARY_NAV_IDS = [
@@ -59,30 +63,24 @@ function NavPill({
   active,
   onNavigate,
   badgeCount,
+  registerRef,
+  sliding = false,
 }: {
   item: NavItem;
   active: boolean;
   onNavigate: (id: string) => void;
   badgeCount?: number;
+  registerRef?: (el: HTMLButtonElement | null) => void;
+  sliding?: boolean;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const indicatorRef = useRef<HTMLSpanElement>(null);
-
-  useGSAP(
-    () => {
-      if (!active || !indicatorRef.current) return;
-      gsap.fromTo(
-        indicatorRef.current,
-        { scaleX: 0, opacity: 0.4 },
-        { scaleX: 1, opacity: 1, duration: 0.32, ease: "power3.out" },
-      );
-    },
-    { dependencies: [active] },
-  );
 
   return (
     <button
-      ref={buttonRef}
+      ref={(el) => {
+        buttonRef.current = el;
+        registerRef?.(el);
+      }}
       type="button"
       onClick={() => onNavigate(item.id)}
       onMouseEnter={() => {
@@ -92,22 +90,24 @@ function NavPill({
         if (buttonRef.current) animateNavLinkHover(buttonRef.current, false);
       }}
       aria-current={active ? "page" : undefined}
-      className={`app-top-nav__link relative shrink-0 px-2.5 py-2 text-[14px] tracking-[-0.01em] sm:px-3 sm:text-[15px] ${
-        active
-          ? "font-semibold text-white"
-          : "font-medium text-white/90 hover:text-white"
-      }`}
+      className={
+        sliding
+          ? `lf-nav-link lf-nav-link--sliding whitespace-nowrap ${
+              active ? "lf-nav-link--sliding-active" : ""
+            }`
+          : `lf-nav-link ${active ? "lf-nav-link--active" : ""}`
+      }
     >
-      {item.label}
-      {active && (
-        <span
-          ref={indicatorRef}
-          className="absolute inset-x-2 bottom-0.5 block h-[2px] origin-center rounded-full bg-white"
-          aria-hidden
-        />
+      {sliding && active && item.id === "home" && (
+        <Home className="h-4 w-4 shrink-0" strokeWidth={2.25} />
       )}
+      {item.label}
       {badgeCount != null && badgeCount > 0 && (
-        <span className="ml-1.5 text-[10px] tabular-nums text-accent">
+        <span
+          className={`ml-1.5 text-[10px] tabular-nums ${
+            active ? "text-black/55" : "text-white/70"
+          }`}
+        >
           {badgeCount}
         </span>
       )}
@@ -129,17 +129,14 @@ export function AppTopNav({
   searchActive,
   onSwitchProfile,
   onLogout,
-  scrollContainerRef,
-  immersive = false,
 }: AppTopNavProps) {
-  const headerRef = useRef<HTMLElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
+  const desktopNavRef = useRef<HTMLElement>(null);
+  const altroButtonRef = useRef<HTMLButtonElement>(null);
   const { hasStreaming } = useAddons();
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const mobileMenuRef = useRef<HTMLDivElement>(null);
-  const altroAnchorRef = useRef<HTMLDivElement>(null);
-  const mobileMorePanelRef = useRef<HTMLDivElement>(null);
+  const mobileProfileMenuRef = useRef<HTMLDivElement>(null);
   const altroMorePanelRef = useRef<HTMLDivElement>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -187,10 +184,26 @@ export function AppTopNav({
     return out;
   }, [sections]);
 
+  const indicatorActiveId = useMemo(() => {
+    if (moreOpen) return "altro";
+    if (moreNav.some((item) => item.id === activeId)) return "altro";
+    if (primaryNav.some((item) => item.id === activeId)) return activeId;
+    return "";
+  }, [activeId, moreNav, moreOpen, primaryNav]);
+
+  const { register: registerNavLink, indicator: navIndicator } =
+    useGlassNavIndicator(desktopNavRef, indicatorActiveId, [
+      activeId,
+      primaryNav.length,
+      moreNav.length,
+      moreOpen,
+      searchActive,
+      desktopNav,
+    ]);
+
   const closeMoreMenu = useCallback(() => {
-    const panelRef = desktopNav ? altroMorePanelRef : mobileMorePanelRef;
-    animateAppTopNavMoreMenuClose(panelRef, () => setMoreOpen(false));
-  }, [desktopNav]);
+    animateAppTopNavMoreMenuClose(altroMorePanelRef, () => setMoreOpen(false));
+  }, []);
 
   const toggleMoreMenu = () => {
     if (moreOpen) {
@@ -202,57 +215,6 @@ export function AppTopNav({
   };
 
   useEffect(() => {
-    const header = headerRef.current;
-    if (!header) return;
-
-    let scroller = scrollContainerRef?.current ?? null;
-    let raf = 0;
-    let attached = false;
-
-    const update = () => {
-      if (!scroller) return;
-      const scrolled = Math.min(1, Math.max(0, scroller.scrollTop / 140));
-      const blend =
-        searchActive || !immersive ? 1 : 0.42 + scrolled * 0.58;
-      header.style.setProperty("--nav-blend", String(blend));
-    };
-
-    const onScroll = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(update);
-    };
-
-    const attach = () => {
-      scroller = scrollContainerRef?.current ?? null;
-      if (!scroller || attached) return attached;
-      update();
-      scroller.addEventListener("scroll", onScroll, { passive: true });
-      attached = true;
-      return attached;
-    };
-
-    if (!attach()) {
-      const retry = window.setInterval(() => {
-        if (attach()) window.clearInterval(retry);
-      }, 50);
-      return () => {
-        window.clearInterval(retry);
-        if (scroller && attached) {
-          scroller.removeEventListener("scroll", onScroll);
-        }
-        cancelAnimationFrame(raf);
-      };
-    }
-
-    return () => {
-      if (scroller && attached) {
-        scroller.removeEventListener("scroll", onScroll);
-      }
-      cancelAnimationFrame(raf);
-    };
-  }, [scrollContainerRef, immersive, searchActive]);
-
-  useEffect(() => {
     if (searchActive) {
       requestAnimationFrame(() => inputRef.current?.focus());
     }
@@ -262,10 +224,15 @@ export function AppTopNav({
     if (!profileMenuOpen && !moreOpen) return;
     const onPointerDown = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (!menuRef.current?.contains(target)) setProfileMenuOpen(false);
       if (
-        !mobileMenuRef.current?.contains(target) &&
-        !altroAnchorRef.current?.contains(target)
+        !menuRef.current?.contains(target) &&
+        !mobileProfileMenuRef.current?.contains(target)
+      ) {
+        setProfileMenuOpen(false);
+      }
+      if (
+        !desktopNavRef.current?.contains(target) &&
+        !altroMorePanelRef.current?.contains(target)
       ) {
         if (moreOpen) closeMoreMenu();
       }
@@ -322,29 +289,22 @@ export function AppTopNav({
 
   return (
     <header
-      ref={headerRef}
-      className={`app-top-nav fixed inset-x-0 top-0 z-50 ${
+      className={`app-top-nav fixed inset-x-0 z-50 ${
         searchActive ? "z-[60]" : ""
-      } ${immersive && !searchActive ? "app-top-nav--immersive" : ""}`}
-      style={
-        {
-          height: APP_NAV_HEIGHT,
-          "--nav-blend": searchActive || !immersive ? 1 : 0.42,
-        } as CSSProperties
-      }
+      }`}
     >
       <div
         ref={innerRef}
-        className="app-top-nav__inner page-px flex h-full w-full min-w-0 items-center gap-2 sm:gap-3"
+        className="app-top-nav__inner flex h-full w-full min-w-0 items-center justify-between gap-2 px-6 sm:gap-3 lg:px-12"
       >
         <button
           type="button"
           onClick={() => onNavigate("home")}
-          className="app-top-nav__brand group flex shrink-0 items-center gap-2 pr-1 transition-opacity hover:opacity-90"
+          className="app-top-nav__brand group pointer-events-auto flex shrink-0 items-center pr-1"
           aria-label="Home Branchefy"
         >
-          <span className="font-display text-[1.2rem] font-bold tracking-[-0.05em] sm:text-[1.35rem]">
-            Branchefy
+          <span className="app-top-nav__brand-logo chromatic-logo chromatic-logo--skew">
+            B
           </span>
         </button>
 
@@ -373,88 +333,193 @@ export function AppTopNav({
           </div>
         ) : (
           <>
-            <div className="flex min-w-0 flex-1 items-center">
-              <div ref={mobileMenuRef} className="relative shrink-0 md:hidden">
-                <button
-                  type="button"
-                  onClick={toggleMoreMenu}
-                  aria-expanded={moreOpen}
-                  className="app-top-nav__link flex h-9 items-center gap-1 px-2.5 text-[14px] font-medium text-white/90 transition-colors hover:text-white"
+            <div className="ml-auto hidden items-center gap-2 md:flex">
+              <div className="relative min-w-0">
+                <nav
+                  ref={desktopNavRef}
+                  aria-label="Navigazione principale"
+                  role="tablist"
+                  className="glass-header relative flex min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-visible p-1.5 scrollbar-hide"
                 >
-                  Menu
-                  <MoreHorizontal className="h-4 w-4" />
-                </button>
-                {moreOpen && !desktopNav && (
+                  <div
+                    className="lf-nav-slider pill-glow"
+                    style={{
+                      transform: `translate3d(${navIndicator.x}px, 0, 0)`,
+                      width: navIndicator.width,
+                      opacity: navIndicator.opacity,
+                    }}
+                    aria-hidden
+                  />
+
+                  <div className="relative z-[1] flex min-w-0 items-center gap-0.5">
+                    {primaryNav.map((item) => (
+                      <NavPill
+                        key={item.id}
+                        item={item}
+                        active={activeId === item.id && !moreOpen}
+                        onNavigate={(id) => {
+                          if (moreOpen) closeMoreMenu();
+                          onNavigate(id);
+                        }}
+                        badgeCount={badgeCounts?.[item.id]}
+                        sliding
+                        registerRef={(el) => registerNavLink(item.id, el)}
+                      />
+                    ))}
+
+                    {moreNav.length > 0 && (
+                      <button
+                        ref={(el) => {
+                          altroButtonRef.current = el;
+                          registerNavLink("altro", el);
+                        }}
+                        type="button"
+                        onClick={toggleMoreMenu}
+                        onMouseEnter={() => {
+                          if (altroButtonRef.current) {
+                            animateNavLinkHover(altroButtonRef.current, true);
+                          }
+                        }}
+                        onMouseLeave={() => {
+                          if (altroButtonRef.current) {
+                            animateNavLinkHover(altroButtonRef.current, false);
+                          }
+                        }}
+                        aria-expanded={moreOpen}
+                        aria-haspopup="menu"
+                        className={`lf-nav-link lf-nav-link--sliding flex items-center gap-1 whitespace-nowrap ${
+                          moreNav.some((item) => item.id === activeId) || moreOpen
+                            ? "lf-nav-link--sliding-active"
+                            : ""
+                        }`}
+                      >
+                        Altro
+                        <MoreHorizontal
+                          className={`h-4 w-4 shrink-0 transition-transform duration-300 ${
+                            moreOpen ? "rotate-90" : ""
+                          }`}
+                          strokeWidth={2}
+                        />
+                      </button>
+                    )}
+                  </div>
+                </nav>
+
+                {moreOpen && desktopNav && (
                   <AppTopNavMoreMenu
-                    panelRef={mobileMorePanelRef}
+                    panelRef={altroMorePanelRef}
                     activeId={activeId}
                     primaryNav={primaryNav}
                     moreNav={moreNav}
                     alertDots={alertDots}
-                    includePrimary
-                    className="left-0"
+                    includePrimary={false}
+                    className="right-0"
                     onNavigate={onNavigate}
                     onSelect={closeMoreMenu}
                   />
                 )}
               </div>
 
-              <nav
-                aria-label="Navigazione principale"
-                className="scrollbar-hide hidden min-w-0 flex-1 items-center gap-0 overflow-x-auto md:flex"
+              <div className="glass-header flex items-center gap-0.5 p-1.5">
+              <button
+                type="button"
+                onClick={onOpenSearch}
+                className="app-top-nav__icon app-top-nav__icon-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+                aria-label="Cerca"
               >
-                {primaryNav.map((item) => (
-                  <NavPill
-                    key={item.id}
-                    item={item}
-                    active={activeId === item.id}
-                    onNavigate={onNavigate}
-                    badgeCount={badgeCounts?.[item.id]}
-                  />
-                ))}
-              </nav>
+                <Search className="h-[18px] w-[18px]" strokeWidth={1.85} />
+              </button>
 
-              {moreNav.length > 0 && (
-                <div
-                  ref={altroAnchorRef}
-                  className="relative z-[60] hidden shrink-0 md:block"
+              <button
+                type="button"
+                onClick={() => onNavigate("settings")}
+                className="app-top-nav__icon app-top-nav__icon-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+                aria-label="Impostazioni"
+              >
+                <Settings className="h-[18px] w-[18px]" strokeWidth={1.75} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onNavigate("profile")}
+                className="app-top-nav__icon app-top-nav__icon-btn hidden h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 lg:flex"
+                aria-label="Profilo e lista"
+                title="Profilo e lista"
+              >
+                <CircleUser className="h-[19px] w-[19px]" strokeWidth={1.75} />
+              </button>
+
+              <div ref={menuRef} className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setProfileMenuOpen((open) => !open)}
+                  aria-expanded={profileMenuOpen}
+                  className="app-top-nav__icon-btn flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full p-0 ring-2 ring-white/25 transition-[opacity,ring-color] hover:ring-white/45"
                 >
-                  <button
-                    type="button"
-                    onClick={toggleMoreMenu}
-                    aria-expanded={moreOpen}
-                    aria-haspopup="menu"
-                    className={`app-top-nav__link flex items-center gap-1 px-2.5 py-2 text-[14px] transition-[color,opacity] duration-200 sm:px-3 sm:text-[15px] ${
-                      moreNav.some((item) => item.id === activeId) || moreOpen
-                        ? "font-semibold text-white"
-                        : "font-medium text-white/90 hover:text-white"
-                    }`}
-                  >
-                    Altro
-                    <MoreHorizontal
-                      className={`h-4 w-4 transition-transform duration-300 ${
-                        moreOpen ? "rotate-90" : ""
-                      }`}
-                    />
-                  </button>
-                  {moreOpen && desktopNav && (
-                    <AppTopNavMoreMenu
-                      panelRef={altroMorePanelRef}
-                      activeId={activeId}
-                      primaryNav={primaryNav}
-                      moreNav={moreNav}
-                      alertDots={alertDots}
-                      includePrimary={false}
-                      className="left-0"
-                      onNavigate={onNavigate}
-                      onSelect={closeMoreMenu}
-                    />
+                  <ProfileAvatar profile={profile} size="sm" />
+                </button>
+                <AnimatePresence>
+                  {profileMenuOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                      transition={{ duration: 0.18 }}
+                      className="absolute right-0 top-[calc(100%+8px)] z-50 min-w-[200px] overflow-hidden rounded-xl border border-white/[0.08] bg-[#0c0c0f] py-1 shadow-[0_20px_60px_rgba(0,0,0,0.55)]"
+                      role="menu"
+                    >
+                      <div className="border-b border-white/[0.06] px-3.5 py-2.5">
+                        <p className="font-display text-[13px] font-medium text-text-primary">
+                          {profile.name}
+                        </p>
+                        <p className="text-[10px] uppercase tracking-[0.16em] text-text-muted">
+                          {roleLabel(profile.role)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setProfileMenuOpen(false);
+                          onNavigate("profile");
+                        }}
+                        className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-text-primary"
+                      >
+                        <CircleUser className="h-4 w-4 shrink-0" strokeWidth={1.5} />
+                        Profilo e lista
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setProfileMenuOpen(false);
+                          onSwitchProfile();
+                        }}
+                        className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-text-primary"
+                      >
+                        <Users className="h-4 w-4 shrink-0" strokeWidth={1.5} />
+                        Cambia profilo
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setProfileMenuOpen(false);
+                          onLogout();
+                        }}
+                        className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-warm"
+                      >
+                        <LogOut className="h-4 w-4 shrink-0" strokeWidth={1.5} />
+                        Logout
+                      </button>
+                    </motion.div>
                   )}
-                </div>
-              )}
+                </AnimatePresence>
+              </div>
+              </div>
             </div>
 
-            <div className="app-top-nav__actions ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
+            <div className="app-top-nav__actions pointer-events-auto ml-auto flex shrink-0 items-center gap-0.5 md:hidden">
               <button
                 type="button"
                 onClick={onOpenSearch}
@@ -466,23 +531,13 @@ export function AppTopNav({
 
               <button
                 type="button"
-                onClick={() => onNavigate("profile")}
-                className="app-top-nav__icon app-top-nav__icon-btn hidden h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 sm:flex"
-                aria-label="Profilo e lista"
-                title="Profilo e lista"
-              >
-                <CircleUser className="h-[20px] w-[20px]" strokeWidth={1.75} />
-              </button>
-
-              <button
-                type="button"
                 className="app-top-nav__icon app-top-nav__icon-btn flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
                 aria-label="Notifiche"
               >
                 <Bell className="h-[19px] w-[19px]" strokeWidth={1.85} />
               </button>
 
-              <div ref={menuRef} className="relative shrink-0">
+              <div ref={mobileProfileMenuRef} className="relative shrink-0 md:hidden">
                 <button
                   type="button"
                   onClick={() => setProfileMenuOpen((open) => !open)}

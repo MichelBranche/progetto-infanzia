@@ -1,30 +1,23 @@
 import type { BrowseItem } from "./browse";
-import { browseItemMedia } from "./browse";
-import type { MediaItem } from "../types/media";
+import type { StremioMetaPreview } from "../types/stremio";
+import type { StreamingRow } from "./useStreamingCatalogs";
+import { splitFilmBrowseRowsByGenre, type FilmBrowseRow } from "./filmGenres";
 
-export interface SectionBrowseRow {
-  key: string;
-  title: string;
-  subtitle?: string;
-  items: BrowseItem[];
-}
+export type SectionBrowseRow = FilmBrowseRow;
 
 const ROW_CHUNK = 28;
-
-export function featuredFromBrowseItems(
-  items: BrowseItem[],
-): MediaItem | undefined {
-  for (const browse of items) {
-    const media = browseItemMedia(browse);
-    if (media.posterUrl?.trim()) return media;
-  }
-  return items[0] ? browseItemMedia(items[0]) : undefined;
-}
 
 export function splitSectionBrowseRows(
   items: BrowseItem[],
   sectionTitle: string,
+  sectionId?: string,
+  streamingRows: StreamingRow[] = [],
+  catalogIndex: StremioMetaPreview[] = [],
 ): SectionBrowseRow[] {
+  if (sectionId === "film") {
+    return splitFilmBrowseRowsByGenre(items, streamingRows, catalogIndex);
+  }
+
   const local: BrowseItem[] = [];
   const streaming: BrowseItem[] = [];
 

@@ -181,7 +181,7 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
       title: "Cerca",
       subtitle: "Streaming e libreria locale",
     },
-    film: { title: "Film", subtitle: "Blockbuster, drammi e grandi storie" },
+    film: { title: "Film", subtitle: "Scopri nuovi film da guardare" },
     anime: {
       title: "Anime",
       subtitle: "Catalogo AnimeSaturn · Sub ITA e ITA",
@@ -191,7 +191,7 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
       subtitle: "Tabloid MangaDex · Novità, popolari e lettura online",
     },
     cartoni: { title: "Cartoni", subtitle: "Animazione, avventure e Loonex" },
-    serie: { title: "Serie TV", subtitle: "Stagioni, episodi e binge watching" },
+    serie: { title: "Serie TV", subtitle: "Scopri nuove serie da guardare" },
     capsula: {
       title: "Capsula del tempo",
       subtitle: "Classici e tesori rari",

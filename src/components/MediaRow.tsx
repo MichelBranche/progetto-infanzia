@@ -1,16 +1,17 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { motion } from "framer-motion";
-import { MediaCard } from "./MediaCard";
-import { StreamingMediaCard } from "./StreamingMediaCard";
+import { useRef } from "react";
+import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { LordFlixPosterCard } from "./LordFlixPosterCard";
+import { LordFlixContinueCard } from "./LordFlixContinueCard";
 import type { BrowseItem } from "../lib/browse";
 import { browseItemId } from "../lib/browse";
 import {
   RowInteractionContext,
   useRowScrollContainer,
 } from "../hooks/useRowScrollContainer";
+import { useStaggerInView } from "../hooks/useStaggerInView";
 
 interface MediaRowProps {
-  index: string;
+  index?: string;
   title: string;
   titleLogo?: string;
   subtitle?: string;
@@ -26,61 +27,27 @@ interface MediaRowProps {
   onEdit?: (id: string) => void;
   actionLabel?: string;
   onActionClick?: () => void;
+  layout?: "default" | "continue";
+  showReflection?: boolean;
 }
 
-const rowMotion = {
-  hidden: { opacity: 0, y: 20 },
-  show: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      duration: 0.55,
-      ease: [0.22, 1, 0.36, 1] as const,
-      staggerChildren: 0.035,
-      delayChildren: 0.08,
-    },
-  },
-};
-
-const cardMotion = {
-  hidden: { opacity: 0, y: 16, scale: 0.96 },
-  show: {
-    opacity: 1,
-    y: 0,
-    scale: 1,
-    transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] as const },
-  },
-};
-
 export function MediaRow({
-  index,
   title,
   titleLogo,
-  subtitle,
   items,
   animateEntrance = false,
-  cardVariant,
   onPlay,
   onPlayStreaming,
   onOpenDetail,
   onOpenSeries,
-  onToggleFavorite,
-  onToggleStreamingList,
-  onEdit,
   actionLabel,
   onActionClick,
+  layout = "default",
 }: MediaRowProps) {
   const { scrollRef, collapseEpoch, scrollProps } = useRowScrollContainer();
-  const usePremiumCards =
-    cardVariant === "premium" ||
-    (cardVariant !== "default" &&
-      items.length > 0 &&
-      items.every((item) => item.kind === "streaming"));
-  const renderStreamingPremium =
-    cardVariant === "premium" ||
-    (cardVariant !== "default" && cardVariant !== "portrait");
-  const hasStreamingCards =
-    renderStreamingPremium && items.some((item) => item.kind === "streaming");
+  const sectionRef = useRef<HTMLElement>(null);
+  useStaggerInView(sectionRef, ".stagger-card", animateEntrance, [items.length, title]);
+  const isContinueRow = layout === "continue";
 
   const scroll = (direction: "left" | "right") => {
     if (!scrollRef.current) return;
@@ -93,169 +60,92 @@ export function MediaRow({
 
   if (items.length === 0) return null;
 
-  const Section = animateEntrance ? motion.section : "section";
-  const sectionProps = animateEntrance
-    ? {
-        variants: rowMotion,
-        initial: "hidden" as const,
-        whileInView: "show" as const,
-        viewport: { once: true, margin: "-40px" },
-      }
-    : {};
-
-  const CardWrap = animateEntrance ? motion.div : "div";
-  const cardWrapProps = animateEntrance ? { variants: cardMotion } : {};
-
   return (
     <RowInteractionContext.Provider value={{ collapseEpoch }}>
-    <Section
-      className={`group/row page-px relative overflow-visible ${
-        usePremiumCards || hasStreamingCards
-          ? "group/stream-row stream-row-section z-10 hover:z-30"
-          : "py-4 sm:py-5"
-      }`}
-      {...sectionProps}
-    >
-      <div
-        className={`flex items-end justify-between ${
-          usePremiumCards || hasStreamingCards ? "mb-1.5 sm:mb-2" : "mb-4 sm:mb-5"
-        }`}
+      <section
+        ref={sectionRef}
+        className="group/row lf-home-row relative space-y-1 overflow-visible"
       >
-        <div className="flex items-baseline gap-3 sm:gap-4">
-          {!usePremiumCards && (
-            <span className="font-display text-[11px] tabular-nums text-text-muted/80 sm:text-xs">
-              {index}
-            </span>
+        <div
+          className={`${
+            animateEntrance ? "stagger-card " : ""
+          }page-px flex items-center justify-between`}
+        >
+          {titleLogo ? (
+            <img
+              src={titleLogo}
+              alt={title}
+              className="h-10 w-auto max-w-[min(100%,320px)] object-contain object-left sm:h-12"
+            />
+          ) : (
+            <h2 className="lf-home-row__title title-safe">{title}</h2>
           )}
-          <div>
-            <div className="flex items-baseline gap-3">
-              {titleLogo ? (
-                <img
-                  src={titleLogo}
-                  alt={title}
-                  className={
-                    usePremiumCards
-                      ? "h-9 w-auto max-w-[min(100%,300px)] object-contain object-left sm:h-10"
-                      : "h-10 w-auto max-w-[min(100%,320px)] object-contain object-left sm:h-12"
-                  }
-                />
-              ) : (
-                <h2
-                  className={
-                    usePremiumCards
-                      ? "stream-row-title title-safe"
-                      : "title-safe font-display text-xl font-semibold tracking-[-0.025em] text-text-primary sm:text-[1.65rem]"
-                  }
-                >
-                  {title}
-                </h2>
-              )}
-              {actionLabel && onActionClick && usePremiumCards && (
-                <button
-                  type="button"
-                  onClick={onActionClick}
-                  className="shrink-0 text-[13px] font-medium text-white/55 transition-colors hover:text-white/85"
-                >
-                  {actionLabel} ›
-                </button>
-              )}
-            </div>
-            {subtitle && !usePremiumCards && (
-              <p className="title-clip mt-1 max-w-prose text-[12px] text-text-muted sm:text-[13px]">
-                {subtitle}
-              </p>
-            )}
-          </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          {actionLabel && onActionClick && !usePremiumCards && (
+          {actionLabel && onActionClick && (
             <button
               type="button"
               onClick={onActionClick}
-              className="shrink-0 text-[12px] font-medium text-text-muted transition-colors hover:text-text-primary sm:text-[13px]"
+              className="group/label relative flex items-center gap-1 pl-2 text-sm font-medium text-white/50 transition-colors duration-300 hover:text-white"
             >
-              {actionLabel}
+              <span className="relative z-10">{actionLabel}</span>
+              <ArrowRight className="relative z-10 h-4 w-4 transition-transform duration-300 group-hover/label:translate-x-1" />
             </button>
           )}
-          {!usePremiumCards && (
-          <div className="hidden items-center gap-1 opacity-0 transition-opacity duration-300 group-hover/row:opacity-100 sm:flex">
-            <motion.button
-              onClick={() => scroll("left")}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.08] bg-void/90 text-text-secondary shadow-[0_8px_24px_rgba(0,0,0,0.4)] backdrop-blur-md transition-colors hover:border-white/14 hover:text-text-primary"
-              whileHover={{ scale: 1.06 }}
-              whileTap={{ scale: 0.94 }}
-            >
-              <ChevronLeft className="h-4 w-4" strokeWidth={1.75} />
-            </motion.button>
-            <motion.button
-              onClick={() => scroll("right")}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.08] bg-void/90 text-text-secondary shadow-[0_8px_24px_rgba(0,0,0,0.4)] backdrop-blur-md transition-colors hover:border-white/14 hover:text-text-primary"
-              whileHover={{ scale: 1.06 }}
-              whileTap={{ scale: 0.94 }}
-            >
-              <ChevronRight className="h-4 w-4" strokeWidth={1.75} />
-            </motion.button>
-          </div>
-          )}
         </div>
-      </div>
 
-      <div
-        className={`row-edge-fade relative -mx-1 ${
-          hasStreamingCards ? "row-edge-fade--stream pr-10" : ""
-        }`}
-      >
-        <div
-          ref={scrollRef}
-          className={`scrollbar-hide flex overflow-x-auto overflow-y-visible px-1 ${
-            hasStreamingCards
-              ? "stream-row-scroll"
-              : "items-end gap-2.5 pb-5 pt-1 sm:gap-3 sm:pb-6"
-          }`}
-          {...scrollProps}
-        >
-          {items.map((browse, i) => (
-            <CardWrap
-              key={browseItemId(browse)}
-              className={`shrink-0${hasStreamingCards ? " overflow-visible" : ""}`}
-              {...cardWrapProps}
-            >
-              {renderStreamingPremium && browse.kind === "streaming" ? (
-                <StreamingMediaCard
-                  browse={browse}
-                  onPlayStreaming={onPlayStreaming}
-                  onOpenDetail={onOpenDetail}
-                  onToggleStreamingList={onToggleStreamingList}
-                />
-              ) : (
-                <MediaCard
-                  browse={browse}
-                  index={i}
-                  onPlay={onPlay}
-                  onPlayStreaming={onPlayStreaming}
-                  onOpenDetail={onOpenDetail}
-                  onOpenSeries={onOpenSeries}
-                  onToggleFavorite={onToggleFavorite}
-                  onToggleStreamingList={onToggleStreamingList}
-                  onEdit={onEdit}
-                />
-              )}
-            </CardWrap>
-          ))}
-        </div>
-        {hasStreamingCards && (
+        <div className="lf-row-scroll relative">
+          <button
+            type="button"
+            onClick={() => scroll("left")}
+            aria-label="Scorri a sinistra"
+            className="absolute left-4 top-1/2 z-[60] hidden h-12 w-12 -translate-y-1/2 cursor-pointer items-center justify-center bg-transparent opacity-0 drop-shadow-lg transition-all duration-300 hover:scale-110 group-hover/row:opacity-100 lg:flex"
+          >
+            <ChevronLeft className="h-10 w-10 text-white drop-shadow-md" />
+          </button>
           <button
             type="button"
             onClick={() => scroll("right")}
-            className="stream-row-chevron hidden sm:flex"
             aria-label="Scorri a destra"
+            className="absolute right-4 top-1/2 z-[60] hidden h-12 w-12 -translate-y-1/2 cursor-pointer items-center justify-center bg-transparent opacity-0 drop-shadow-lg transition-all duration-300 hover:scale-110 group-hover/row:opacity-100 lg:flex"
           >
-            <ChevronRight className="h-5 w-5" strokeWidth={1.75} />
+            <ChevronRight className="h-10 w-10 text-white drop-shadow-md" />
           </button>
-        )}
-      </div>
-    </Section>
+
+          <div
+            ref={scrollRef}
+            className={`scrollbar-hide page-px ${
+              isContinueRow ? "lf-continue-scroll" : "lf-row-scroll__track"
+            }`}
+            {...scrollProps}
+          >
+            {items.map((browse) => (
+              <div
+                key={browseItemId(browse)}
+                className={`${animateEntrance ? "stagger-card " : ""}${isContinueRow ? "" : "shrink-0"}`}
+              >
+                {isContinueRow ? (
+                  <LordFlixContinueCard
+                    browse={browse}
+                    onPlay={onPlay}
+                    onPlayStreaming={onPlayStreaming}
+                    onOpenDetail={onOpenDetail}
+                    onOpenSeries={onOpenSeries}
+                  />
+                ) : (
+                  <LordFlixPosterCard
+                    browse={browse}
+                    layout="row"
+                    onPlay={onPlay}
+                    onPlayStreaming={onPlayStreaming}
+                    onOpenDetail={onOpenDetail}
+                    onOpenSeries={onOpenSeries}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
     </RowInteractionContext.Provider>
   );
 }

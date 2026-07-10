@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  Loader2,
-  Volume2,
-} from "lucide-react";
+import { Loader2, Settings2, Volume2 } from "lucide-react";
 import { setProfilePin, removeProfilePin } from "../lib/profilesApi";
 import { fetchSettings, updateSettings } from "../lib/settingsApi";
 import { STREAMING_SERVICES } from "../data/streaming";
@@ -13,10 +10,12 @@ import { AddonManagerPanel } from "./AddonManagerPanel";
 import { DebridPanel } from "./DebridPanel";
 import { STREMIO_ADDONS_ENABLED } from "../lib/features";
 import type { AppSettings } from "../lib/settingsApi";
+import { AmbientThemePicker } from "./settings/AmbientThemePicker";
 import {
   SettingsButton,
   SettingsGroupLabel,
   SettingsInput,
+  SettingsPill,
   SettingsSection,
 } from "./settings/SettingsUi";
 
@@ -111,27 +110,33 @@ export function SettingsPage({ profileId }: SettingsPageProps) {
   }
 
   return (
-    <div className="page-px pb-24 pt-[calc(var(--app-nav-height)+2rem)] sm:pt-[calc(var(--app-nav-height)+2.5rem)]">
-      <div className="mx-auto w-full max-w-2xl">
-        <header className="mb-10 text-center sm:mb-12">
-          <p className="font-display text-[11px] font-medium tracking-[0.22em] text-text-muted">
-            BRANCHEFY
+    <div className="page-px pb-24 pt-[calc(var(--app-nav-height)+1.75rem)] sm:pt-[calc(var(--app-nav-height)+2.25rem)]">
+      <div className="mx-auto w-full max-w-lg">
+        <header className="mb-8 text-center sm:mb-10">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-accent/25 bg-accent/10 shadow-[0_0_32px_rgba(94,234,212,0.12)]">
+            <Settings2 className="h-5 w-5 text-accent" />
+          </div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-accent">
+            Branchefy
           </p>
-          <h1 className="font-display mt-3 text-[clamp(1.75rem,4vw,2.5rem)] font-semibold tracking-[-0.04em] text-text-primary">
+          <h1 className="font-display mt-2 text-[clamp(1.65rem,4vw,2.25rem)] font-semibold tracking-[-0.04em] text-text-primary">
             Impostazioni
           </h1>
-          <p className="mx-auto mt-2 max-w-md text-[14px] leading-relaxed text-text-secondary">
-            Streaming, account e controllo genitori
+          <p className="mx-auto mt-2 max-w-sm text-[13px] leading-relaxed text-text-muted">
+            Aspetto, streaming, account e controllo genitori
           </p>
         </header>
 
         {error && (
-          <p className="mb-6 rounded-xl border border-warm/20 bg-warm/10 px-4 py-3 text-center text-[13px] text-warm">
+          <p className="mb-5 rounded-xl border border-warm/25 bg-warm/10 px-4 py-3 text-center text-[13px] text-warm">
             {error}
           </p>
         )}
 
-        <div className="space-y-4">
+        <div className="space-y-3">
+          <SettingsGroupLabel>Aspetto</SettingsGroupLabel>
+          <AmbientThemePicker />
+
           <SettingsGroupLabel>Account</SettingsGroupLabel>
           <CloudAuthPanel />
 
@@ -188,19 +193,14 @@ export function SettingsPage({ profileId }: SettingsPageProps) {
               {STREAMING_SERVICES.map((service) => {
                 const active = settings.subscribedServices.includes(service.id);
                 return (
-                  <button
+                  <SettingsPill
                     key={service.id}
-                    type="button"
+                    active={active}
                     disabled={saving}
                     onClick={() => toggleService(service.id)}
-                    className={`rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-colors ${
-                      active
-                        ? "border-accent/40 bg-accent/12 text-text-primary"
-                        : "border-white/[0.08] bg-white/[0.02] text-text-muted hover:border-white/15 hover:text-text-secondary"
-                    }`}
                   >
                     {service.label}
-                  </button>
+                  </SettingsPill>
                 );
               })}
             </div>

@@ -5,11 +5,27 @@ import {
   fetchYoutubeMeta,
 } from "./addonsApi";
 import { posterUrlFor } from "../components/PosterImage";
+import {
+  heroUrlQualityScore,
+  maximizeHeroUrl,
+  maximizePosterUrl,
+  pickBestHeroUrl,
+  pickBestLogoUrl,
+} from "./posterUrl";
 import type { MediaItem } from "../types/media";
 import type { StremioMetaPreview } from "../types/stremio";
 import { isStreamingMediaId, parseStreamingMediaId } from "./streamingBrowse";
 
 const heroImageCache = new Map<string, string>();
+const heroLogoCache = new Map<string, string>();
+const HERO_IMAGE_QUALITY_OK = 82;
+
+function cacheHeroLogo(id: string, url: string | undefined): string | undefined {
+  const maximized = pickBestLogoUrl(url);
+  if (!maximized) return undefined;
+  heroLogoCache.set(id, maximized);
+  return maximized;
+}
 
 export function isHeroEligiblePreview(preview: StremioMetaPreview): boolean {
   const prefix = preview.catalogPrefix?.toLowerCase() ?? "";
@@ -21,20 +37,21 @@ export function isHeroEligiblePreview(preview: StremioMetaPreview): boolean {
   return Boolean(preview.poster || preview.background);
 }
 
+/** Hero home: solo Streaming Community con logo PNG ufficiale. */
+export function isScHeroWithLogo(preview: StremioMetaPreview): boolean {
+  const prefix = preview.catalogPrefix?.toLowerCase() ?? "";
+  if (prefix !== "sc") return false;
+  if (!preview.logo?.trim()) return false;
+  return Boolean(preview.background || preview.poster);
+}
+
 export function isHeroEligibleLocalItem(item: MediaItem): boolean {
   const type = item.mediaType?.toLowerCase() ?? "";
   return type !== "manga";
 }
 
 export function isHeroPriorityPreview(preview: StremioMetaPreview): boolean {
-  if (!isHeroEligiblePreview(preview)) return false;
-
-  const mediaType = preview.mediaType?.toLowerCase();
-  if (mediaType === "film" || mediaType === "serie") return true;
-
-  const type = preview.type?.toLowerCase() ?? "";
-  const prefix = preview.catalogPrefix?.toLowerCase() ?? "sc";
-  return prefix === "sc" && (type === "movie" || type === "series");
+  return isScHeroWithLogo(preview);
 }
 
 export function isHeroPriorityLocalItem(item: MediaItem): boolean {
@@ -46,7 +63,7 @@ export function isHeroPriorityLocalItem(item: MediaItem): boolean {
 export function filterHeroPreviews(
   previews: StremioMetaPreview[],
 ): StremioMetaPreview[] {
-  return previews.filter(isHeroEligiblePreview);
+  return previews.filter(isScHeroWithLogo);
 }
 
 export function mergePreviewForHero(
@@ -59,8 +76,9 @@ export function mergePreviewForHero(
   if (!match) return preview;
   return {
     ...preview,
-    background: preview.background ?? match.background,
-    poster: preview.poster ?? match.poster,
+    background: pickBestHeroUrl(preview.background, match.background) ?? preview.background ?? match.background,
+    poster: maximizePosterUrl(preview.poster ?? match.poster),
+    logo: pickBestLogoUrl(preview.logo, match.logo) ?? preview.logo ?? match.logo,
     description: preview.description ?? match.description,
   };
 }
@@ -84,6 +102,7 @@ export function buildHeroStreamingPreviews(
       ...preview,
       background: preview.background ?? existing.background,
       poster: preview.poster ?? existing.poster,
+      logo: preview.logo ?? existing.logo,
       description: preview.description ?? existing.description,
       name: preview.name || existing.name,
     });
@@ -97,7 +116,7 @@ export function buildHeroStreamingPreviews(
 
   const merged = filterHeroPreviews(
     [...byKey.values()].filter(
-      (preview) => preview.background || preview.poster,
+      (preview) => preview.logo && (preview.background || preview.poster),
     ),
   );
 
@@ -114,77 +133,154 @@ export function buildHeroStreamingPreviews(
       const key = `${item.type}:${item.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      if (isHeroEligiblePreview(item)) fallback.push(item);
+      if (isScHeroWithLogo(item)) fallback.push(item);
     }
   }
   return fallback;
 }
 
-function isLikelyLowResHero(url: string | undefined): boolean {
-  if (!url) return true;
-  const normalized = url.toLowerCase();
-  return (
-    normalized.includes("cover_mobile") ||
-    normalized.includes("/cover-") ||
-    normalized.includes("cover_") ||
-    normalized.endsWith("-cover.webp")
-  );
+function cacheHeroImage(id: string, url: string | undefined): string | undefined {
+  const maximized = pickBestHeroUrl(url);
+  if (!maximized || heroUrlQualityScore(maximized) <= 0) return undefined;
+  heroImageCache.set(id, maximized);
+  return maximized;
 }
 
 export function needsHeroImageUpgrade(item: MediaItem): boolean {
   if (!isStreamingMediaId(item.id)) return false;
-  const heroUrl = posterUrlFor(item, "hero");
+  const cached = heroImageCache.get(item.id);
+  if (cached && heroUrlQualityScore(cached) >= HERO_IMAGE_QUALITY_OK) return false;
+
+  const target = parseStreamingMediaId(item.id);
+  if (target?.catalogPrefix === "sc") return true;
+
+  const heroUrl = maximizeHeroUrl(posterUrlFor(item, "hero"));
   if (!heroUrl) return true;
-  if (heroImageCache.has(item.id)) return false;
-  const poster = item.posterUrl;
-  const background = item.backgroundUrl;
-  if (!background) return true;
-  if (background === poster && isLikelyLowResHero(background)) return true;
-  return isLikelyLowResHero(heroUrl);
+  return heroUrlQualityScore(heroUrl) < HERO_IMAGE_QUALITY_OK;
 }
 
 export async function resolveHeroImageUrl(
   item: MediaItem,
 ): Promise<string | undefined> {
+  const target = parseStreamingMediaId(item.id);
+  const isSc = target?.catalogPrefix === "sc";
   const cached = heroImageCache.get(item.id);
-  if (cached) return cached;
-
-  const fallback = posterUrlFor(item, "hero");
-  if (!isStreamingMediaId(item.id)) {
-    return fallback;
+  if (
+    cached &&
+    heroUrlQualityScore(cached) >= HERO_IMAGE_QUALITY_OK &&
+    !isSc
+  ) {
+    return cached;
   }
 
-  const target = parseStreamingMediaId(item.id);
-  if (!target?.slug) return fallback;
+  const initialFallback = pickBestHeroUrl(
+    item.backgroundUrl,
+    posterUrlFor(item, "hero"),
+    item.posterUrl,
+  );
+  if (!isStreamingMediaId(item.id)) {
+    return cacheHeroImage(item.id, initialFallback) ?? initialFallback;
+  }
+
+  if (!target?.slug) {
+    return cacheHeroImage(item.id, initialFallback) ?? initialFallback;
+  }
 
   try {
     let url: string | undefined;
     if (target.catalogPrefix === "sc") {
       const meta = await fetchScMeta(target.metaId, target.slug);
-      url = meta.background ?? meta.poster;
+      url = pickBestHeroUrl(meta.background, meta.poster, item.backgroundUrl, item.posterUrl);
+      if (meta.logo) {
+        cacheHeroLogo(item.id, meta.logo);
+      }
     } else if (target.catalogPrefix === "saturn") {
       const meta = await fetchSaturnMeta(target.slug);
-      url = meta.background ?? meta.poster;
+      url = pickBestHeroUrl(meta.background, meta.poster, item.backgroundUrl, item.posterUrl);
     } else if (target.catalogPrefix === "loonex") {
       const meta = await fetchLoonexMeta(target.slug);
-      url = meta.background ?? meta.poster;
+      url = pickBestHeroUrl(meta.background, meta.poster, item.backgroundUrl, item.posterUrl);
     } else if (target.catalogPrefix === "youtube") {
       const meta = await fetchYoutubeMeta(target.metaId);
-      url = meta.background ?? meta.poster;
+      url = pickBestHeroUrl(meta.background, meta.poster, item.backgroundUrl, item.posterUrl);
     }
 
     if (url) {
-      heroImageCache.set(item.id, url);
-      return url;
+      return cacheHeroImage(item.id, url) ?? url;
     }
   } catch {
     // fallback sotto
   }
 
-  return fallback;
+  return cacheHeroImage(item.id, initialFallback) ?? initialFallback;
+}
+
+export async function enrichHeroPreviewsWithLogos(
+  previews: StremioMetaPreview[],
+  limit = 20,
+): Promise<StremioMetaPreview[]> {
+  const withLogo = previews.filter(isScHeroWithLogo);
+  if (withLogo.length >= 4) return withLogo;
+
+  const candidates = previews.filter((preview) => {
+    const prefix = preview.catalogPrefix?.toLowerCase() ?? "";
+    return (
+      prefix === "sc" &&
+      Boolean(preview.slug) &&
+      Boolean(preview.background || preview.poster) &&
+      !preview.logo
+    );
+  });
+
+  const enriched: StremioMetaPreview[] = [...withLogo];
+  const seen = new Set(withLogo.map((preview) => `${preview.type}:${preview.id}`));
+
+  await Promise.all(
+    candidates.slice(0, limit).map(async (preview) => {
+      try {
+        const meta = await fetchScMeta(preview.id, preview.slug!);
+        if (!meta.logo) return;
+        const key = `${preview.type}:${preview.id}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        enriched.push({
+          ...preview,
+          logo: pickBestLogoUrl(meta.logo, preview.logo),
+          background: pickBestHeroUrl(meta.background, preview.background, preview.poster),
+          description: preview.description ?? meta.description,
+        });
+      } catch {
+        // skip
+      }
+    }),
+  );
+
+  return filterHeroPreviews(enriched);
+}
+
+export async function resolveHeroLogoUrl(item: MediaItem): Promise<string | undefined> {
+  const local = pickBestLogoUrl(item.logoUrl);
+  const cached = heroLogoCache.get(item.id);
+  const bestKnown = pickBestLogoUrl(cached, local);
+
+  if (!isStreamingMediaId(item.id)) return bestKnown;
+
+  const target = parseStreamingMediaId(item.id);
+  if (!target?.slug || target.catalogPrefix !== "sc") return bestKnown;
+
+  try {
+    const meta = await fetchScMeta(target.metaId, target.slug);
+    return cacheHeroLogo(item.id, pickBestLogoUrl(meta.logo, bestKnown)) ?? bestKnown;
+  } catch {
+    return bestKnown;
+  }
 }
 
 export function prefetchHeroImage(item: MediaItem): void {
-  if (!needsHeroImageUpgrade(item)) return;
+  if (!needsHeroImageUpgrade(item)) {
+    void resolveHeroLogoUrl(item);
+    return;
+  }
   void resolveHeroImageUrl(item);
+  void resolveHeroLogoUrl(item);
 }

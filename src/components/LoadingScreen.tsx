@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BranchefyShadowIntro } from "./BranchefyShadowIntro";
+import { BranchefyIntro } from "./BranchefyIntro";
+import { BootLiquidBackground } from "./LiquidBackground";
 import { readIntroSoundPref } from "../lib/settingsApi";
 
 const INTRO_SOUND_DELAY_MS = 500;
@@ -125,7 +126,7 @@ export function LoadingScreen({
 
   return (
     <motion.div
-      className={`fixed inset-0 z-[100] ${showPrepare ? "bg-black" : ""}`}
+      className={`fixed inset-0 z-[100] ${showPrepare ? "bg-[#05000d]" : ""}`}
       initial={{ opacity: 1 }}
       animate={{ opacity: prepareExiting ? 0 : 1 }}
       transition={{ duration: FADE_OUT_MS / 1000, ease: "easeInOut" }}
@@ -140,22 +141,26 @@ export function LoadingScreen({
             exit={{ opacity: 0 }}
             transition={{ duration: FADE_OUT_MS / 1000, ease: "easeInOut" }}
           >
-            <BranchefyShadowIntro />
+            <BranchefyIntro />
           </motion.div>
         )}
 
         {showPrepare && (
           <motion.div
             key="prepare"
-            className="absolute inset-0 flex flex-col items-center justify-center px-6"
+            className="absolute inset-0 overflow-hidden"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.45, ease: "easeOut" }}
           >
-            <div className="h-9 w-9 animate-spin rounded-full border-2 border-white/10 border-t-[#e50914]" />
-            <p className="mt-6 text-center text-[11px] font-medium uppercase tracking-[0.28em] text-white/45">
-              {PREPARE_LABELS[labelIdx]}
-            </p>
+            <BootLiquidBackground />
+            <div className="relative z-10 flex h-full flex-col items-center justify-center px-6">
+              <span className="chromatic-logo chromatic-logo--skew">B</span>
+              <div className="mt-7 h-9 w-9 animate-spin rounded-full border-2 border-white/10 border-t-white/85" />
+              <p className="mt-6 text-center text-[11px] font-medium uppercase tracking-[0.28em] text-white/55">
+                {PREPARE_LABELS[labelIdx]}
+              </p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

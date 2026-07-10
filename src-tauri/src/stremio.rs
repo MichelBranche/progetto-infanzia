@@ -48,6 +48,8 @@ pub struct StremioMetaPreview {
   pub poster: Option<String>,
   #[serde(default)]
   pub background: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub logo: Option<String>,
   #[serde(default)]
   pub poster_shape: Option<String>,
     #[serde(default)]

@@ -5,12 +5,16 @@ import { LoadingScreen } from "./components/LoadingScreen";
 import { prefetchBootCatalog } from "./lib/bootCatalog";
 import { ProfileSelectScreen } from "./components/ProfileSelectScreen";
 import { AppTopNav } from "./components/AppTopNav";
+import { AppMobileNavBar } from "./components/AppMobileNavBar";
+import { LiquidBackground } from "./components/LiquidBackground";
+import { HomeHeroBackdrop } from "./components/HomeHeroBackdrop";
+import { BrowseAmbientSetup } from "./components/BrowseAmbientSetup";
+import { HeroAmbientProvider } from "./context/HeroAmbientContext";
 import { HeroBanner } from "./components/HeroBanner";
 import { MediaRow } from "./components/MediaRow";
 import { SectionBrowsePage } from "./components/SectionBrowsePage";
 import { CartoniBrowsePage } from "./components/CartoniBrowsePage";
 import { RowSkeleton } from "./components/RowSkeleton";
-import { StreamHubRow } from "./components/StreamHubRow";
 import { MangaPromoBanner } from "./components/MangaPromoBanner";
 import { ProfilePage, type ProfileTab } from "./components/ProfilePage";
 import { AppUpdaterProvider } from "./context/AppUpdaterContext";
@@ -53,6 +57,7 @@ import { STREMIO_ADDONS_ENABLED, isBuiltinStreamingCatalog } from "./lib/feature
 import { isDevAdminEmail } from "./lib/devAdmin";
 import {
   buildHeroStreamingPreviews,
+  enrichHeroPreviewsWithLogos,
   mergePreviewForHero,
 } from "./lib/heroImage";
 import {
@@ -183,6 +188,7 @@ function AppContent() {
   const [heroItems, setHeroItems] = useState<MediaItem[]>([]);
   const prevActiveNavRef = useRef(activeNav);
   const cartoniCatalogRefreshRef = useRef(false);
+  const filmCatalogRefreshRef = useRef(false);
   const mainScrollRef = useRef<HTMLElement>(null);
   const { hasStreaming } = useAddons();
   const {
@@ -466,20 +472,31 @@ function AppContent() {
       return;
     }
 
-    setHeroItems((current) => {
-      if (!enteredHome && current.length > 0) return current;
-      return buildRandomHeroItems(
-        [],
-        heroStreamingPreviews,
-        (preview) =>
-          previewToMediaItem(
-            enrichListedPreview(
-              mergePreviewForHero(preview, catalogIndex),
+    let cancelled = false;
+
+    void (async () => {
+      const pool = await enrichHeroPreviewsWithLogos(heroStreamingPreviews);
+      if (cancelled || pool.length === 0) return;
+
+      setHeroItems((current) => {
+        if (!enteredHome && current.length > 0) return current;
+        return buildRandomHeroItems(
+          [],
+          pool,
+          (preview) =>
+            previewToMediaItem(
+              enrichListedPreview(
+                mergePreviewForHero(preview, catalogIndex),
+              ),
             ),
-          ),
-        8,
-      );
-    });
+          8,
+        );
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     activeNav,
     library?.items,
@@ -604,6 +621,26 @@ function AppContent() {
     );
   }, [unifiedHomeRows, cartoniHomeRow]);
 
+  const homeCatalogRowsBeforeManga = useMemo(() => {
+    const rows = homeCatalogRows;
+    if (rows.length === 0) return rows;
+    const splitAt = Math.min(
+      rows.length,
+      Math.max(3, Math.ceil(rows.length * 0.55)),
+    );
+    return rows.slice(0, splitAt);
+  }, [homeCatalogRows]);
+
+  const homeCatalogRowsAfterManga = useMemo(() => {
+    const rows = homeCatalogRows;
+    if (rows.length === 0) return rows;
+    const splitAt = Math.min(
+      rows.length,
+      Math.max(3, Math.ceil(rows.length * 0.55)),
+    );
+    return rows.slice(splitAt);
+  }, [homeCatalogRows]);
+
   const homeContentReady = !loading;
   const homeStreamingPending =
     streamingLoading &&
@@ -653,6 +690,7 @@ function AppContent() {
 
   const sectionBrowseSubtitle = useMemo(() => {
     const base = sectionMeta[activeNav]?.subtitle ?? "";
+    if (activeNav === "film" || activeNav === "serie") return base;
     if (sectionStreamingCount > 0) {
       return `${base} · ${sectionStreamingCount.toLocaleString("it-IT")} titoli in streaming`;
     }
@@ -734,6 +772,26 @@ function AppContent() {
       void refreshCatalog();
     }
   }, [activeNav, streamingPreviews, syncingIndex, refreshCatalog]);
+
+  useEffect(() => {
+    if (activeNav !== "film") {
+      filmCatalogRefreshRef.current = false;
+      return;
+    }
+    if (filmCatalogRefreshRef.current || syncingIndex) return;
+    const hasGenreRows = streamingRows.some((row) =>
+      row.key.startsWith("sc-genre-"),
+    );
+    const taggedMovies = catalogIndex.filter(
+      (preview) =>
+        preview.type === "movie" &&
+        ((preview.genres?.length ?? 0) > 0 ||
+          preview.sourceRowKey?.startsWith("sc-genre-")),
+    ).length;
+    if (hasGenreRows || taggedMovies >= 30) return;
+    filmCatalogRefreshRef.current = true;
+    void refreshCatalog();
+  }, [activeNav, catalogIndex, streamingRows, syncingIndex, refreshCatalog]);
 
   const handlePlayStreaming = (preview: StremioMetaPreview) => {
     if (!ensureGuestCanPlay()) return;
@@ -872,12 +930,16 @@ function AppContent() {
   const sectionInfo = sectionMeta[activeNav];
 
   return (
+    <HeroAmbientProvider>
     <motion.div
-      className="relative flex h-full min-h-0 flex-col bg-void"
+      className="relative flex h-full min-h-0 flex-col lordflix-shell lordflix-app-frame"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
     >
-      <div className="noise-overlay pointer-events-none fixed inset-0 z-0 opacity-[0.25]" />
+      <BrowseAmbientSetup activeNav={activeNav} seriesKey={seriesKey} />
+      <LiquidBackground />
+      <HomeHeroBackdrop />
+      <div className="noise-overlay pointer-events-none fixed inset-0 z-[2] opacity-[0.04]" />
 
       <AppTopNav
         activeId={searchOpen ? "search" : activeNav}
@@ -893,13 +955,18 @@ function AppContent() {
         searchActive={searchOpen}
         onSwitchProfile={clearProfile}
         onLogout={() => void handleLogout()}
-        scrollContainerRef={mainScrollRef}
-        immersive={
-          activeNav === "home" && !seriesKey && !searchOpen
-        }
       />
 
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <AppMobileNavBar
+        activeId={searchOpen ? "search" : activeNav}
+        profile={activeProfile}
+        devMode={devMode}
+        onNavigate={handleNav}
+        onOpenSearch={handleOpenSearch}
+        hidden={searchOpen}
+      />
+
+      <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <GuestUsageBanner onUpgrade={() => handleNav("settings")} />
 
         <SuspenseRoute>
@@ -925,7 +992,13 @@ function AppContent() {
 
         <main
           ref={mainScrollRef}
-          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth"
+          className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden max-md:pb-24 ${
+            activeNav === "home" && !seriesKey ? "lf-home-scroll" : ""
+          } ${
+            (activeNav === "film" || activeNav === "serie") && !seriesKey
+              ? "lf-section-scroll"
+              : ""
+          }`}
         >
           {loading ? (
             <div className="flex h-full items-center justify-center pt-20">
@@ -1088,15 +1161,15 @@ function AppContent() {
                         onToggleStreamingList={handleToggleStreamingList}
                       />
                     )}
-                    <div className="relative bg-void">
                     {continueHomeRow && (
-                      <div className="relative">
+                      <div className="lf-home-continue-slot relative">
                         <MediaRow
                           key={continueHomeRow.key}
                           index="01"
                           title={continueHomeRow.title}
                           subtitle={continueHomeRow.subtitle}
                           items={continueHomeRow.items}
+                          layout="continue"
                           animateEntrance
                           onPlay={handlePlayNow}
                           onPlayStreaming={handlePlayStreaming}
@@ -1105,24 +1178,65 @@ function AppContent() {
                         />
                       </div>
                     )}
-                    <StreamHubRow onNavigate={handleNav} />
-                    <MangaPromoBanner onExplore={() => handleNav("manga")} />
                     {top10Row && (
-                      <SuspenseRoute>
-                        <NetflixTop10Row
-                        title={top10Row.title}
-                        items={top10Row.items}
-                        onPlayStreaming={handlePlayStreaming}
-                        onOpenDetail={handleOpenBrowseDetail}
-                        />
-                      </SuspenseRoute>
+                      <div className="lf-home-top10-slot relative">
+                        <SuspenseRoute>
+                          <NetflixTop10Row
+                          title={top10Row.title}
+                          items={top10Row.items}
+                          onPlayStreaming={handlePlayStreaming}
+                          onOpenDetail={handleOpenBrowseDetail}
+                          />
+                        </SuspenseRoute>
+                      </div>
                     )}
+                    <div className="lf-home-content relative">
                     {(homeCatalogRows.length > 0 || streamingError) && (
-                      <div className="relative space-y-0.5 overflow-visible">
-                        {homeCatalogRows.map((row, i) => (
+                      <div className="relative space-y-1 overflow-visible">
+                        {homeCatalogRowsBeforeManga.map((row, i) => (
                             <MediaRow
                               key={row.key}
                               index={String(i + 1).padStart(2, "0")}
+                              title={row.title}
+                              titleLogo={
+                                isArchivioCartoniRow(row.key, row.title)
+                                  ? ARCHIVIO_CARTONI_LOGO
+                                  : undefined
+                              }
+                              subtitle={row.subtitle}
+                              items={row.items}
+                              animateEntrance
+                              onPlay={handlePlayNow}
+                              onPlayStreaming={handlePlayStreaming}
+                              onOpenDetail={handleOpenBrowseDetail}
+                              onOpenSeries={handleOpenSeries}
+                              onToggleStreamingList={handleToggleStreamingList}
+                              actionLabel={
+                                row.key === "favorites"
+                                  ? "Vedi tutto"
+                                  : row.key === "home-cartoni"
+                                    ? "Esplora"
+                                    : undefined
+                              }
+                              onActionClick={
+                                row.key === "favorites"
+                                  ? () => {
+                                      setProfileTab("list");
+                                      setActiveNav("profile");
+                                    }
+                                  : row.key === "home-cartoni"
+                                    ? () => handleNav("cartoni")
+                                    : undefined
+                              }
+                            />
+                          ))}
+                        <MangaPromoBanner onExplore={() => handleNav("manga")} />
+                        {homeCatalogRowsAfterManga.map((row, i) => (
+                            <MediaRow
+                              key={row.key}
+                              index={String(
+                                homeCatalogRowsBeforeManga.length + i + 1,
+                              ).padStart(2, "0")}
                               title={row.title}
                               titleLogo={
                                 isArchivioCartoniRow(row.key, row.title)
@@ -1167,6 +1281,16 @@ function AppContent() {
                         </p>
                       )}
                     </div>
+                    <footer className="lf-home-footer page-px">
+                      <span className="chromatic-logo chromatic-logo--skew lf-home-footer__logo">
+                        B
+                      </span>
+                      <p className="lf-home-footer__text">
+                        I contenuti sono forniti da cataloghi di terze parti.
+                        L&apos;app non ospita né distribuisce alcun file
+                        multimediale.
+                      </p>
+                    </footer>
                       </>
                     )}
                   </>
@@ -1213,6 +1337,8 @@ function AppContent() {
                     loading={streamingLoading && sectionBrowseItems.length === 0}
                     cardVariant={activeNav === "cartoni" ? "portrait" : undefined}
                     items={sectionBrowseItems}
+                    streamingRows={streamingRowsWithoutTop10}
+                    catalogIndex={catalogIndex}
                     onPlay={handlePlayNow}
                     onPlayStreaming={handlePlayStreaming}
                     onOpenDetail={handleOpenBrowseDetail}
@@ -1241,6 +1367,7 @@ function AppContent() {
         </SuspenseRoute>
       )}
     </motion.div>
+    </HeroAmbientProvider>
   );
 }
 

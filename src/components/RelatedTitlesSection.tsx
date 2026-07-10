@@ -26,13 +26,13 @@ export function RelatedTitlesSection({
   if (items.length === 0) return null;
 
   return (
-    <div className="mt-4 border-t border-white/[0.06] pt-2">
+    <div className="mt-6 border-t border-white/[0.06] pt-4">
       <MediaRow
         index="∞"
-        title="Altri titoli simili"
-        subtitle="Potrebbero piacerti anche"
+        title="Potrebbero piacerti anche"
         items={items}
         animateEntrance
+        showReflection
         onPlay={onPlay}
         onPlayStreaming={onPlayStreaming}
         onOpenDetail={onOpenDetail}

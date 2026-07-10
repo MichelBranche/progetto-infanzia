@@ -61,7 +61,7 @@ export function AppTopNavMoreMenu({
 
       gsap.set(panel, {
         pointerEvents: "auto",
-        transformOrigin: "top left",
+        transformOrigin: className.includes("right-0") ? "top right" : "top left",
         opacity: 0,
         y: -14,
         scale: 0.94,
@@ -88,7 +88,7 @@ export function AppTopNavMoreMenu({
         tweenRef.current?.kill();
       };
     },
-    { scope: panelRef },
+    { scope: panelRef, dependencies: [className] },
   );
 
   if (moreNav.length === 0 && (!includePrimary || primaryNav.length === 0)) {

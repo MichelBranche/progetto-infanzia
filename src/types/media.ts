@@ -13,6 +13,7 @@ export interface MediaItem {
   posterPath?: string;
   posterUrl?: string;
   backgroundUrl?: string;
+  logoUrl?: string;
   seriesPosterPath?: string;
   seriesPosterUrl?: string;
   watchPosition?: number;

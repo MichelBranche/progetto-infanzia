@@ -881,6 +881,7 @@ impl Database {
                     name: row.get::<_, String>(4)?,
                     poster: row.get::<_, Option<String>>(5)?,
                     background: None,
+                    logo: None,
                     poster_shape: None,
                     description: None,
                     release_info: row.get::<_, Option<String>>(7)?,

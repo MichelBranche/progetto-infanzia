@@ -6,6 +6,7 @@ mod db;
 mod debrid;
 mod dev_admin;
 mod html_text;
+mod image_palette;
 mod friend_presence;
 mod import_media;
 mod media_ops;
@@ -2263,6 +2264,7 @@ pub fn run() {
             cast_position_cmd,
             get_lan_host_cmd,
             mangadex::mangadex_fetch_cmd,
+            image_palette::extract_image_palette_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

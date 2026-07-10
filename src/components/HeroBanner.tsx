@@ -1,33 +1,36 @@
-import { memo, useEffect, useRef, useState, type RefObject } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Play, Plus, Check, Info, BadgeCheck } from "lucide-react";
+import { Play, Plus, Check, Info, Star, Calendar, Heart } from "lucide-react";
 import type { MediaItem } from "../types/media";
-import { formatDuration, mediaTypeLabel } from "../types/media";
+import { mediaTypeLabel } from "../types/media";
 import { episodeDisplayTitle } from "../lib/browse";
 import type { BrowseItem } from "../lib/browse";
 import {
   isStreamingMediaId,
-  parseStreamingMediaId,
   streamingBrowseItem,
 } from "../lib/streamingBrowse";
 import { mediaItemToStreamingPreview } from "../lib/myList";
-import { HERO_POSTER_MS, HERO_PREVIEW_SEC } from "../lib/preview";
+import { useLordFlixHeroEntrance } from "../hooks/useLordFlixHeroEntrance";
+import { HERO_POSTER_MS } from "../lib/preview";
 import { prefetchStreamUrl } from "../lib/streamCache";
-import { prefetchStreamingPreview } from "../lib/streamingPreviewCache";
-import { supportsStreamingPreview } from "../lib/streamingHeroPreview";
 import { useProfile } from "../context/ProfileContext";
-import { usePreviewAudio } from "../context/PreviewAudioContext";
 import { PosterImage, posterUrlFor } from "./PosterImage";
 import {
-  needsHeroImageUpgrade,
   prefetchHeroImage,
   resolveHeroImageUrl,
+  resolveHeroLogoUrl,
 } from "../lib/heroImage";
-import { PreviewAudioToggle } from "./PreviewAudioToggle";
 import { SparkleActionButton } from "./SparkleActionButton";
-import { VideoPreview } from "./VideoPreview";
-import { StreamingVideoPreview } from "./StreamingVideoPreview";
 import { useHeroScrollParallax } from "../hooks/useHeroScrollParallax";
+import { useHeroAmbientControls } from "../context/HeroAmbientContext";
+import {
+  cacheHeroPalette,
+  getCachedHeroPalette,
+  prefetchHeroPalette,
+  resolveAmbientPalette,
+  resolveAmbientPaletteAsync,
+} from "../lib/imagePalette";
+import { heroUrlQualityScore, pickBestHeroUrl, pickBestLogoUrl } from "../lib/posterUrl";
 
 interface HeroBannerProps {
   items: MediaItem[];
@@ -41,11 +44,46 @@ interface HeroBannerProps {
   onEdit?: (media: MediaItem) => void;
 }
 
+function toHeroItem(media: MediaItem): MediaItem {
+  if (!media.seriesTitle) return media;
+  return {
+    ...media,
+    title: media.seriesTitle,
+    season: undefined,
+    episode: undefined,
+    posterUrl: media.seriesPosterUrl ?? media.posterUrl,
+    backgroundUrl: media.backgroundUrl,
+    logoUrl: media.logoUrl,
+  };
+}
+
+function heroImageForItem(media: MediaItem, resolved?: string): string | undefined {
+  return resolved ?? posterUrlFor(toHeroItem(media), "hero");
+}
+
+function applyHeroPalette(
+  media: MediaItem,
+  imageUrl: string | undefined,
+  setPalette: (palette: import("../lib/imagePalette").AmbientPalette) => void,
+) {
+  const cached = getCachedHeroPalette(media.id);
+  if (cached) {
+    setPalette(cached);
+    return;
+  }
+  void prefetchHeroPalette(
+    media.id,
+    imageUrl,
+    media.gradient,
+  ).then((palette) => {
+    if (palette) setPalette(palette);
+  });
+}
 const textMotion = {
-  initial: { opacity: 0, y: 16 },
+  initial: { opacity: 1, y: 0 },
   animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -8 },
-  transition: { duration: 0.4, ease: [0.22, 1, 0.36, 1] as const },
+  exit: { opacity: 1, y: 0 },
+  transition: { duration: 0 },
 };
 
 function heroSourceBadge(media: MediaItem): string {
@@ -61,28 +99,15 @@ function heroSourceBadge(media: MediaItem): string {
   return "In streaming";
 }
 
-function heroPlayLabel(media: MediaItem, resume: boolean): string {
-  if (resume) return "Riprendi";
-  if (media.episode != null) {
-    return `Episodio ${media.episode} / Guarda ora`;
-  }
-  return "Guarda ora";
+function heroGenreLabel(media: MediaItem): string {
+  if (media.genres?.[0]) return media.genres[0];
+  return mediaTypeLabel(media.mediaType);
 }
 
-function heroStatusLine(media: MediaItem, isStreaming: boolean): string {
-  const parts: string[] = [];
-  if (media.season != null) {
-    parts.push(`Stagione ${media.season}`);
-  } else if (media.year) {
-    parts.push(String(media.year));
-  }
-  if (isStreaming) {
-    parts.push("Disponibile ora");
-  } else {
-    const duration = formatDuration(media.watchDuration);
-    if (duration) parts.push(duration);
-  }
-  return parts.join(" · ");
+function heroRatingLabel(media: MediaItem, isStreaming: boolean): string | null {
+  if (media.runtimeMins) return `${media.runtimeMins} min`;
+  if (isStreaming) return "HD";
+  return null;
 }
 
 export const HeroBanner = memo(function HeroBanner({
@@ -97,14 +122,14 @@ export const HeroBanner = memo(function HeroBanner({
   onEdit,
 }: HeroBannerProps) {
   const { activeProfile } = useProfile();
-  const { previewAudio, togglePreviewAudio, isPreviewMuted } = usePreviewAudio();
   const [index, setIndex] = useState(0);
-  const [phase, setPhase] = useState<"poster" | "video">("poster");
-  const [heroImageUrl, setHeroImageUrl] = useState<string | undefined>();
+  const [heroImageById, setHeroImageById] = useState<Record<string, string>>({});
+  const [heroLogoUrl, setHeroLogoUrl] = useState<string | undefined>();
   const slideTimerRef = useRef<number | null>(null);
   const heroRef = useRef<HTMLDivElement>(null);
   const mediaLayerRef = useRef<HTMLDivElement>(null);
   const contentLayerRef = useRef<HTMLDivElement>(null);
+  const { setPalette, setActive, setBackdropUrl } = useHeroAmbientControls();
 
   useHeroScrollParallax(
     heroRef,
@@ -116,9 +141,42 @@ export const HeroBanner = memo(function HeroBanner({
 
   const safeIndex = items.length > 0 ? index % items.length : 0;
   const media = items[safeIndex];
+  useLordFlixHeroEntrance(contentLayerRef, media?.id ?? "empty");
   const isStreaming = media ? isStreamingMediaId(media.id) : false;
-  const streamTarget = media ? parseStreamingMediaId(media.id) : null;
-  const canStreamPreview = supportsStreamingPreview(streamTarget);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      "--lf-hero-slide-ms",
+      `${HERO_POSTER_MS}ms`,
+    );
+  }, []);
+
+  useEffect(() => {
+    setActive(true);
+    return () => setActive(false);
+  }, [setActive]);
+
+  const handleHeroImageLoad = useCallback(
+    (image: HTMLImageElement, heroItem: MediaItem) => {
+      const cached = getCachedHeroPalette(heroItem.id);
+      if (cached) {
+        setPalette(cached);
+        return;
+      }
+
+      const immediate = resolveAmbientPalette(image, heroItem.gradient);
+      setPalette(immediate);
+
+      const imageUrl = image.currentSrc || image.src;
+      void resolveAmbientPaletteAsync(image, imageUrl, heroItem.gradient).then(
+        (palette) => {
+          setPalette(palette);
+          cacheHeroPalette(heroItem.id, palette);
+        },
+      );
+    },
+    [setPalette],
+  );
 
   const clearSlideTimer = () => {
     if (slideTimerRef.current != null) {
@@ -129,133 +187,180 @@ export const HeroBanner = memo(function HeroBanner({
 
   useEffect(() => {
     setIndex(0);
-    setPhase("poster");
   }, [items]);
 
   useEffect(() => {
-    if (!activeProfile || !media) return;
-    if (canStreamPreview && streamTarget) {
-      prefetchStreamingPreview(streamTarget, HERO_PREVIEW_SEC);
-      return;
-    }
-    if (isStreaming) return;
-    prefetchStreamUrl(activeProfile.id, media.id);
-    const next = items[(safeIndex + 1) % items.length];
-    if (next && !isStreamingMediaId(next.id)) {
-      prefetchStreamUrl(activeProfile.id, next.id);
-    } else if (next) {
-      const nextTarget = parseStreamingMediaId(next.id);
-      if (supportsStreamingPreview(nextTarget)) {
-        prefetchStreamingPreview(nextTarget!, HERO_PREVIEW_SEC);
-      }
-    }
-  }, [activeProfile, media, isStreaming, canStreamPreview, streamTarget, safeIndex, items]);
-
-  useEffect(() => {
-    if (!media || items.length === 0) return;
-
-    clearSlideTimer();
-
-    if (isStreaming && !canStreamPreview) {
-      slideTimerRef.current = window.setTimeout(() => {
-        setPhase("poster");
-        setIndex((current) => (current + 1) % items.length);
-      }, HERO_POSTER_MS);
-      return clearSlideTimer;
-    }
-
-    if (phase === "poster") {
-      slideTimerRef.current = window.setTimeout(
-        () => setPhase("video"),
-        HERO_POSTER_MS,
-      );
-    } else {
-      slideTimerRef.current = window.setTimeout(() => {
-        setPhase("poster");
-        setIndex((current) => (current + 1) % items.length);
-      }, HERO_PREVIEW_SEC * 1000);
-    }
-
-    return clearSlideTimer;
-  }, [phase, media?.id, isStreaming, canStreamPreview, items.length]);
-
-  const goToSlide = (dotIndex: number) => {
-    clearSlideTimer();
-    setIndex(dotIndex);
-    setPhase("poster");
-  };
-
-  const advanceSlide = () => {
-    clearSlideTimer();
-    setPhase("poster");
-    setIndex((current) => (current + 1) % items.length);
-  };
-
-  useEffect(() => {
     if (!media) return;
+
+    const heroItem = toHeroItem(media);
     let cancelled = false;
-    const heroItem: MediaItem = media.seriesTitle
-      ? {
-          ...media,
-          title: media.seriesTitle,
-          season: undefined,
-          episode: undefined,
-          posterUrl: media.seriesPosterUrl ?? media.posterUrl,
-          backgroundUrl: media.backgroundUrl,
-        }
-      : media;
-    const fallback = posterUrlFor(heroItem, "hero");
-    setHeroImageUrl(fallback);
+    setHeroLogoUrl(pickBestLogoUrl(heroItem.logoUrl));
 
-    if (!needsHeroImageUpgrade(media)) {
-      return () => {
-        cancelled = true;
-      };
-    }
+    void (async () => {
+      const [image, logo] = await Promise.all([
+        resolveHeroImageUrl(heroItem),
+        resolveHeroLogoUrl(heroItem),
+      ]);
+      if (cancelled) return;
 
-    void resolveHeroImageUrl(media).then((url) => {
-      if (!cancelled && url) setHeroImageUrl(url);
-    });
+      if (image) {
+        setHeroImageById((current) => {
+          const currentScore = heroUrlQualityScore(current[media.id]);
+          const nextScore = heroUrlQualityScore(image);
+          if (current[media.id] === image || nextScore < currentScore) {
+            return current;
+          }
+          return { ...current, [media.id]: image };
+        });
+        void prefetchHeroPalette(media.id, image, media.gradient);
+      }
+
+      if (logo) setHeroLogoUrl(logo);
+    })();
 
     return () => {
       cancelled = true;
     };
+  }, [media?.id, media?.logoUrl, media?.seriesTitle, media?.gradient]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadItem = async (item: MediaItem) => {
+      const heroItem = toHeroItem(item);
+      const previewUrl = pickBestHeroUrl(
+        item.backgroundUrl,
+        posterUrlFor(heroItem, "hero"),
+        item.posterUrl,
+      );
+
+      if (!cancelled && previewUrl) {
+        setHeroImageById((current) =>
+          current[item.id] === previewUrl
+            ? current
+            : { ...current, [item.id]: previewUrl },
+        );
+        void prefetchHeroPalette(item.id, previewUrl, item.gradient);
+      }
+
+      if (!isStreamingMediaId(item.id)) return;
+
+      const upgraded = await resolveHeroImageUrl(item);
+      if (cancelled || !upgraded) return;
+
+      setHeroImageById((current) => {
+        const currentScore = heroUrlQualityScore(current[item.id]);
+        const nextScore = heroUrlQualityScore(upgraded);
+        if (current[item.id] === upgraded || nextScore < currentScore) {
+          return current;
+        }
+        return { ...current, [item.id]: upgraded };
+      });
+      void prefetchHeroPalette(item.id, upgraded, item.gradient);
+    };
+
+    for (const item of items) {
+      void loadItem(item);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
+
+  useEffect(() => {
+    if (!media) return;
+    const heroItem = toHeroItem(media);
+    const imageUrl = heroImageForItem(heroItem, heroImageById[media.id]);
+    applyHeroPalette(media, imageUrl, setPalette);
   }, [
     media?.id,
-    media?.backgroundUrl,
-    media?.posterUrl,
-    media?.seriesPosterUrl,
-    media?.seriesTitle,
+    media?.gradient,
+    heroImageById,
+    setPalette,
   ]);
+
+  // Backdrop sfocato a tutto schermo (solo home full-page, stile LordFlix)
+  useEffect(() => {
+    if (!fullPage || !media) return;
+    const heroItem = toHeroItem(media);
+    const imageUrl = pickBestHeroUrl(
+      heroImageById[media.id],
+      posterUrlFor(heroItem, "hero"),
+      media.backgroundUrl,
+      media.posterUrl,
+    );
+    setBackdropUrl(imageUrl ?? null);
+  }, [fullPage, media, heroImageById, setBackdropUrl]);
+
+  useEffect(() => {
+    if (!fullPage) return;
+    return () => setBackdropUrl(null);
+  }, [fullPage, setBackdropUrl]);
+
+  useEffect(() => {
+    if (!activeProfile || !media || isStreaming) return;
+    prefetchStreamUrl(activeProfile.id, media.id);
+    const next = items[(safeIndex + 1) % items.length];
+    if (next && !isStreamingMediaId(next.id)) {
+      prefetchStreamUrl(activeProfile.id, next.id);
+    }
+  }, [activeProfile, media, isStreaming, safeIndex, items]);
+
+  const selectSlide = useCallback(
+    (nextIndex: number) => {
+      const next = items[nextIndex];
+      if (next) {
+        const heroItem = toHeroItem(next);
+        const imageUrl = heroImageForItem(heroItem, heroImageById[next.id]);
+        applyHeroPalette(next, imageUrl, setPalette);
+      }
+      setIndex(nextIndex);
+    },
+    [items, heroImageById, setPalette],
+  );
+
+  useEffect(() => {
+    if (!media || items.length <= 1) return;
+
+    clearSlideTimer();
+    slideTimerRef.current = window.setTimeout(() => {
+      selectSlide((safeIndex + 1) % items.length);
+    }, HERO_POSTER_MS);
+
+    return clearSlideTimer;
+  }, [media?.id, items.length, safeIndex, selectSlide]);
+
+  const goToSlide = (dotIndex: number) => {
+    clearSlideTimer();
+    selectSlide(dotIndex);
+  };
 
   useEffect(() => {
     if (items.length === 0) return;
     const next = items[(safeIndex + 1) % items.length];
-    if (next) prefetchHeroImage(next);
-  }, [items, safeIndex]);
+    if (!next) return;
+    prefetchHeroImage(next);
+    const heroItem = toHeroItem(next);
+    const imageUrl = heroImageForItem(heroItem, heroImageById[next.id]);
+    void prefetchHeroPalette(next.id, imageUrl, next.gradient);
+  }, [items, safeIndex, heroImageById]);
 
   if (!media) return null;
 
   const episodeTitle = episodeDisplayTitle(media);
   const heroTitle = media.seriesTitle ?? episodeTitle;
-  const heroPoster: MediaItem = media.seriesTitle
-    ? {
-        ...media,
-        title: media.seriesTitle,
-        season: undefined,
-        episode: undefined,
-        posterUrl: media.seriesPosterUrl ?? media.posterUrl,
-        backgroundUrl: media.backgroundUrl,
-      }
-    : media;
+  const heroPoster = toHeroItem(media);
+  const heroImageUrl = pickBestHeroUrl(
+    heroImageById[media.id],
+    posterUrlFor(heroPoster, "hero"),
+    media.backgroundUrl,
+    media.posterUrl,
+  );
   const resume =
     media.watchPosition != null && media.watchPosition > 10;
-  const hasVideoPreview = items.some(
-    (item) =>
-      !isStreamingMediaId(item.id) ||
-      supportsStreamingPreview(parseStreamingMediaId(item.id)),
-  );
-  const statusLine = heroStatusLine(media, isStreaming);
+  const ratingLabel = heroRatingLabel(media, isStreaming);
+  const genreLabel = heroGenreLabel(media);
   const showEpisodeTagline =
     media.seriesTitle && episodeTitle !== media.seriesTitle;
 
@@ -276,175 +381,162 @@ export const HeroBanner = memo(function HeroBanner({
   return (
     <div
       ref={heroRef}
-      className={`pointer-events-none relative z-20 w-full shrink-0 overflow-hidden bg-black ${
+      className={`lf-hero pointer-events-none relative z-20 w-full shrink-0 ${
         fullPage
-          ? "h-[100svh] min-h-[560px]"
-          : "h-[72vh] min-h-[420px] max-h-[820px] sm:min-h-[460px] lg:h-[78vh] lg:min-h-[500px]"
+          ? "lf-hero--full"
+          : "h-[85vh] min-h-[420px] max-h-[820px] overflow-hidden"
       }`}
     >
       <div
         ref={mediaLayerRef}
-        className={`pointer-events-none absolute -inset-x-[4%] will-change-transform ${
-          fullPage
-            ? "-top-[var(--app-nav-height)] bottom-0 h-[calc(100%+var(--app-nav-height))]"
-            : "inset-y-0"
-        }`}
+        className="lf-hero__media-wrap pointer-events-none"
       >
-        <AnimatePresence mode="popLayout" initial={false}>
+        <AnimatePresence mode="sync" initial={false}>
           <motion.div
-            key={`${media.id}-poster`}
-            className="absolute inset-0 ken-burns-hero"
-            initial={{ opacity: 0, scale: 1.03 }}
-            animate={{
-              opacity: phase === "poster" ? 1 : 0,
-              scale: phase === "poster" ? 1 : 1.02,
-            }}
+            key={media.id}
+            className="absolute inset-0 lf-hero__kenburns"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.9, ease: "easeInOut" }}
+            transition={{ duration: 1.35, ease: "easeInOut" }}
           >
+          {heroImageUrl ? (
           <PosterImage
             item={heroPoster}
             variant="hero"
             priority
             srcOverride={heroImageUrl}
-            className={`${mediaClassName} opacity-100`}
+            className={`${mediaClassName} lf-hero__media`}
+            onImageLoad={(image) => {
+              if (media.id !== heroPoster.id) return;
+              handleHeroImageLoad(image, heroPoster);
+            }}
           />
+          ) : null}
           </motion.div>
-          {!isStreaming && (
-            <motion.div
-              key={`${media.id}-video`}
-              className="absolute inset-0"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: phase === "video" ? 1 : 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.9, ease: "easeInOut" }}
-            >
-              <VideoPreview
-                media={media}
-                active={phase === "video"}
-                maxDurationSec={HERO_PREVIEW_SEC}
-                muted={isPreviewMuted("hero", phase === "video")}
-                className={mediaClassName}
-                onEnded={advanceSlide}
-              />
-            </motion.div>
-          )}
-          {canStreamPreview && streamTarget && (
-            <motion.div
-              key={`${media.id}-stream-video`}
-              className="absolute inset-0"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: phase === "video" ? 1 : 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.9, ease: "easeInOut" }}
-            >
-              <StreamingVideoPreview
-                target={streamTarget}
-                active={phase === "video"}
-                maxDurationSec={HERO_PREVIEW_SEC}
-                muted={isPreviewMuted("hero", phase === "video")}
-                className={mediaClassName}
-                onEnded={advanceSlide}
-                onUnavailable={advanceSlide}
-              />
-            </motion.div>
-          )}
         </AnimatePresence>
+        {/* Dentro il wrapper mascherato: la patina dissolve insieme all'immagine */}
+        {fullPage && (
+          <div className="lf-hero__fade lf-hero__fade--left" aria-hidden />
+        )}
       </div>
 
-      <div
-        className={`hero-prime__scrim ${
-          phase === "video" ? "hero-prime__scrim--video" : ""
-        }`}
-      />
-
-      {hasVideoPreview && (
-        <PreviewAudioToggle
-          enabled={previewAudio}
-          onToggle={togglePreviewAudio}
-          className="pointer-events-auto absolute right-4 bottom-20 z-20 sm:right-8 sm:bottom-24"
-        />
-      )}
+      {!fullPage && <div className="hero-prime__scrim" />}
 
       <div
         ref={contentLayerRef}
         className={`page-px pointer-events-none relative z-10 flex h-full flex-col justify-end will-change-transform ${
-          fullPage ? "pb-[max(5.5rem,12vh)] sm:pb-[max(6.5rem,14vh)]" : "pb-16 sm:pb-20"
+          fullPage ? "pb-20 lg:pb-24" : "pb-16 sm:pb-20"
         }`}
       >
         <AnimatePresence mode="wait" initial={false}>
-          <motion.div key={media.id} {...textMotion} className="pointer-events-auto max-w-[34rem]">
-            <span className="inline-flex items-center rounded-[3px] bg-[#1a98ff] px-2 py-0.5 text-[11px] font-bold tracking-[0.04em] text-white uppercase">
-              {heroSourceBadge(media)}
-            </span>
-
+          <motion.div key={media.id} {...textMotion} className="pointer-events-auto max-w-[44rem] text-center lg:text-left">
             {showEpisodeTagline && (
-              <p className="title-clip mt-3 text-[13px] leading-snug text-white/72 sm:text-[14px]">
+              <p data-hero-part className="title-clip text-[13px] leading-snug text-white/72 sm:text-[14px]">
                 {episodeTitle}
               </p>
             )}
 
-            <h1 className="title-safe mt-2 font-display text-[clamp(2.75rem,6.5vw,5.5rem)] font-bold leading-[0.9] tracking-[-0.04em] text-white">
-              {heroTitle}
-            </h1>
-
-            {statusLine && (
-              <p className="mt-3 flex items-center gap-2 text-[13px] text-emerald-400 sm:text-[14px]">
-                <BadgeCheck className="h-4 w-4 shrink-0" strokeWidth={2.25} />
-                <span>{statusLine}</span>
-              </p>
+            {heroLogoUrl ? (
+              <img
+                data-hero-part
+                src={heroLogoUrl}
+                alt={heroTitle}
+                className="mx-auto mb-3 max-h-[10.5rem] w-auto max-w-[min(100%,720px)] object-contain object-center drop-shadow-[0_8px_32px_rgba(0,0,0,0.55)] sm:max-h-48 lg:mx-0 lg:max-h-[15.75rem] lg:max-w-[min(100%,840px)] lg:object-left xl:max-h-[16.5rem]"
+              />
+            ) : (
+              <h1 data-hero-part className="title-safe mt-2 font-display text-[clamp(3.25rem,8vw,6.5rem)] font-bold leading-[0.9] tracking-[-0.03em] text-white">
+                {heroTitle}
+              </h1>
             )}
 
+            <div data-hero-part className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-white/78 sm:text-[14px]">
+              {ratingLabel && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Star className="h-4 w-4 fill-white/20 text-white/90" strokeWidth={1.75} />
+                  {ratingLabel}
+                </span>
+              )}
+              {media.year && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Calendar className="h-4 w-4 text-white/80" strokeWidth={1.75} />
+                  {media.year}
+                </span>
+              )}
+              <span className="inline-flex items-center gap-1.5">
+                <Heart className="h-4 w-4 text-white/80" strokeWidth={1.75} />
+                {genreLabel}
+              </span>
+            </div>
+
             {media.description ? (
-              <p className="title-safe mt-3 line-clamp-2 max-w-xl text-[14px] leading-relaxed text-white/82 sm:text-[15px]">
+              <p data-hero-part className="title-safe mt-3 line-clamp-2 max-w-xl text-[14px] leading-relaxed text-white/82 sm:text-[15px]">
                 {media.description}
               </p>
             ) : null}
 
-            <div className="mt-5 flex flex-wrap items-center gap-2.5 sm:mt-6 sm:gap-3">
+            <div data-hero-part className="mt-5 flex flex-wrap items-center justify-center gap-3 sm:mt-6 lg:justify-start">
               <button
                 type="button"
                 onClick={() => onPlay(media.id)}
-                className="inline-flex min-h-[44px] min-w-[168px] items-center justify-center gap-2.5 rounded-[6px] bg-white px-5 py-2.5 text-[15px] font-semibold text-black transition-colors hover:bg-white/92 sm:px-6"
+                className="theme-btn-primary relative inline-flex h-[52px] min-w-[140px] items-center justify-center gap-2 rounded-full px-8 text-lg font-bold tracking-wide shadow-xl shadow-black/10 transition-transform duration-200 hover:scale-105 active:scale-95"
               >
-                <Play className="h-[18px] w-[18px] fill-black" />
-                {heroPlayLabel(media, resume)}
+                <Play className="h-5 w-5 fill-current" />
+                {resume ? "Riprendi" : "PLAY"}
               </button>
 
-              {(onToggleFavorite || onToggleStreamingList) && (
-                <SparkleActionButton
-                  sparkle="list"
-                  checked={media.isFavorite}
-                  onClick={() => {
-                    if (isStreaming && onToggleStreamingList) {
-                      const preview = mediaItemToStreamingPreview(media);
-                      if (preview) onToggleStreamingList(preview);
-                      return;
-                    }
-                    if (!isStreaming && onToggleFavorite) {
-                      onToggleFavorite(media.id);
-                    }
-                  }}
-                  className="flex h-11 w-11 items-center justify-center rounded-full border border-white/45 bg-black/35 text-white backdrop-blur-[2px] transition-colors hover:border-white/70 hover:bg-black/50"
-                  aria-label={media.isFavorite ? "In lista" : "La mia lista"}
-                >
-                  {media.isFavorite ? (
-                    <Check className="h-[18px] w-[18px]" strokeWidth={2.5} />
-                  ) : (
-                    <Plus className="h-[18px] w-[18px]" strokeWidth={2} />
-                  )}
-                </SparkleActionButton>
-              )}
+              {((onToggleFavorite || onToggleStreamingList) ||
+                (onOpenDetail || onOpenSeries)) && (
+                <div className="relative z-0 flex h-[52px] items-stretch">
+                  <div className="theme-btn-secondary pointer-events-none absolute inset-0 -z-10 rounded-full border border-white/10 shadow-lg shadow-black/5 backdrop-blur-[20px] backdrop-saturate-150" />
 
-              {(onOpenDetail || onOpenSeries) && (
-                <SparkleActionButton
-                  sparkle="info"
-                  onClick={handleInfo}
-                  className="flex h-11 w-11 items-center justify-center rounded-full border border-white/45 bg-black/35 text-white backdrop-blur-[2px] transition-colors hover:border-white/70 hover:bg-black/50"
-                  aria-label="Dettagli"
-                >
-                  <Info className="h-[18px] w-[18px]" strokeWidth={2} />
-                </SparkleActionButton>
+                  {(onToggleFavorite || onToggleStreamingList) && (
+                    <SparkleActionButton
+                      sparkle="list"
+                      checked={media.isFavorite}
+                      onClick={() => {
+                        if (isStreaming && onToggleStreamingList) {
+                          const preview = mediaItemToStreamingPreview(media);
+                          if (preview) onToggleStreamingList(preview);
+                          return;
+                        }
+                        if (!isStreaming && onToggleFavorite) {
+                          onToggleFavorite(media.id);
+                        }
+                      }}
+                      className="group/btn flex h-full items-center justify-center rounded-l-full px-5 outline-none transition-colors active:bg-white/30"
+                      aria-label={media.isFavorite ? "In lista" : "La mia lista"}
+                    >
+                      {media.isFavorite ? (
+                        <Check className="h-6 w-6 text-white transition-transform duration-300 group-hover/btn:scale-110" strokeWidth={2.5} />
+                      ) : (
+                        <Plus className="h-6 w-6 text-white transition-transform duration-300 group-hover/btn:scale-110" strokeWidth={2} />
+                      )}
+                    </SparkleActionButton>
+                  )}
+
+                  {(onOpenDetail || onOpenSeries) && (
+                    <>
+                      {(onToggleFavorite || onToggleStreamingList) && (
+                        <div className="flex h-full items-center">
+                          <div className="h-6 w-px bg-white/30" />
+                        </div>
+                      )}
+                      <SparkleActionButton
+                        sparkle="info"
+                        onClick={handleInfo}
+                        className={`group/btn flex h-full items-center justify-center px-5 outline-none transition-colors active:bg-white/30 ${
+                          onToggleFavorite || onToggleStreamingList
+                            ? "rounded-r-full"
+                            : "rounded-full"
+                        }`}
+                        aria-label="Dettagli"
+                      >
+                        <Info className="h-6 w-6 text-white transition-transform duration-300 group-hover/btn:scale-110" strokeWidth={2} />
+                      </SparkleActionButton>
+                    </>
+                  )}
+                </div>
               )}
 
               {onEdit && !isStreaming && (
@@ -460,8 +552,8 @@ export const HeroBanner = memo(function HeroBanner({
 
             {isStreaming && (
               <p className="mt-3 flex items-center gap-1.5 text-[12px] text-white/55">
-                <Check className="h-3.5 w-3.5 text-[#1a98ff]" strokeWidth={2.5} />
-                Incluso nel catalogo
+                <Check className="h-3.5 w-3.5 text-white/70" strokeWidth={2.5} />
+                {heroSourceBadge(media)}
               </p>
             )}
           </motion.div>
@@ -469,24 +561,28 @@ export const HeroBanner = memo(function HeroBanner({
       </div>
 
       {items.length > 1 && (
-        <div
-          className={`pointer-events-none absolute inset-x-0 z-20 flex justify-center gap-2 ${
-            fullPage ? "bottom-[max(2rem,5vh)]" : "bottom-6 sm:bottom-8"
-          }`}
-        >
-          {items.map((item, dotIndex) => (
-            <button
-              key={item.id}
-              type="button"
-              aria-label={`Vai a ${item.title}`}
-              onClick={() => goToSlide(dotIndex)}
-              className={`pointer-events-auto rounded-full transition-all ${
-                dotIndex === safeIndex
-                  ? "h-2 w-7 bg-white"
-                  : "h-2 w-2 bg-white/35 hover:bg-white/55"
-              }`}
-            />
-          ))}
+        <div className="lf-hero-dots pointer-events-auto absolute right-6 bottom-24 z-30 flex items-center gap-2 sm:right-12 sm:bottom-28 lg:right-16 lg:bottom-32">
+          {items.map((item, dotIndex) => {
+            const isActive = dotIndex === safeIndex;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-label={`Vai a ${item.title}`}
+                onClick={() => goToSlide(dotIndex)}
+                className={`lf-hero-dot ${
+                  isActive ? "lf-hero-dot--active" : "lf-hero-dot--idle"
+                }`}
+              >
+                {isActive && (
+                  <span
+                    key={safeIndex}
+                    className="dot-filling"
+                  />
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

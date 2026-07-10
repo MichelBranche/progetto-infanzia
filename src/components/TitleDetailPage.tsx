@@ -17,6 +17,7 @@ import {
   sortedEpisodes,
 } from "../lib/titleDetail";
 import { EpisodeThumbnail } from "./EpisodeThumbnail";
+import { LordFlixTrailerCard } from "./LordFlixTrailerCard";
 import { SparkleActionButton } from "./SparkleActionButton";
 type DetailTab = "overview" | "details" | "trailer";
 
@@ -657,6 +658,22 @@ export function TitleDetailPage({
       <div className="page-px py-8 sm:py-10">
         {activeTab === "overview" && (
           <>
+            {detail.hasPreview && onPlayPreview && (
+              <section className="mb-10">
+                <h2 className="lf-home-row__title mb-4">Trailer</h2>
+                <div className="lf-row-scroll">
+                  <div className="lf-row-scroll__track lf-row-scroll__track--trailers scrollbar-hide">
+                    <LordFlixTrailerCard
+                      thumbnailUrl={detail.heroImage}
+                      title={`Trailer · ${detail.name}`}
+                      disabled={previewLoading}
+                      onClick={onPlayPreview}
+                    />
+                  </div>
+                </div>
+              </section>
+            )}
+
             {showEpisodeList ? (
               <>
                 <h2 className="mb-1 font-display text-xl font-semibold tracking-[-0.02em] text-text-primary">
@@ -742,19 +759,16 @@ export function TitleDetailPage({
               Guarda l&apos;anteprima ufficiale prima di avviare la
               riproduzione.
             </p>
-            <button
-              type="button"
-              disabled={previewLoading}
-              onClick={onPlayPreview}
-              className="inline-flex items-center gap-2 rounded-md bg-white px-6 py-3 text-[15px] font-semibold text-black transition-colors hover:bg-white/90 disabled:opacity-60"
-            >
-              {previewLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Play className="h-4 w-4 fill-black" />
-              )}
-              Guarda trailer
-            </button>
+            <div className="lf-row-scroll">
+              <div className="lf-row-scroll__track lf-row-scroll__track--trailers scrollbar-hide">
+                <LordFlixTrailerCard
+                  thumbnailUrl={detail.heroImage}
+                  title={`Trailer · ${detail.name}`}
+                  disabled={previewLoading}
+                  onClick={onPlayPreview}
+                />
+              </div>
+            </div>
           </div>
         )}
       </div>

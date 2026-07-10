@@ -25,7 +25,7 @@ pub fn fetch_title_meta(
     let stremio_type = title_type(title);
     let cdn = cdn.trim_end_matches('/');
     let poster = poster_from_images(cdn, title.get("images"));
-    let background = cover_from_images(cdn, title.get("images"));
+    let background = hero_background_from_images(cdn, title.get("images"));
     let description = plot_from_title(title);
     let release_info = title
         .get("last_air_date")
@@ -239,25 +239,91 @@ fn vixcloud_headers() -> HashMap<String, String> {
     headers
 }
 
-fn cover_from_images(cdn: &str, images: Option<&Value>) -> Option<String> {
-    image_url_by_type(cdn, images, &["cover", "background"])
+fn is_low_res_hero_filename(filename: &str) -> bool {
+    let lower = filename.to_ascii_lowercase();
+    lower.contains("cover_mobile")
+        || lower.contains("poster_mobile")
+        || lower.contains("background_mobile")
+        || lower.contains("_mobile.")
+        || lower.contains("-mobile.")
+        || lower.contains("_thumb")
+        || lower.contains("thumbnail")
+        || lower.contains("_small")
+        || lower.contains("-small")
+        || lower.contains("/small/")
+        || lower.contains("/medium/")
 }
 
-fn logo_from_images(cdn: &str, images: Option<&Value>) -> Option<String> {
-    image_url_by_type(cdn, images, &["logo"])
+fn image_filename_quality_score(filename: &str) -> i32 {
+    if is_low_res_hero_filename(filename) {
+        return -1;
+    }
+    let lower = filename.to_ascii_lowercase();
+    let mut score = 40;
+    if lower.ends_with(".png") {
+        score += 8;
+    } else if lower.ends_with(".webp") {
+        score += 4;
+    }
+    if lower.contains("background") {
+        score += 14;
+    }
+    if lower.contains("logo") {
+        score += 10;
+    }
+    if lower.contains("original") || lower.contains("full") {
+        score += 18;
+    }
+    if lower.contains("large") {
+        score += 10;
+    }
+    score += lower.len() as i32;
+    score
 }
 
-fn image_url_by_type(cdn: &str, images: Option<&Value>, types: &[&str]) -> Option<String> {
+fn best_image_url_from_value(
+    cdn: &str,
+    images: Option<&Value>,
+    types: &[&str],
+) -> Option<String> {
     let images = images?.as_array()?;
+    let mut best: Option<(i32, String)> = None;
     for image in images {
         let image_type = image.get("type").and_then(|v| v.as_str());
-        if types.iter().any(|t| image_type == Some(*t)) {
-            if let Some(filename) = image.get("filename").and_then(|v| v.as_str()) {
-                return Some(format!("{}/images/{}", cdn.trim_end_matches('/'), filename));
-            }
+        if !types.iter().any(|t| image_type == Some(*t)) {
+            continue;
+        }
+        let Some(filename) = image.get("filename").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let score = image_filename_quality_score(filename);
+        if score < 0 {
+            continue;
+        }
+        let url = format!("{}/images/{}", cdn.trim_end_matches('/'), filename);
+        match &best {
+            Some((best_score, _)) if score <= *best_score => {}
+            _ => best = Some((score, url)),
+        }
+    }
+    best.map(|(_, url)| url)
+}
+
+fn hero_background_from_images(cdn: &str, images: Option<&Value>) -> Option<String> {
+    for preferred in ["background", "cover", "poster"] {
+        if let Some(url) = best_image_url_from_value(cdn, images, &[preferred]) {
+            return Some(url);
         }
     }
     None
+}
+
+fn logo_from_images(cdn: &str, images: Option<&Value>) -> Option<String> {
+    best_image_url_from_value(cdn, images, &["logo"])
+}
+
+fn image_url_by_type(cdn: &str, images: Option<&Value>, types: &[&str]) -> Option<String> {
+    best_image_url_from_value(cdn, images, types)
 }
 
 fn genres_from_title(title: &Value) -> Vec<String> {

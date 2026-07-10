@@ -125,10 +125,14 @@ export function scheduleCatalogRefresh(): Promise<BootCatalogPayload | null> {
 
 function indexNeedsGenreMetadata(index: StremioMetaPreview[]): boolean {
   if (index.length < 100) return false;
-  const tagged = index.filter(
-    (item) => (item.genres?.length ?? 0) > 0 || Boolean(item.sourceRowKey),
-  ).length;
-  return tagged < 20;
+  const movies = index.filter((item) => item.type === "movie");
+  if (movies.length < 50) return false;
+  const tagged = movies.filter((item) => {
+    if ((item.genres?.length ?? 0) > 0) return true;
+    const key = item.sourceRowKey?.toLowerCase() ?? "";
+    return key.startsWith("sc-genre-");
+  }).length;
+  return tagged < Math.min(80, Math.floor(movies.length * 0.08));
 }
 
 function loonexCount(index: StremioMetaPreview[]): number {

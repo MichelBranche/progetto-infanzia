@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
-import { MediaCard } from "./MediaCard";
+import { LordFlixPosterCard } from "./LordFlixPosterCard";
 import type { MediaItem } from "../types/media";
 import type { StremioMetaPreview } from "../types/stremio";
 import type { BrowseItem } from "../lib/browse";
@@ -281,9 +281,6 @@ function SearchGrid({
   onPlay,
   onPlayStreaming,
   onOpenSeries,
-  onToggleFavorite,
-  onToggleStreamingList,
-  onEdit,
 }: {
   items: BrowseItem[];
   onPlay: (id: string) => void;
@@ -295,18 +292,14 @@ function SearchGrid({
 }) {
   return (
     <div className="page-px browse-grid">
-      {items.map((browse, i) => (
-        <MediaCard
+      {items.map((browse) => (
+        <LordFlixPosterCard
           key={browseItemId(browse)}
           browse={browse}
-          index={i}
           layout="grid"
           onPlay={onPlay}
           onPlayStreaming={onPlayStreaming}
           onOpenSeries={onOpenSeries}
-          onToggleFavorite={onToggleFavorite}
-          onToggleStreamingList={onToggleStreamingList}
-          onEdit={onEdit}
         />
       ))}
     </div>

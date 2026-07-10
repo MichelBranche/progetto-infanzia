@@ -53,6 +53,7 @@ export interface StremioMetaPreview {
   name: string;
   poster?: string;
   background?: string;
+  logo?: string;
   posterShape?: string;
   description?: string;
   releaseInfo?: string;

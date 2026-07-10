@@ -14,14 +14,14 @@ export function useAppTopNavEntrance(innerRef: RefObject<HTMLElement | null>) {
 
       const iconButtons = root.querySelectorAll(".app-top-nav__icon-btn");
 
-      tl.from(root.querySelector(".app-top-nav__brand"), {
+      tl.from(root.querySelector(".app-top-nav__brand-logo"), {
         y: -18,
         opacity: 0,
         duration: 0.55,
         clearProps: "opacity,transform",
       })
         .from(
-          root.querySelectorAll(".app-top-nav__link"),
+          root.querySelectorAll(".lf-nav-link, .app-top-nav__link"),
           {
             y: -12,
             opacity: 0,
@@ -60,8 +60,8 @@ export function animateNavLinkHover(
 ) {
   gsap.to(element, {
     y: entering ? -2 : 0,
-    duration: 0.22,
-    ease: "power2.out",
+    duration: 0.4,
+    ease: "back.out(1.7)",
     overwrite: "auto",
   });
 }

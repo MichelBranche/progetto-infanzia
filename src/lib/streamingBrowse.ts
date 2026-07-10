@@ -3,6 +3,7 @@ import type { StremioMeta, StremioMetaPreview, StreamingContinueItem, StreamingW
 import type { BrowseItem } from "./browse";
 import { compareEpisodes } from "./browse";
 import { decodeHtmlEntities } from "./htmlText";
+import { maximizeHeroUrl, maximizePosterUrl, pickBestLogoUrl } from "./posterUrl";
 
 const STREAMING_GRADIENT = "from-indigo-950 via-slate-900 to-violet-950";
 
@@ -101,8 +102,9 @@ export function previewToMediaItem(preview: StremioMetaPreview): MediaItem {
     filePath: "",
     fileName: "",
     description: preview.description,
-    posterUrl: preview.poster,
-    backgroundUrl: preview.background,
+    posterUrl: maximizePosterUrl(preview.poster),
+    backgroundUrl: maximizeHeroUrl(preview.background),
+    logoUrl: pickBestLogoUrl(preview.logo),
     isFavorite: preview.inMyList ?? false,
     kidFriendly: true,
     streamingServices: [],

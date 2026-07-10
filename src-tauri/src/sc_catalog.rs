@@ -3,7 +3,7 @@ use crate::html_text::decode_html_entities;
 use crate::stremio::StremioMetaPreview;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_APP_URL: &str = "https://streamingcommunityz.tech";
@@ -35,9 +35,10 @@ pub struct ScCatalogResponse {
 const META_SC_INDEX: &str = "sc_catalog_index";
 const META_SC_INDEX_TS: &str = "sc_catalog_index_ts";
 const META_SC_INDEX_VERSION: &str = "sc_catalog_index_version";
-const CURRENT_INDEX_VERSION: &str = "8";
+const CURRENT_INDEX_VERSION: &str = "10";
 const INDEX_TTL_SECS: i64 = 2 * 3600;
 const SLIDER_ROW_LIMIT: usize = 60;
+const MAX_GENRE_ARCHIVE_PAGES: usize = 8;
 
 #[derive(Serialize)]
 struct SliderFetchItem {
@@ -703,6 +704,31 @@ fn apply_preview_metadata(
         return;
     }
 
+    let incoming_genre_row = source_row_key.is_some_and(|k| k.starts_with("sc-genre-"))
+        || incoming
+            .source_row_key
+            .as_deref()
+            .is_some_and(|k| k.starts_with("sc-genre-"));
+    if incoming_genre_row {
+        existing.source_row_key = incoming
+            .source_row_key
+            .clone()
+            .or_else(|| source_row_key.map(str::to_string));
+        existing.source_row_title = incoming
+            .source_row_title
+            .clone()
+            .or_else(|| source_row_title.map(str::to_string));
+        if let Some(genre) = source_row_title {
+            if !existing
+                .genres
+                .iter()
+                .any(|g| g.eq_ignore_ascii_case(genre))
+            {
+                existing.genres.push(decode_text(genre));
+            }
+        }
+    }
+
     if existing.source_row_key.is_none() {
         existing.source_row_key = incoming
             .source_row_key
@@ -819,6 +845,17 @@ fn map_title_values_unlimited(
     }
 }
 
+fn is_film_genre_name(name: &str) -> bool {
+    let n = name.to_lowercase();
+    [
+        "horror", "horrore", "azione", "action", "avventura", "adventure", "dramma", "drama",
+        "romance", "romantico", "commedia", "comedy", "fantascienza", "sci-fi", "fantasy",
+        "thriller", "crime", "mistero", "mystery", "animazione", "animation",
+    ]
+    .iter()
+    .any(|needle| n.contains(needle))
+}
+
 fn fetch_paginated_titles(
     html_client: &HtmlPageClient,
     cdn: &str,
@@ -830,6 +867,9 @@ fn fetch_paginated_titles(
     archive_genre: Option<&str>,
 ) {
     for page in 1..=500 {
+        if archive_genre.is_some() && page > MAX_GENRE_ARCHIVE_PAGES {
+            break;
+        }
         let path = if base_path.contains('?') {
             format!("{base_path}&page={page}")
         } else {
@@ -851,7 +891,7 @@ fn fetch_paginated_titles(
             source_row_title,
             archive_genre,
         );
-        if index.len() == before {
+        if archive_genre.is_none() && index.len() == before {
             break;
         }
     }
@@ -865,6 +905,10 @@ pub fn sync_catalog_index(
 ) -> Result<Vec<StremioMetaPreview>, String> {
     let app_base = app.trim_end_matches('/');
     let client = http_client()?;
+    let _ = client
+        .get(format!("{app_base}/{locale}"))
+        .header("Accept", "text/html,application/xhtml+xml")
+        .send();
     let xsrf = bootstrap_csrf(&client, app_base).ok();
     let html_client = HtmlPageClient::new(client, app_base);
     let cdn = cdn.trim_end_matches('/');
@@ -909,7 +953,10 @@ pub fn sync_catalog_index(
     }
 
     for (genre_id, name) in discover_genres(&html_client.client, app_base, locale) {
-        let path = format!("/{locale}/archive?genre={genre_id}");
+        if !is_film_genre_name(&name) {
+            continue;
+        }
+        let path = format!("/{locale}/archive?type=movie&genres={genre_id}");
         let source_key = format!("sc-genre-{}", name.to_lowercase());
         fetch_paginated_titles(
             &html_client,
@@ -1009,9 +1056,20 @@ pub fn catalog_needs_background_sync(db: &Database) -> bool {
     if version.as_deref() != Some(CURRENT_INDEX_VERSION) {
         return true;
     }
-    load_cached_index(db)
-        .map(|(items, _)| items.is_empty())
-        .unwrap_or(true)
+    let Some((items, _)) = load_cached_index(db) else {
+        return true;
+    };
+    if items.is_empty() {
+        return true;
+    }
+    let movies = items.iter().filter(|p| p.r#type == "movie").count();
+    let genre_tagged = items.iter().filter(|p| {
+        p.source_row_key
+            .as_deref()
+            .is_some_and(|k| k.starts_with("sc-genre-"))
+            || p.genres.iter().any(|g| !g.trim().is_empty())
+    }).count();
+    movies > 80 && genre_tagged < 40
 }
 
 fn save_cached_index(db: &Database, index: &[StremioMetaPreview], bump_version: bool) -> Result<(), String> {
@@ -1025,6 +1083,62 @@ fn save_cached_index(db: &Database, index: &[StremioMetaPreview], bump_version: 
         db.set_meta(META_SC_INDEX_VERSION, CURRENT_INDEX_VERSION)?;
     }
     Ok(())
+}
+
+fn append_genre_rows(rows: &mut Vec<ScCatalogRow>, index: &[StremioMetaPreview]) {
+    let existing: HashSet<String> = rows.iter().map(|row| row.key.clone()).collect();
+    for row in build_genre_rows_from_index(index) {
+        if existing.contains(&row.key) {
+            continue;
+        }
+        rows.push(row);
+    }
+}
+
+fn build_genre_rows_from_index(index: &[StremioMetaPreview]) -> Vec<ScCatalogRow> {
+    const MAX_ITEMS: usize = 64;
+    let mut buckets: HashMap<String, (String, Vec<StremioMetaPreview>)> = HashMap::new();
+
+    for preview in index {
+        if preview.r#type != "movie" {
+            continue;
+        }
+        let Some(row_key) = preview.source_row_key.as_ref() else {
+            continue;
+        };
+        if !row_key.starts_with("sc-genre-") {
+            continue;
+        }
+        let title = preview
+            .source_row_title
+            .clone()
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| {
+                row_key
+                    .trim_start_matches("sc-genre-")
+                    .replace('-', " ")
+            });
+        let entry = buckets
+            .entry(row_key.clone())
+            .or_insert_with(|| (title, Vec::new()));
+        if entry.1.len() >= MAX_ITEMS {
+            continue;
+        }
+        entry.1.push(preview.clone());
+    }
+
+    let mut rows: Vec<ScCatalogRow> = buckets
+        .into_iter()
+        .filter(|(_, (_, items))| !items.is_empty())
+        .map(|(key, (title, items))| ScCatalogRow {
+            key,
+            title: title.clone(),
+            subtitle: title,
+            items,
+        })
+        .collect();
+    rows.sort_by(|a, b| a.title.cmp(&b.title));
+    rows
 }
 
 pub fn fetch_catalog(
@@ -1045,6 +1159,7 @@ pub fn fetch_catalog(
 
     merge_row_items(&mut index, &rows);
     repair_index(&mut index);
+    append_genre_rows(&mut rows, &index);
 
     if !index.is_empty() {
         let _ = save_cached_index(db, &index, false);
@@ -1088,6 +1203,7 @@ pub fn refresh_catalog_index(
     repair_index(&mut index);
     merge_row_items(&mut index, &rows);
     repair_index(&mut index);
+    append_genre_rows(&mut rows, &index);
     save_cached_index(db, &index, true)?;
     let synced_at = now_ts();
     Ok(ScCatalogResponse {
@@ -1224,31 +1340,79 @@ pub fn lang(db: &crate::db::Database) -> String {
         .unwrap_or_else(|| DEFAULT_LANG.to_string())
 }
 
-fn image_url_for_type(cdn: &str, images: &[ScImage], image_type: &str) -> Option<String> {
+fn is_low_res_hero_filename(filename: &str) -> bool {
+    let lower = filename.to_ascii_lowercase();
+    lower.contains("cover_mobile")
+        || lower.contains("poster_mobile")
+        || lower.contains("background_mobile")
+        || lower.contains("_mobile.")
+        || lower.contains("-mobile.")
+        || lower.contains("_thumb")
+        || lower.contains("thumbnail")
+        || lower.contains("_small")
+        || lower.contains("-small")
+        || lower.contains("/small/")
+        || lower.contains("/medium/")
+}
+
+fn image_filename_quality_score(filename: &str) -> i32 {
+    if is_low_res_hero_filename(filename) {
+        return -1;
+    }
+    let lower = filename.to_ascii_lowercase();
+    let mut score = 40;
+    if lower.ends_with(".png") {
+        score += 8;
+    } else if lower.ends_with(".webp") {
+        score += 4;
+    }
+    if lower.contains("background") {
+        score += 14;
+    }
+    if lower.contains("logo") {
+        score += 10;
+    }
+    if lower.contains("original") || lower.contains("full") {
+        score += 18;
+    }
+    if lower.contains("large") {
+        score += 10;
+    }
+    score += lower.len() as i32;
+    score
+}
+
+fn hero_image_url_for_type(cdn: &str, images: &[ScImage], image_type: &str) -> Option<String> {
     images
         .iter()
-        .find(|i| i.image_type == image_type)
-        .map(|i| format!("{}/images/{}", cdn.trim_end_matches('/'), i.filename))
+        .filter(|image| image.image_type == image_type)
+        .filter(|image| !is_low_res_hero_filename(&image.filename))
+        .max_by_key(|image| image_filename_quality_score(&image.filename))
+        .map(|image| format!("{}/images/{}", cdn.trim_end_matches('/'), image.filename))
 }
 
-/// Per le card landscape in home: `cover` ha aspect ratio adatto e pesa ~20–30 KB.
+/// Per le card portrait in home: `poster` full-res 2:3, fallback su `cover`.
 fn browse_poster_url(cdn: &str, images: &[ScImage]) -> Option<String> {
-    for image_type in ["cover", "cover_mobile", "poster"] {
-        if let Some(url) = image_url_for_type(cdn, images, image_type) {
+    for image_type in ["poster", "cover"] {
+        if let Some(url) = hero_image_url_for_type(cdn, images, image_type) {
             return Some(url);
         }
     }
     None
 }
 
-/// Hero home: `background` full-res landscape (~400 KB), fallback su cover.
+/// Hero home: `background` full-res landscape, poi `cover`, mai thumb mobile.
 fn hero_background_url(cdn: &str, images: &[ScImage]) -> Option<String> {
     for image_type in ["background", "cover", "poster"] {
-        if let Some(url) = image_url_for_type(cdn, images, image_type) {
+        if let Some(url) = hero_image_url_for_type(cdn, images, image_type) {
             return Some(url);
         }
     }
     None
+}
+
+fn title_logo_url(cdn: &str, images: &[ScImage]) -> Option<String> {
+    hero_image_url_for_type(cdn, images, "logo")
 }
 
 fn map_title(cdn: &str, title: ScTitle) -> StremioMetaPreview {
@@ -1273,14 +1437,16 @@ fn map_title(cdn: &str, title: ScTitle) -> StremioMetaPreview {
     };
     let poster = browse_poster_url(cdn, &title.images)
         .or_else(|| browse_poster_url(cdn, &episode_images));
-    let background = hero_background_url(cdn, &title.images)
-        .or_else(|| hero_background_url(cdn, &episode_images));
+    let background = hero_background_url(cdn, &title.images);
+    let logo = title_logo_url(cdn, &title.images)
+        .or_else(|| title_logo_url(cdn, &episode_images));
     StremioMetaPreview {
         id: title.id.to_string(),
         r#type: stremio_type.to_string(),
         name: decode_text(display_name),
         poster,
         background,
+        logo,
         poster_shape: None,
         description: None,
         release_info: title.last_air_date,
@@ -1335,8 +1501,9 @@ pub fn preview_from_value(
     };
     let poster = browse_poster_url(cdn, &images)
         .or_else(|| browse_poster_url(cdn, &episode_images));
-    let background = hero_background_url(cdn, &images)
-        .or_else(|| hero_background_url(cdn, &episode_images));
+    let background = hero_background_url(cdn, &images);
+    let logo = title_logo_url(cdn, &images)
+        .or_else(|| title_logo_url(cdn, &episode_images));
     let mut genres = genres_from_value(title);
     if let Some(genre) = archive_genre {
         if !genres.iter().any(|g| g.eq_ignore_ascii_case(genre)) {
@@ -1349,6 +1516,7 @@ pub fn preview_from_value(
         name: decode_text(display_name),
         poster,
         background,
+        logo,
         poster_shape: None,
         description: title
             .get("plot")
@@ -1452,10 +1620,10 @@ mod tests {
     }
 
     #[test]
-    fn browse_poster_prefers_cover_over_poster() {
+    fn browse_poster_prefers_poster_over_cover() {
         let images = vec![
             ScImage {
-                filename: "small-poster.webp".into(),
+                filename: "full-poster.webp".into(),
                 image_type: "poster".into(),
             },
             ScImage {
@@ -1469,7 +1637,7 @@ mod tests {
         ];
         assert_eq!(
             browse_poster_url("https://cdn.example", &images).as_deref(),
-            Some("https://cdn.example/images/landscape-cover.webp")
+            Some("https://cdn.example/images/full-poster.webp")
         );
     }
 
@@ -1507,6 +1675,30 @@ mod tests {
         assert!(!first.name.is_empty());
         assert_eq!(first.catalog_prefix.as_deref(), Some("sc"));
         assert!(first.slug.as_ref().is_some_and(|s| !s.is_empty()));
+    }
+
+    #[test]
+    fn sync_catalog_index_includes_genre_metadata() {
+        let names: Vec<String> = FALLBACK_SLIDER_NAMES
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect();
+        let index = sync_catalog_index(DEFAULT_APP_URL, DEFAULT_CDN_URL, DEFAULT_LANG, &names)
+            .expect("SC full index sync");
+        let movies: Vec<_> = index.iter().filter(|p| p.r#type == "movie").collect();
+        let with_genres = movies.iter().filter(|p| !p.genres.is_empty()).count();
+        let with_genre_key = movies
+            .iter()
+            .filter(|p| {
+                p.source_row_key
+                    .as_deref()
+                    .is_some_and(|k| k.starts_with("sc-genre-"))
+            })
+            .count();
+        assert!(
+            with_genres > 50 || with_genre_key > 50,
+            "expected genre metadata on movies (genres={with_genres}, genre_keys={with_genre_key})"
+        );
     }
 
     #[test]

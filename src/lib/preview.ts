@@ -1,6 +1,6 @@
 import type { MediaItem } from "../types/media";
 
-export const HERO_POSTER_MS = 5000;
+export const HERO_POSTER_MS = 14000;
 export const HERO_PREVIEW_SEC = 15;
 export const CARD_PREVIEW_SEC = 30;
 export const CARD_HOVER_DELAY_MS = 350;

@@ -1,21 +1,29 @@
 import { Film, Sparkles, Tv } from "lucide-react";
 import { useState } from "react";
 import type { MediaItem } from "../types/media";
+import { maximizeHeroUrl, maximizePosterUrl } from "../lib/posterUrl";
 
-export type PosterVariant = "browse" | "episode" | "hero";
+export type PosterVariant = "browse" | "continue" | "episode" | "hero";
 
 export function posterUrlFor(
   item: MediaItem,
   variant: PosterVariant = "browse",
 ): string | undefined {
+  let url: string | undefined;
   if (variant === "hero") {
-    return item.backgroundUrl ?? item.seriesPosterUrl ?? item.posterUrl;
+    url = item.backgroundUrl ?? item.seriesPosterUrl ?? item.posterUrl;
+  } else if (variant === "continue") {
+    url = item.backgroundUrl ?? item.posterUrl ?? item.seriesPosterUrl;
+  } else if (variant === "episode") {
+    url = item.posterUrl ?? item.seriesPosterUrl;
+  } else if (item.seriesPosterUrl) {
+    url = item.seriesPosterUrl;
+  } else {
+    url = item.posterUrl;
   }
-  if (variant === "episode") {
-    return item.posterUrl ?? item.seriesPosterUrl;
-  }
-  if (item.seriesPosterUrl) return item.seriesPosterUrl;
-  return item.posterUrl;
+  return variant === "hero"
+    ? maximizeHeroUrl(url)
+    : maximizePosterUrl(url);
 }
 
 interface PosterImageProps {
@@ -24,6 +32,7 @@ interface PosterImageProps {
   className?: string;
   priority?: boolean;
   srcOverride?: string;
+  onImageLoad?: (image: HTMLImageElement) => void;
 }
 
 export function PosterImage({
@@ -32,9 +41,18 @@ export function PosterImage({
   className = "",
   priority = false,
   srcOverride,
+  onImageLoad,
 }: PosterImageProps) {
-  const posterUrl = srcOverride ?? posterUrlFor(item, variant);
+  const posterUrl = srcOverride
+    ? variant === "hero"
+      ? maximizeHeroUrl(srcOverride)
+      : maximizePosterUrl(srcOverride)
+    : posterUrlFor(item, variant);
   const [failed, setFailed] = useState(false);
+  const fitClass =
+    variant === "browse"
+      ? "object-contain object-center"
+      : "object-cover object-center";
 
   if (!posterUrl || failed) {
     return (
@@ -52,7 +70,8 @@ export function PosterImage({
       decoding="async"
       fetchPriority={priority || variant === "hero" ? "high" : undefined}
       onError={() => setFailed(true)}
-      className={`absolute inset-0 h-full w-full object-cover ${className}`}
+      onLoad={(event) => onImageLoad?.(event.currentTarget)}
+      className={`absolute inset-0 h-full w-full ${fitClass} ${className}`}
     />
   );
 }

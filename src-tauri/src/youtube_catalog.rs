@@ -375,6 +375,7 @@ fn series_to_preview(series: &YoutubeSeriesCache) -> StremioMetaPreview {
         name: series.name.clone(),
         poster: series.poster.clone(),
         background: series.poster.clone(),
+        logo: None,
         poster_shape: Some("poster".to_string()),
         description: series.description.clone(),
         release_info: Some("YouTube".to_string()),

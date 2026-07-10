@@ -22,49 +22,58 @@ export function useHeroScrollParallax(
       const triggers: ScrollTrigger[] = [];
 
       if (mediaRef.current) {
+        gsap.set(mediaRef.current, {
+          force3D: true,
+          transformOrigin: "center center",
+        });
         triggers.push(
           ScrollTrigger.create({
             trigger: hero,
             scroller,
             start: "top top",
             end: "bottom top",
-            scrub: 0.6,
+            scrub: 0.65,
             animation: gsap.fromTo(
               mediaRef.current,
-              { yPercent: 0, scale: 1 },
-              { yPercent: 14, scale: 1.06, ease: "none" },
+              { yPercent: 0 },
+              { yPercent: 7, ease: "none", force3D: true },
             ),
             invalidateOnRefresh: true,
           }),
         );
       }
 
-      const resetIfAtTop = () => {
-        if (scroller.scrollTop > 2) return;
-        if (mediaRef.current) {
-          gsap.set(mediaRef.current, { yPercent: 0, scale: 1 });
-        }
-        if (contentRef.current) {
-          gsap.set(contentRef.current, { y: 0, opacity: 1 });
-        }
-      };
-
-      ScrollTrigger.addEventListener("refresh", resetIfAtTop);
+      if (contentRef.current) {
+        gsap.set(contentRef.current, { force3D: true });
+        triggers.push(
+          ScrollTrigger.create({
+            trigger: hero,
+            scroller,
+            start: "top top",
+            end: "55% top",
+            scrub: 0.55,
+            animation: gsap.fromTo(
+              contentRef.current,
+              { y: 0, opacity: 1 },
+              { y: -28, opacity: 0, ease: "none", force3D: true },
+            ),
+            invalidateOnRefresh: true,
+          }),
+        );
+      }
 
       requestAnimationFrame(() => {
         ScrollTrigger.refresh();
-        resetIfAtTop();
       });
 
       return () => {
-        ScrollTrigger.removeEventListener("refresh", resetIfAtTop);
         for (const trigger of triggers) trigger.kill();
       };
     },
     {
       scope: heroRef,
       dependencies: [enabled],
-      revertOnUpdate: true,
+      revertOnUpdate: false,
     },
   );
 }
