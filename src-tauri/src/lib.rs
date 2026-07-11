@@ -2151,7 +2151,8 @@ fn init_app(handle: &AppHandle) -> Result<AppState, String> {
     })
 }
 
-pub use web_invoke::{dispatch_web_command, init_web_state};
+pub use web_invoke::{dispatch_web_command, init_web_state, stream_state_from_app};
+pub use stream::{build_stream_router, StreamState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

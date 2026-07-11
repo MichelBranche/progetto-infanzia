@@ -82,6 +82,26 @@ pub async fn start_server(
         presence,
     });
 
+    let app = build_stream_router::<Arc<StreamState>>().with_state(state);
+
+    let addr = format!("0.0.0.0:{STREAM_PORT}");
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .expect("failed to bind stream server");
+
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .expect("stream server error");
+}
+
+pub fn build_stream_router<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+    Arc<StreamState>: axum::extract::FromRef<S>,
+{
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -89,7 +109,7 @@ pub async fn start_server(
 
     let stream_route = get(stream_handler).head(stream_head_handler);
 
-    let app = Router::new()
+    Router::new()
         .route("/stream/{id}", stream_route)
         .route("/cast/{id}", get(cast_handler))
         .route("/poster/{id}", get(poster_handler))
@@ -110,19 +130,6 @@ pub async fn start_server(
         .route("/presence/lookup", get(presence_lookup_handler))
         .route("/presence/hello", post(presence_hello_handler))
         .layer(cors)
-        .with_state(state);
-
-    let addr = format!("0.0.0.0:{STREAM_PORT}");
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .expect("failed to bind stream server");
-
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .await
-    .expect("stream server error");
 }
 
 struct StreamFile {

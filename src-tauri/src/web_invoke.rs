@@ -34,22 +34,6 @@ pub async fn init_web_state() -> Result<Arc<AppState>, String> {
     let watch_party = Arc::new(WatchPartyRegistry::new());
     let presence = new_presence_registry();
 
-    let db_stream = db.clone();
-    let proxy_stream = addon_proxy.clone();
-    let torrent_stream = torrent_engine.clone();
-    let party_stream = watch_party.clone();
-    let presence_stream = presence.clone();
-    tokio::spawn(async move {
-        crate::stream::start_server(
-            db_stream,
-            proxy_stream,
-            torrent_stream,
-            party_stream,
-            presence_stream,
-        )
-        .await;
-    });
-
     Ok(Arc::new(AppState {
         db,
         media_root: parking_lot::RwLock::new(std::path::PathBuf::new()),
@@ -675,7 +659,54 @@ fn parse_args<T: for<'de> Deserialize<'de>>(args: Value) -> Result<T, String> {
 }
 
 fn ok<T: serde::Serialize>(value: T) -> Result<Value, String> {
-    serde_json::to_value(value).map_err(|e| e.to_string())
+    let mut json = serde_json::to_value(value).map_err(|e| e.to_string())?;
+    rewrite_public_urls(&mut json);
+    Ok(json)
+}
+
+pub fn stream_state_from_app(state: &AppState) -> Arc<crate::stream::StreamState> {
+    Arc::new(crate::stream::StreamState {
+        db: state.db.clone(),
+        addon_proxy: state.addon_proxy.clone(),
+        torrent: state.torrent.clone(),
+        watch_party: state.watch_party.clone(),
+        presence: state.presence.clone(),
+    })
+}
+
+fn rewrite_public_urls(value: &mut Value) {
+    let public = match std::env::var("BRANCHEFY_PUBLIC_URL") {
+        Ok(url) if !url.trim().is_empty() => url.trim().trim_end_matches('/').to_string(),
+        _ => return,
+    };
+    let local_http = format!("http://127.0.0.1:{}", crate::models::STREAM_PORT);
+    let local_ws = format!("ws://127.0.0.1:{}", crate::models::STREAM_PORT);
+    let public_ws = public
+        .replace("https://", "wss://")
+        .replace("http://", "ws://");
+    rewrite_urls_recursive(value, &local_http, &public);
+    rewrite_urls_recursive(value, &local_ws, &public_ws);
+}
+
+fn rewrite_urls_recursive(value: &mut Value, from: &str, to: &str) {
+    match value {
+        Value::String(text) => {
+            if text.contains(from) {
+                *text = text.replace(from, to);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                rewrite_urls_recursive(item, from, to);
+            }
+        }
+        Value::Object(map) => {
+            for item in map.values_mut() {
+                rewrite_urls_recursive(item, from, to);
+            }
+        }
+        _ => {}
+    }
 }
 
 // Silence unused import warnings for types referenced only in signatures.

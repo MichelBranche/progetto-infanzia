@@ -63,7 +63,15 @@ fly volumes create branchefy_data --region fra --size 1 -a branchefy-web-api
 fly deploy --config fly.web-api.toml
 ```
 
-Imposta `BRANCHEFY_API_URL` su Vercel all'URL Fly (es. `https://branchefy-web-api.fly.dev`).
+Imposta `BRANCHEFY_API_URL` su Vercel all'URL Railway (es. `https://branchefy-web-api.fly.dev`).
+
+Su Railway aggiungi anche:
+
+```
+BRANCHEFY_PUBLIC_URL=https://TUO-URL-RAILWAY.up.railway.app
+```
+
+Senza questa variabile, copertine e streaming puntano a `127.0.0.1` e non funzionano nel browser.
 
 ## Limitazioni rispetto al desktop
 

@@ -6,7 +6,7 @@
   "outputDirectory": "web/dist",
   "rewrites": [
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|assets/|audio/|hub/|favicon|apple-touch|.*\\..*).*)",
       "destination": "/index.html"
     }
   ]
