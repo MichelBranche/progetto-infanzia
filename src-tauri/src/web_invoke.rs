@@ -181,10 +181,19 @@ pub async fn dispatch_web_command(
                 slug: String,
                 #[serde(default)]
                 episode_id: Option<i64>,
+                #[serde(default)]
+                audio_lang: Option<String>,
             }
             let parsed: Args = parse_args(args)?;
             let app = crate::sc_catalog::app_url(state.db.as_ref());
-            let locale = crate::sc_catalog::lang(state.db.as_ref());
+            let locale = parsed
+                .audio_lang
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| if s.eq_ignore_ascii_case("en") { "en" } else { "it" })
+                .map(str::to_string)
+                .unwrap_or_else(|| crate::sc_catalog::lang(state.db.as_ref()));
             let proxy = state.addon_proxy.clone();
             let task = tokio::task::spawn_blocking(move || {
                 crate::sc_playback::resolve_playback(
@@ -735,10 +744,10 @@ pub fn stream_state_from_app(state: &AppState) -> Arc<crate::stream::StreamState
 }
 
 fn rewrite_public_urls(value: &mut Value) {
-    let public = match std::env::var("BRANCHEFY_PUBLIC_URL") {
-        Ok(url) if !url.trim().is_empty() => url.trim().trim_end_matches('/').to_string(),
-        _ => return,
-    };
+    let public = crate::network::stream_http_base();
+    if public.contains("127.0.0.1") {
+        return;
+    }
     let local_http = format!("http://127.0.0.1:{}", crate::models::STREAM_PORT);
     let local_ws = format!("ws://127.0.0.1:{}", crate::models::STREAM_PORT);
     let public_ws = public
@@ -746,6 +755,36 @@ fn rewrite_public_urls(value: &mut Value) {
         .replace("http://", "ws://");
     rewrite_urls_recursive(value, &local_http, &public);
     rewrite_urls_recursive(value, &local_ws, &public_ws);
+    // Repair URLs already rewritten with a host but no scheme.
+    rewrite_bare_public_hosts(value, &public);
+}
+
+fn rewrite_bare_public_hosts(value: &mut Value, public: &str) {
+    let host = public
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    if host.is_empty() {
+        return;
+    }
+    let prefix = format!("{host}/");
+    match value {
+        Value::String(text) => {
+            if text.starts_with(&prefix) && !text.starts_with("http") {
+                *text = format!("https://{text}");
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                rewrite_bare_public_hosts(item, public);
+            }
+        }
+        Value::Object(map) => {
+            for item in map.values_mut() {
+                rewrite_bare_public_hosts(item, public);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn rewrite_urls_recursive(value: &mut Value, from: &str, to: &str) {

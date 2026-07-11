@@ -3,6 +3,31 @@ use if_addrs::{get_if_addrs, IfAddr};
 use local_ip_address::local_ip;
 use std::net::Ipv4Addr;
 
+/// Normalizes `BRANCHEFY_PUBLIC_URL` (adds `https://` when the scheme is omitted).
+pub fn normalize_http_origin(url: &str) -> String {
+    let trimmed = url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return format!("http://127.0.0.1:{STREAM_PORT}");
+    }
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        trimmed.to_string()
+    } else {
+        format!("https://{trimmed}")
+    }
+}
+
+/// HTTP origin for stream/proxy routes (`/remote`, `/stream`, …).
+pub fn stream_http_base() -> String {
+    match std::env::var("BRANCHEFY_PUBLIC_URL") {
+        Ok(url) if !url.trim().is_empty() => normalize_http_origin(&url),
+        _ => format!("http://127.0.0.1:{STREAM_PORT}"),
+    }
+}
+
+pub fn stream_remote_url(proxy_id: &str) -> String {
+    format!("{}/remote/{proxy_id}", stream_http_base())
+}
+
 pub fn localhost_stream_url(media_id: &str) -> String {
     format!("http://127.0.0.1:{STREAM_PORT}/stream/{media_id}")
 }

@@ -67,6 +67,7 @@ import {
   savePlayerAudioLanguage,
   type PlayerStreamAudioLanguage,
 } from "../lib/playerAudioLanguage";
+import { normalizePlaybackUrl } from "../lib/streamUrl";
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -253,8 +254,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     audioOptions.length > 1 || Boolean(onStreamAudioLanguageChange);
   const [activeCueText, setActiveCueText] = useState<string | null>(null);
   const castingTo = castDevice?.name ?? null;
-  const effectiveStreamUrl =
-    partySession?.role === "guest" && partyStreamUrl ? partyStreamUrl : streamUrl;
+  const effectiveStreamUrl = normalizePlaybackUrl(
+    partySession?.role === "guest" && partyStreamUrl ? partyStreamUrl : streamUrl,
+  );
   const effectiveIsHls =
     partySession?.role === "guest" && partyStreamUrl ? partyIsHls : isHls;
   const isPartyGuest = partySession?.role === "guest";

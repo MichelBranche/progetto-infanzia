@@ -1,4 +1,4 @@
-use crate::models::STREAM_PORT;
+use crate::network::stream_remote_url;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -71,7 +71,7 @@ impl AddonProxyRegistry {
     }
 
     pub fn playback_url(&self, id: &str) -> String {
-        format!("http://127.0.0.1:{STREAM_PORT}/remote/{id}")
+        stream_remote_url(id)
     }
 
     fn proxy_reference(

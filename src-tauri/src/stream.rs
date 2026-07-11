@@ -2,6 +2,7 @@ use crate::addon_proxy::AddonProxyRegistry;
 use crate::db::Database;
 use crate::friend_presence::{get_device_presence, PresenceHello, PresenceRegistry};
 use crate::models::STREAM_PORT;
+use crate::network::stream_http_base;
 use crate::torrent::TorrentEngine;
 use crate::watch_party::{self, WatchPartyRegistry, WsConnectParams};
 use axum::{
@@ -501,6 +502,15 @@ async fn remote_handler(
     remote_proxy_response(&state, &id, &headers, false).await
 }
 
+fn rewrite_localhost_stream_urls(body: &str) -> String {
+    let public = stream_http_base();
+    if public.contains("127.0.0.1") {
+        return body.to_string();
+    }
+    let local = format!("http://127.0.0.1:{STREAM_PORT}");
+    body.replace(&local, &public)
+}
+
 async fn remote_proxy_response(
     state: &StreamState,
     id: &str,
@@ -534,6 +544,7 @@ async fn remote_proxy_response(
             &entry.upstream_url,
             &entry.request_headers,
         );
+        let rewritten = rewrite_localhost_stream_urls(&rewritten);
         return Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")

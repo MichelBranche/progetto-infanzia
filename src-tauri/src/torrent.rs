@@ -1,4 +1,5 @@
 use crate::models::STREAM_PORT;
+use crate::network::stream_http_base;
 use librqbit::{AddTorrent, AddTorrentOptions, AddTorrentResponse, ManagedTorrent, Session};
 use parking_lot::Mutex;
 use std::collections::hash_map::DefaultHasher;
@@ -52,7 +53,7 @@ impl TorrentEngine {
     }
 
     pub fn playback_url(id: &str) -> String {
-        format!("http://127.0.0.1:{STREAM_PORT}/torrent/{id}")
+        format!("{}/torrent/{id}", stream_http_base())
     }
 
     /// Add a torrent (by info hash + optional trackers) and pick the file to

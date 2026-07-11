@@ -13,6 +13,11 @@ export function isWebShell(): boolean {
   return import.meta.env.VITE_BRANCHEFY_WEB === "1" || !isTauri();
 }
 
+/** True when catalog/settings/streaming should hit the Rust backend (Tauri or deployed web). */
+export function usesBackendApi(): boolean {
+  return isTauri() || import.meta.env.VITE_BRANCHEFY_WEB === "1";
+}
+
 export async function runtimeInvoke<T>(
   command: string,
   args?: RuntimeInvokeArgs,

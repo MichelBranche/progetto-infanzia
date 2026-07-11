@@ -1,9 +1,4 @@
-import { isTauri } from "@tauri-apps/api/core";
-import { runtimeInvoke as invoke } from "./runtimeInvoke";
-
-function usesBackendSettings(): boolean {
-  return isTauri() || import.meta.env.VITE_BRANCHEFY_WEB === "1";
-}
+import { runtimeInvoke as invoke, usesBackendApi } from "./runtimeInvoke";
 
 
 
@@ -75,7 +70,7 @@ const DEFAULT_BROWSER_SETTINGS: AppSettings = {
 
 export async function fetchSettings(): Promise<AppSettings> {
 
-  if (!usesBackendSettings()) {
+  if (!usesBackendApi()) {
 
     return DEFAULT_BROWSER_SETTINGS;
 

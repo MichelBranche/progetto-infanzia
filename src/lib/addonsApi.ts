@@ -1,5 +1,5 @@
-import { isTauri } from "@tauri-apps/api/core";
-import { runtimeInvoke as invoke } from "./runtimeInvoke";
+import { runtimeInvoke as invoke, usesBackendApi } from "./runtimeInvoke";
+import { normalizePlaybackUrl } from "./streamUrl";
 import type {
   DebridConfig,
   InstalledAddon,
@@ -138,18 +138,23 @@ export async function fetchScSeasonEpisodes(
   });
 }
 
+function normalizeStream<T extends { url: string }>(stream: T): T {
+  return { ...stream, url: normalizePlaybackUrl(stream.url) };
+}
+
 export async function resolveScStream(
   titleId: string,
   slug: string,
   episodeId?: string,
   audioLang?: PlayerStreamAudioLanguage,
 ): Promise<PlayableStream> {
-  return invoke<PlayableStream>("resolve_sc_stream_cmd", {
+  const stream = await invoke<PlayableStream>("resolve_sc_stream_cmd", {
     titleId: Number(titleId),
     slug,
     episodeId: episodeId ? Number(episodeId) : null,
     audioLang: audioLang ?? null,
   });
+  return normalizeStream(stream);
 }
 
 export async function searchScCatalog(
@@ -201,10 +206,11 @@ export async function resolveSaturnStream(
   slug: string,
   episodeId?: string,
 ): Promise<PlayableStream> {
-  return invoke<PlayableStream>("resolve_saturn_stream_cmd", {
+  const stream = await invoke<PlayableStream>("resolve_saturn_stream_cmd", {
     slug,
     episodeId: episodeId ?? null,
   });
+  return normalizeStream(stream);
 }
 
 export async function fetchLoonexMeta(slug: string): Promise<StremioMeta> {
@@ -215,10 +221,11 @@ export async function resolveLoonexStream(
   slug: string,
   episodeId?: string,
 ): Promise<PlayableStream> {
-  return invoke<PlayableStream>("resolve_loonex_stream_cmd", {
+  const stream = await invoke<PlayableStream>("resolve_loonex_stream_cmd", {
     slug,
     episodeId: episodeId ?? null,
   });
+  return normalizeStream(stream);
 }
 
 export async function fetchYoutubeMeta(playlistId: string): Promise<StremioMeta> {
@@ -239,7 +246,7 @@ export async function saveStreamingWatchProgress(
   profileId: string,
   input: StreamingWatchProgressInput,
 ): Promise<AchievementUnlock[]> {
-  if (!isTauri()) {
+  if (!usesBackendApi()) {
     saveDevStreamingWatchProgress(profileId, input);
   } else {
     await invoke("update_streaming_watch_progress_cmd", { profileId, input });
@@ -302,7 +309,7 @@ export async function getStreamingWatchHistory(
   profileId: string,
   limit = 50,
 ): Promise<StreamingContinueItem[]> {
-  if (!isTauri()) {
+  if (!usesBackendApi()) {
     return listDevStreamingWatchHistory(profileId, limit);
   }
   return invoke<StreamingContinueItem[]>("get_streaming_watch_history_cmd", {
@@ -421,7 +428,7 @@ export async function resolveTorrentSource(
 export async function listStreamingList(
   profileId: string,
 ): Promise<StremioMetaPreview[]> {
-  if (!isTauri()) {
+  if (!usesBackendApi()) {
     return listDevStreamingList(profileId);
   }
   return invoke<StremioMetaPreview[]>("list_streaming_list_cmd", { profileId });
@@ -431,7 +438,7 @@ export async function toggleStreamingList(
   profileId: string,
   item: StreamingListInput,
 ): Promise<boolean> {
-  if (!isTauri()) {
+  if (!usesBackendApi()) {
     return toggleDevStreamingList(profileId, item);
   }
   return invoke<boolean>("toggle_streaming_list_cmd", { profileId, item });
