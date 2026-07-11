@@ -1,4 +1,5 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { isTauri } from "@tauri-apps/api/core";
+import { runtimeInvoke as invoke } from "./runtimeInvoke";
 import type { CreateProfileInput, Profile, UpdateProfileInput } from "../types/profile";
 import { invalidateProfileAvatarCache } from "./profileAvatar";
 import {

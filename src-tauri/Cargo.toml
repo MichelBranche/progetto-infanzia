@@ -5,6 +5,10 @@ description = "Branchefy - streaming locale per famiglia"
 authors = ["miche"]
 edition = "2021"
 
+[[bin]]
+name = "branchefy-web-api"
+path = "src/bin/branchefy_web_api.rs"
+
 [lib]
 name = "tauri_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

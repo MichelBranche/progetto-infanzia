@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { runtimeInvoke as invoke } from "./runtimeInvoke";
 import { getSupabase } from "./supabaseClient";
 import { isDevAdminEmail } from "./devAdmin";
 import type { DevCloudUser, DevLocalDashboard } from "../types/devAdmin";

@@ -1,0 +1,691 @@
+use crate::addon_proxy::AddonProxyRegistry;
+use crate::db::Database;
+use crate::friend_presence::new_presence_registry;
+use crate::profiles::{CreateProfileInput, Profile, UpdateProfileInput};
+use crate::settings::{AppSettings, UpdateSettingsInput};
+use crate::stremio::{
+    PlayableStream, StreamingContinueItem, StreamingEpisodeProgress, StreamingWatchProgressInput,
+    StremioMeta, StremioMetaPreview,
+};
+use crate::torrent::TorrentEngine;
+use crate::watch_party::{WatchPartyRegistry, WatchPartyRoomInfo};
+use crate::AppState;
+use serde::Deserialize;
+use serde_json::Value;
+use std::sync::Arc;
+
+pub async fn init_web_state() -> Result<Arc<AppState>, String> {
+    let data_dir = std::env::var("BRANCHEFY_DATA_DIR")
+        .unwrap_or_else(|_| "./.branchefy-data".to_string());
+    std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+
+    let db_path = std::path::Path::new(&data_dir).join("library.db");
+    let db = Arc::new(Database::open(&db_path)?);
+    let _ = db.ensure_catalog_addon();
+    let _ = crate::saturn_catalog::ensure_defaults(&db);
+    let _ = crate::loonex_catalog::ensure_defaults(&db);
+    let _ = crate::youtube_catalog::ensure_defaults(&db);
+    let _ = db.sync_empty_child_allowlists();
+
+    let addon_proxy = Arc::new(AddonProxyRegistry::new());
+    let cache_dir = std::path::Path::new(&data_dir).join("cache");
+    std::fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+    let torrent_engine = Arc::new(TorrentEngine::new(cache_dir.join("torrents")));
+    let watch_party = Arc::new(WatchPartyRegistry::new());
+    let presence = new_presence_registry();
+
+    let db_stream = db.clone();
+    let proxy_stream = addon_proxy.clone();
+    let torrent_stream = torrent_engine.clone();
+    let party_stream = watch_party.clone();
+    let presence_stream = presence.clone();
+    tokio::spawn(async move {
+        crate::stream::start_server(
+            db_stream,
+            proxy_stream,
+            torrent_stream,
+            party_stream,
+            presence_stream,
+        )
+        .await;
+    });
+
+    Ok(Arc::new(AppState {
+        db,
+        media_root: parking_lot::RwLock::new(std::path::PathBuf::new()),
+        addon_proxy,
+        torrent: torrent_engine,
+        watch_party,
+        presence,
+    }))
+}
+
+pub async fn dispatch_web_command(
+    state: &AppState,
+    command: &str,
+    args: Value,
+) -> Result<Value, String> {
+    match command {
+        "get_profiles" => ok(state.db.get_profiles()?),
+        "create_profile_cmd" => {
+            let input: CreateProfileInput = parse_args(args)?;
+            ok(state.db.create_profile(&input)?)
+        }
+        "delete_profile_cmd" => {
+            let id: String = parse_args(args)?;
+            state.db.delete_profile(&id)?;
+            ok(())
+        }
+        "update_profile_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                id: String,
+                input: UpdateProfileInput,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(state.db.update_profile(&parsed.id, &parsed.input)?)
+        }
+        "verify_profile_pin_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                id: String,
+                pin: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(state.db.verify_profile_pin(&parsed.id, &parsed.pin)?)
+        }
+        "set_profile_pin_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                profile_id: String,
+                pin: String,
+                #[serde(default)]
+                current_pin: Option<String>,
+            }
+            let parsed: Args = parse_args(args)?;
+            state
+                .db
+                .set_profile_pin(&parsed.profile_id, &parsed.pin, parsed.current_pin.as_deref())?;
+            ok(())
+        }
+        "remove_profile_pin_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                profile_id: String,
+                current_pin: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            state
+                .db
+                .remove_profile_pin(&parsed.profile_id, &parsed.current_pin)?;
+            ok(())
+        }
+        "get_settings_cmd" => ok(state.db.get_settings(state.media_root.read().as_path())?),
+        "update_settings_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                profile_id: String,
+                input: UpdateSettingsInput,
+            }
+            let parsed: Args = parse_args(args)?;
+            if !state.db.is_parent_profile(&parsed.profile_id)? {
+                return Err("Solo il profilo genitore può modificare le impostazioni".into());
+            }
+            state.db.update_settings(&parsed.input)?;
+            ok(state.db.get_settings(state.media_root.read().as_path())?)
+        }
+        "fetch_sc_catalog_cmd" | "refresh_sc_catalog_cmd" => {
+            ok(fetch_sc_catalog_web(state).await?)
+        }
+        "fetch_sc_meta_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                title_id: i64,
+                slug: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            let app = crate::sc_catalog::app_url(state.db.as_ref());
+            let cdn = crate::sc_catalog::cdn_url(state.db.as_ref());
+            let locale = crate::sc_catalog::lang(state.db.as_ref());
+            let task = tokio::task::spawn_blocking(move || {
+                crate::sc_playback::fetch_title_meta(&app, &cdn, &locale, parsed.title_id, &parsed.slug)
+            });
+            ok(task.await.map_err(|e| format!("Errore metadati: {e}"))??)
+        }
+        "fetch_sc_season_episodes_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                title_id: i64,
+                slug: String,
+                season_number: i32,
+            }
+            let parsed: Args = parse_args(args)?;
+            let app = crate::sc_catalog::app_url(state.db.as_ref());
+            let cdn = crate::sc_catalog::cdn_url(state.db.as_ref());
+            let locale = crate::sc_catalog::lang(state.db.as_ref());
+            let task = tokio::task::spawn_blocking(move || {
+                crate::sc_playback::fetch_season_episodes(
+                    &app,
+                    &cdn,
+                    &locale,
+                    parsed.title_id,
+                    &parsed.slug,
+                    parsed.season_number,
+                )
+            });
+            ok(task.await.map_err(|e| format!("Errore episodi: {e}"))??)
+        }
+        "resolve_sc_stream_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                title_id: i64,
+                slug: String,
+                #[serde(default)]
+                episode_id: Option<i64>,
+            }
+            let parsed: Args = parse_args(args)?;
+            let app = crate::sc_catalog::app_url(state.db.as_ref());
+            let locale = crate::sc_catalog::lang(state.db.as_ref());
+            let proxy = state.addon_proxy.clone();
+            let task = tokio::task::spawn_blocking(move || {
+                crate::sc_playback::resolve_playback(
+                    &app,
+                    &locale,
+                    parsed.title_id,
+                    &parsed.slug,
+                    parsed.episode_id,
+                    proxy.as_ref(),
+                )
+            });
+            ok(task.await.map_err(|e| format!("Errore stream: {e}"))??)
+        }
+        "resolve_sc_preview_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                title_id: i64,
+                slug: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            let app = crate::sc_catalog::app_url(state.db.as_ref());
+            let locale = crate::sc_catalog::lang(state.db.as_ref());
+            let proxy = state.addon_proxy.clone();
+            let task = tokio::task::spawn_blocking(move || {
+                crate::sc_playback::resolve_preview(&app, &locale, parsed.title_id, &parsed.slug, proxy.as_ref())
+            });
+            ok(task.await.map_err(|e| format!("Errore preview: {e}"))??)
+        }
+        "search_sc_catalog_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                query: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            let page = search_catalog_page_web(state, parsed.query, 0, 500).await?;
+            ok(page.items)
+        }
+        "search_sc_catalog_page_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                query: String,
+                offset: usize,
+                limit: Option<usize>,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(search_catalog_page_web(state, parsed.query, parsed.offset, parsed.limit.unwrap_or(48)).await?)
+        }
+        "browse_saturn_anime_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                offset: usize,
+                limit: Option<usize>,
+            }
+            let parsed: Args = parse_args(args)?;
+            let db = state.db.clone();
+            let limit = parsed.limit.unwrap_or(48).clamp(1, 96);
+            let task = tokio::task::spawn_blocking(move || {
+                crate::saturn_catalog::browse_anime_page(db.as_ref(), parsed.offset, limit)
+            });
+            ok(task.await.map_err(|e| format!("Errore anime: {e}"))??)
+        }
+        "fetch_saturn_meta_cmd" => {
+            let slug: String = parse_args(args)?;
+            if !crate::saturn_catalog::enabled(&state.db) {
+                return Err("Catalogo AnimeSaturn disabilitato".into());
+            }
+            let db = state.db.clone();
+            let task = tokio::task::spawn_blocking(move || {
+                crate::saturn_playback::fetch_title_meta(db.as_ref(), &slug)
+            });
+            ok(task.await.map_err(|e| format!("Errore saturn meta: {e}"))??)
+        }
+        "resolve_saturn_stream_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                slug: String,
+                #[serde(default)]
+                episode_id: Option<String>,
+            }
+            let parsed: Args = parse_args(args)?;
+            if !crate::saturn_catalog::enabled(&state.db) {
+                return Err("Catalogo AnimeSaturn disabilitato".into());
+            }
+            let episode_id = parsed.episode_id.filter(|s| !s.trim().is_empty());
+            let db = state.db.clone();
+            let proxy = state.addon_proxy.clone();
+            let slug = parsed.slug;
+            let task = tokio::task::spawn_blocking(move || {
+                crate::saturn_playback::resolve_playback(
+                    db.as_ref(),
+                    &slug,
+                    episode_id.as_deref(),
+                    proxy.as_ref(),
+                )
+            });
+            ok(task.await.map_err(|e| format!("Errore saturn stream: {e}"))??)
+        }
+        "resolve_saturn_poster_cmd" => {
+            let slug: String = parse_args(args)?;
+            if !crate::saturn_catalog::enabled(&state.db) {
+                return ok(Option::<String>::None);
+            }
+            let db = state.db.clone();
+            let task = tokio::task::spawn_blocking(move || {
+                crate::saturn_catalog::resolve_poster_for_slug(db.as_ref(), &slug)
+            });
+            ok(task.await.map_err(|e| format!("Errore poster: {e}"))?)
+        }
+        "fetch_loonex_meta_cmd" => {
+            let slug: String = parse_args(args)?;
+            if !crate::loonex_catalog::enabled(&state.db) {
+                return Err("Catalogo Loonex Cartoni disabilitato".into());
+            }
+            let db = state.db.clone();
+            let task = tokio::task::spawn_blocking(move || {
+                crate::loonex_playback::fetch_title_meta(db.as_ref(), &slug)
+            });
+            ok(task.await.map_err(|e| format!("Errore loonex meta: {e}"))??)
+        }
+        "resolve_loonex_stream_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                slug: String,
+                #[serde(default)]
+                episode_id: Option<String>,
+            }
+            let parsed: Args = parse_args(args)?;
+            if !crate::loonex_catalog::enabled(&state.db) {
+                return Err("Catalogo Loonex Cartoni disabilitato".into());
+            }
+            let episode_id = parsed.episode_id.filter(|s| !s.trim().is_empty());
+            let db = state.db.clone();
+            let proxy = state.addon_proxy.clone();
+            let slug = parsed.slug;
+            let task = tokio::task::spawn_blocking(move || {
+                crate::loonex_playback::resolve_playback(
+                    db.as_ref(),
+                    &slug,
+                    episode_id.as_deref(),
+                    proxy.as_ref(),
+                )
+            });
+            ok(task.await.map_err(|e| format!("Errore loonex stream: {e}"))??)
+        }
+        "fetch_youtube_meta_cmd" => {
+            let playlist_id: String = parse_args(args)?;
+            let db = state.db.clone();
+            let task = tokio::task::spawn_blocking(move || {
+                crate::youtube_playback::fetch_title_meta(db.as_ref(), &playlist_id)
+            });
+            ok(task.await.map_err(|e| format!("Errore youtube meta: {e}"))??)
+        }
+        "resolve_youtube_stream_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                playlist_id: String,
+                video_id: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            let db = state.db.clone();
+            let task = tokio::task::spawn_blocking(move || {
+                crate::youtube_playback::resolve_playback(
+                    db.as_ref(),
+                    &parsed.playlist_id,
+                    &parsed.video_id,
+                )
+            });
+            ok(task.await.map_err(|e| format!("Errore youtube stream: {e}"))??)
+        }
+        "update_streaming_watch_progress_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                profile_id: String,
+                input: StreamingWatchProgressInput,
+            }
+            let parsed: Args = parse_args(args)?;
+            state.db.upsert_streaming_watch_progress(&parsed.profile_id, &parsed.input)?;
+            ok(())
+        }
+        "get_streaming_watch_progress_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                profile_id: String,
+                catalog_prefix: String,
+                content_type: String,
+                title_id: String,
+                slug: String,
+                video_id: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(state.db.get_streaming_watch_progress(
+                &parsed.profile_id,
+                &parsed.catalog_prefix,
+                &parsed.content_type,
+                &parsed.title_id,
+                &parsed.slug,
+                &parsed.video_id,
+            )?)
+        }
+        "list_streaming_title_progress_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                profile_id: String,
+                catalog_prefix: String,
+                content_type: String,
+                title_id: String,
+                slug: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(state.db.list_streaming_title_watch_progress(
+                &parsed.profile_id,
+                &parsed.catalog_prefix,
+                &parsed.content_type,
+                &parsed.title_id,
+                &parsed.slug,
+            )?)
+        }
+        "get_streaming_continue_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                profile_id: String,
+                #[serde(default)]
+                limit: Option<usize>,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(state.db.list_streaming_continue_watching(&parsed.profile_id, parsed.limit.unwrap_or(20))?)
+        }
+        "get_streaming_watch_history_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                profile_id: String,
+                #[serde(default)]
+                limit: Option<usize>,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(state.db.list_streaming_watch_history(&parsed.profile_id, parsed.limit.unwrap_or(50))?)
+        }
+        "list_streaming_list_cmd" => {
+            let profile_id: String = parse_args(args)?;
+            ok(state.db.list_streaming_list(&profile_id)?)
+        }
+        "toggle_streaming_list_cmd" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct StreamingListInput {
+                catalog_prefix: String,
+                content_type: String,
+                title_id: String,
+                slug: Option<String>,
+                name: String,
+                poster: Option<String>,
+                media_type: Option<String>,
+                release_info: Option<String>,
+            }
+            #[derive(Deserialize)]
+            struct Args {
+                profile_id: String,
+                item: StreamingListInput,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(state.db.toggle_streaming_list(
+                &parsed.profile_id,
+                &parsed.item.catalog_prefix,
+                &parsed.item.content_type,
+                &parsed.item.title_id,
+                parsed.item.slug.as_deref().unwrap_or(""),
+                &parsed.item.name,
+                parsed.item.poster.as_deref(),
+                parsed.item.media_type.as_deref(),
+                parsed.item.release_info.as_deref(),
+            )?)
+        }
+        "has_streaming_access_cmd" => {
+            let profile_id: String = parse_args(args)?;
+            ok(state.db.profile_has_streaming_access(&profile_id)?)
+        }
+        "mangadex_fetch_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                path: String,
+                #[serde(default)]
+                query: Option<String>,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(crate::mangadex::mangadex_fetch_cmd(parsed.path, parsed.query).await?)
+        }
+        "extract_image_palette_cmd" => {
+            let image_url: String = parse_args(args)?;
+            ok(crate::image_palette::extract_image_palette_cmd(image_url).await?)
+        }
+        "get_library" => ok(crate::models::Library {
+            items: vec![],
+            collections: vec![],
+            featured: None,
+            media_root: String::new(),
+            total_count: 0,
+            last_scan: None,
+        }),
+        "scan_library_cmd" => ok(crate::models::ScanResult {
+            added: 0,
+            updated: 0,
+            removed: 0,
+            total: 0,
+        }),
+        other => Err(format!(
+            "Comando non disponibile sulla web API: {other}. Usa l app desktop per questa funzione."
+        )),
+    }
+}
+
+async fn search_catalog_page_web(
+    state: &AppState,
+    query: String,
+    offset: usize,
+    limit: usize,
+) -> Result<crate::catalog_search::SearchCatalogPage, String> {
+    let db = state.db.clone();
+    let sc_enabled = crate::sc_catalog::catalog_enabled(&state.db);
+    let saturn_enabled = crate::saturn_catalog::enabled(&state.db);
+    let loonex_enabled = crate::loonex_catalog::enabled(&state.db);
+    let youtube_enabled = crate::youtube_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled {
+        return Ok(crate::catalog_search::SearchCatalogPage {
+            items: Vec::new(),
+            total: 0,
+            offset,
+            has_more: false,
+        });
+    }
+    let cdn = crate::sc_catalog::cdn_url(&state.db);
+    let locale = crate::sc_catalog::lang(&state.db);
+    let page_limit = limit.clamp(1, 500);
+    tokio::task::spawn_blocking(move || {
+        crate::catalog_search::search_catalog_page(
+            db.as_ref(),
+            &query,
+            offset,
+            page_limit,
+            sc_enabled,
+            saturn_enabled,
+            loonex_enabled,
+            youtube_enabled,
+            &cdn,
+            &locale,
+        )
+    })
+    .await
+    .map_err(|e| format!("Errore ricerca: {e}"))
+}
+
+async fn fetch_sc_catalog_web(
+    state: &AppState,
+) -> Result<crate::sc_catalog::ScCatalogResponse, String> {
+    let sc_enabled = crate::sc_catalog::catalog_enabled(&state.db);
+    let saturn_enabled = crate::saturn_catalog::enabled(&state.db);
+    let loonex_enabled = crate::loonex_catalog::enabled(&state.db);
+    let youtube_enabled = crate::youtube_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled {
+        return Ok(crate::sc_catalog::ScCatalogResponse {
+            rows: Vec::new(),
+            index: Vec::new(),
+            synced_at: 0,
+            total_count: 0,
+            needs_background_sync: false,
+        });
+    }
+    let cdn = crate::sc_catalog::cdn_url(&state.db);
+    let locale = crate::sc_catalog::lang(&state.db);
+    let db = state.db.clone();
+
+    let sc_future = {
+        let db = db.clone();
+        let cdn = cdn.clone();
+        let locale = locale.clone();
+        async move {
+            if !sc_enabled {
+                return Ok(crate::sc_catalog::ScCatalogResponse {
+                    rows: Vec::new(),
+                    index: Vec::new(),
+                    synced_at: 0,
+                    total_count: 0,
+                    needs_background_sync: false,
+                });
+            }
+            tokio::task::spawn_blocking(move || {
+                crate::sc_catalog::fetch_catalog(db.as_ref(), "", &cdn, &locale)
+            })
+            .await
+            .map_err(|e| format!("Errore catalogo: {e}"))?
+        }
+    };
+
+    let saturn_future = async {
+        if !saturn_enabled {
+            return None;
+        }
+        let db = db.clone();
+        let task = tokio::task::spawn_blocking(move || crate::saturn_catalog::fetch_catalog(db.as_ref()));
+        match tokio::time::timeout(std::time::Duration::from_secs(12), task).await {
+            Ok(Ok(Ok(response))) => Some(response),
+            _ => None,
+        }
+    };
+
+    let loonex_future = async {
+        if !loonex_enabled {
+            return None;
+        }
+        let db = db.clone();
+        let task = tokio::task::spawn_blocking(move || crate::loonex_catalog::fetch_catalog(db.as_ref()));
+        match tokio::time::timeout(std::time::Duration::from_secs(20), task).await {
+            Ok(Ok(Ok(response))) => Some(response),
+            _ => None,
+        }
+    };
+
+    let youtube_future = async {
+        if !youtube_enabled {
+            return None;
+        }
+        let db = db.clone();
+        let task = tokio::task::spawn_blocking(move || crate::youtube_catalog::fetch_catalog(db.as_ref()));
+        match tokio::time::timeout(std::time::Duration::from_secs(30), task).await {
+            Ok(Ok(Ok(response))) => Some(response),
+            _ => None,
+        }
+    };
+
+    let (sc_result, saturn, loonex, youtube) =
+        tokio::join!(sc_future, saturn_future, loonex_future, youtube_future);
+    let mut response = sc_result?;
+
+    if let Some(saturn) = saturn {
+        merge_catalog(&mut response, saturn.rows, saturn.index, saturn.synced_at);
+    }
+    if let Some(loonex) = loonex {
+        merge_catalog(&mut response, loonex.rows, loonex.index, loonex.synced_at);
+        if loonex.total_count < 120 || crate::loonex_catalog::index_needs_refresh(state.db.as_ref()) {
+            response.needs_background_sync = true;
+        }
+    } else if loonex_enabled {
+        response.needs_background_sync = true;
+    }
+    if let Some(youtube) = youtube {
+        merge_catalog(&mut response, youtube.rows, youtube.index, youtube.synced_at);
+    }
+
+    Ok(response)
+}
+
+fn merge_catalog(
+    response: &mut crate::sc_catalog::ScCatalogResponse,
+    rows: Vec<crate::sc_catalog::ScCatalogRow>,
+    index: Vec<StremioMetaPreview>,
+    synced_at: i64,
+) {
+    response.rows.extend(rows);
+    let mut seen: std::collections::HashSet<String> = response
+        .index
+        .iter()
+        .map(|p| {
+            format!(
+                "{}:{}:{}",
+                p.catalog_prefix.as_deref().unwrap_or("sc"),
+                p.r#type,
+                p.id
+            )
+        })
+        .collect();
+    for item in index {
+        let key = format!(
+            "{}:{}:{}",
+            item.catalog_prefix.as_deref().unwrap_or("sc"),
+            item.r#type,
+            item.id
+        );
+        if seen.insert(key) {
+            response.index.push(item);
+        }
+    }
+    response.synced_at = response.synced_at.max(synced_at);
+    response.total_count = response.index.len();
+}
+
+fn parse_args<T: for<'de> Deserialize<'de>>(args: Value) -> Result<T, String> {
+    serde_json::from_value(args).map_err(|e| format!("Argomenti non validi: {e}"))
+}
+
+fn ok<T: serde::Serialize>(value: T) -> Result<Value, String> {
+    serde_json::to_value(value).map_err(|e| e.to_string())
+}
+
+// Silence unused import warnings for types referenced only in signatures.
+#[allow(dead_code)]
+type _WebTypes = (
+    AppSettings,
+    Profile,
+    PlayableStream,
+    StremioMeta,
+    StreamingContinueItem,
+    StreamingEpisodeProgress,
+    WatchPartyRoomInfo,
+);

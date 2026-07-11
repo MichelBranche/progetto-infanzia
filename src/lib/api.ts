@@ -1,4 +1,5 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { isTauri } from "@tauri-apps/api/core";
+import { runtimeInvoke as invoke } from "./runtimeInvoke";
 import type { Library, MediaItem, ScanResult, StreamInfo, AddMediaInput, UpdateMediaInput, PosterAsset, CastDevice, CastPosition } from "../types/media";
 import { syncAchievements } from "./achievementsApi";
 

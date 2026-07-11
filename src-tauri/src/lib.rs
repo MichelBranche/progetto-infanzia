@@ -33,6 +33,7 @@ mod torrent;
 mod transcode;
 mod watch_party;
 mod watcher;
+mod web_invoke;
 
 use addon_proxy::AddonProxyRegistry;
 use db::Database;
@@ -64,7 +65,7 @@ use friend_presence::{
 };
 use watch_party::{WatchPartyContent, WatchPartyRegistry, WatchPartyRoomInfo};
 
-struct AppState {
+pub struct AppState {
     db: Arc<Database>,
     media_root: parking_lot::RwLock<std::path::PathBuf>,
     addon_proxy: Arc<AddonProxyRegistry>,
@@ -2149,6 +2150,8 @@ fn init_app(handle: &AppHandle) -> Result<AppState, String> {
         presence,
     })
 }
+
+pub use web_invoke::{dispatch_web_command, init_web_state};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

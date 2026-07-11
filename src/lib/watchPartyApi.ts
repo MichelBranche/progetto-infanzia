@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { runtimeInvoke as invoke } from "./runtimeInvoke";
 import type {
   FriendRecord,
   WatchPartyContent,
