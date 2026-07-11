@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "../../src/App";
-import "../../src/index.css";
+import App from "../app-src/App";
+import "../app-src/index.css";
 
 document.documentElement.classList.add("is-web");
 

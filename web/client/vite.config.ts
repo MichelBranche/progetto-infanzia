@@ -5,12 +5,12 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(rootDir, "../..");
+const webDir = path.resolve(rootDir, "..");
 
 export default defineConfig({
   root: rootDir,
-  envDir: path.resolve(rootDir, ".."),
-  publicDir: path.resolve(repoRoot, "public"),
+  envDir: webDir,
+  publicDir: path.resolve(webDir, "public"),
   plugins: [react(), tailwindcss()],
   define: {
     "import.meta.env.VITE_BRANCHEFY_WEB": JSON.stringify("1"),

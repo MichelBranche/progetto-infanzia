@@ -1,6 +1,8 @@
 node_modules
 client/dist
 dist
+public
+app-src
 .env
 .env.local
 .vercel
