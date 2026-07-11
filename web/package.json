@@ -3,9 +3,13 @@
   "private": true,
   "version": "0.2.5",
   "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "dev": "vite --config client/vite.config.ts",
     "dev:api": "cargo run --manifest-path ../src-tauri/Cargo.toml --bin branchefy-web-api",
+    "prebuild": "node scripts/verify-build-paths.mjs",
     "build": "vite build --config client/vite.config.ts",
     "preview": "vite preview --config client/vite.config.ts"
   },
