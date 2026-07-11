@@ -54,8 +54,6 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const refreshProfiles = useCallback(async () => {
     setLoading(true);
     try {
-      const { importCloudAvatarToMatchingProfile } = await import("../lib/cloudAvatar");
-      await importCloudAvatarToMatchingProfile().catch(() => {});
       const data = await fetchProfiles();
       setProfiles(data);
       setActiveProfile((current) => {
@@ -72,14 +70,29 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   }, [refreshProfiles]);
 
   useEffect(() => {
+    const onCloudSync = (event: Event) => {
+      const profileId = (event as CustomEvent<{ profileId?: string }>).detail?.profileId;
+      void refreshProfiles().then(() => {
+        if (!profileId || activeProfile) return;
+        void fetchProfiles().then((data) => {
+          const synced = data.find((p) => p.id === profileId);
+          if (synced) {
+            setActiveProfile(synced);
+            sessionStorage.setItem(ACTIVE_PROFILE_KEY, synced.id);
+          }
+        });
+      });
+    };
     const onProfilesChanged = () => {
       void refreshProfiles();
     };
+    window.addEventListener("branchefy:cloud-sync-complete", onCloudSync);
     window.addEventListener("branchefy:profiles-changed", onProfilesChanged);
     return () => {
+      window.removeEventListener("branchefy:cloud-sync-complete", onCloudSync);
       window.removeEventListener("branchefy:profiles-changed", onProfilesChanged);
     };
-  }, [refreshProfiles]);
+  }, [refreshProfiles, activeProfile]);
 
   const selectProfile = useCallback((profile: Profile) => {
     if (isManaging) return;

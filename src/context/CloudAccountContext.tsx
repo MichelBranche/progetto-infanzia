@@ -56,8 +56,10 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
       const p = await getCurrentCloudProfile();
       setProfile(p);
       if (p) {
-        const { importCloudAvatarToMatchingProfile } = await import("../lib/cloudAvatar");
-        await importCloudAvatarToMatchingProfile().catch(() => {});
+        const { syncCloudAccountWithApp } = await import("../lib/cloudProfileSync");
+        await syncCloudAccountWithApp(p).catch((err) => {
+          console.warn("[cloudProfileSync] sync failed:", err);
+        });
       }
     } finally {
       setLoading(false);
@@ -93,6 +95,8 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
       const supabase = getSupabase();
       const { data } = await supabase!.auth.getSession();
       setUser(data.session?.user ?? null);
+      const { syncCloudAccountWithApp } = await import("../lib/cloudProfileSync");
+      await syncCloudAccountWithApp(p).catch(() => {});
     },
     [],
   );
@@ -103,6 +107,8 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
     const supabase = getSupabase();
     const { data } = await supabase!.auth.getSession();
     setUser(data.session?.user ?? null);
+    const { syncCloudAccountWithApp } = await import("../lib/cloudProfileSync");
+    await syncCloudAccountWithApp(p).catch(() => {});
   }, []);
 
   const signOut = useCallback(async () => {

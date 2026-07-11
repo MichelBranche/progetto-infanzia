@@ -252,6 +252,11 @@ export async function saveStreamingWatchProgress(
     await invoke("update_streaming_watch_progress_cmd", { profileId, input });
   }
 
+  const { upsertCloudStreamingProgress } = await import("./cloudStreamingProgress");
+  void upsertCloudStreamingProgress(input).then(() => {
+    window.dispatchEvent(new CustomEvent("branchefy:streaming-progress-changed"));
+  });
+
   if (!isWatchCompletedRatio(input.positionSecs, input.durationSecs)) {
     return [];
   }
@@ -276,7 +281,7 @@ export async function getStreamingWatchProgress(
   slug: string,
   videoId: string,
 ): Promise<[number, number | null] | null> {
-  return invoke<[number, number | null] | null>(
+  const local = await invoke<[number, number | null] | null>(
     "get_streaming_watch_progress_cmd",
     {
       profileId,
@@ -286,7 +291,30 @@ export async function getStreamingWatchProgress(
       slug,
       videoId,
     },
-  );
+  ).catch(() => null);
+
+  const { fetchCloudStreamingContinue } = await import("./cloudStreamingProgress");
+  const { continueItemKey } = await import("./streamingProgressKey");
+  const cloudItems = await fetchCloudStreamingContinue(200);
+  const key = continueItemKey({
+    catalogPrefix,
+    contentType,
+    titleId,
+    slug,
+    videoId,
+    titleName: "",
+    positionSecs: 0,
+    updatedAt: "",
+  });
+  const cloud = cloudItems.find((item) => continueItemKey(item) === key);
+
+  if (!local && !cloud) return null;
+  if (!local) return [cloud!.positionSecs, cloud!.durationSecs ?? null];
+  if (!cloud) return local;
+  if (cloud.positionSecs > local[0]) {
+    return [cloud.positionSecs, cloud.durationSecs ?? local[1]];
+  }
+  return local;
 }
 
 export async function listStreamingTitleProgress(
@@ -322,10 +350,8 @@ export async function getStreamingContinue(
   profileId: string,
   limit = 20,
 ): Promise<StreamingContinueItem[]> {
-  return invoke<StreamingContinueItem[]>("get_streaming_continue_cmd", {
-    profileId,
-    limit,
-  });
+  const { getMergedStreamingContinue } = await import("./cloudStreamingProgress");
+  return getMergedStreamingContinue(profileId, limit);
 }
 
 export async function canPlayAddon(

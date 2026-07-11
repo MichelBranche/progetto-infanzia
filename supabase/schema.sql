@@ -1,6 +1,10 @@
 -- Branchefy cloud: account, amici, watch party relay
 -- Esegui nel SQL Editor di Supabase (Dashboard → SQL → New query)
 -- Sicuro da rieseguire: policy e publication vengono ricreate solo se mancanti.
+--
+-- IMPORTANTE: non incollare tutto schema.sql in una sola query se il editor
+-- segnala errori di sintassi sulle funzioni (righe con "end;").
+-- Per aggiornamenti puntuali usa i file in supabase/migrations/.
 
 create extension if not exists "pgcrypto";
 
@@ -589,10 +593,14 @@ begin
   if not found then raise exception 'Stanza non trovata'; end if;
   select id into conv_id from public.chat_conversations where watch_party_code = v_code limit 1;
   if conv_id is null then
-    insert into public.chat_conversations (kind, title, watch_party_code, created_by)
-    values ('watch_party', 'Stanza ' || v_code, v_code, room_row.host_id)
-    on conflict (watch_party_code) where watch_party_code is not null do nothing
-    returning id into conv_id;
+    begin
+      insert into public.chat_conversations (kind, title, watch_party_code, created_by)
+      values ('watch_party', 'Stanza ' || v_code, v_code, room_row.host_id)
+      returning id into conv_id;
+    exception
+      when unique_violation then
+        select id into conv_id from public.chat_conversations where watch_party_code = v_code limit 1;
+    end;
     if conv_id is null then
       select id into conv_id from public.chat_conversations where watch_party_code = v_code limit 1;
     end if;
@@ -622,16 +630,34 @@ as $$
 declare
   me uuid := auth.uid();
   trimmed text := trim(message_body);
-  row public.chat_messages;
+  msg_row public.chat_messages;
 begin
   if me is null then raise exception 'Non autenticato'; end if;
   if char_length(trimmed) < 1 or char_length(trimmed) > 2000 then
     raise exception 'Messaggio non valido';
   end if;
   if not public.is_chat_member(conv_id) then raise exception 'Non sei in questa conversazione'; end if;
-  insert into public.chat_messages (conversation_id, sender_id, body) values (conv_id, me, trimmed) returning * into row;
+  insert into public.chat_messages (conversation_id, sender_id, body) values (conv_id, me, trimmed) returning * into msg_row;
   update public.chat_conversations set updated_at = now() where id = conv_id;
-  return row;
+  return msg_row;
+end;
+$$;
+
+create or replace function public.purge_inactive_watch_party_chats()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from public.chat_conversations c
+  where c.kind = 'watch_party'
+    and c.watch_party_code is not null
+    and not exists (
+      select 1
+      from public.watch_party_rooms r
+      where upper(r.code) = c.watch_party_code
+    );
 end;
 $$;
 
@@ -725,6 +751,7 @@ begin
       delete from public.chat_conversations where id = conv_id;
     end if;
   end if;
+  return;
 end;
 $$;
 
@@ -739,24 +766,6 @@ declare
 begin
   delete from public.chat_conversations
   where kind = 'watch_party' and watch_party_code = v_code;
-end;
-$$;
-
-create or replace function public.purge_inactive_watch_party_chats()
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  delete from public.chat_conversations c
-  where c.kind = 'watch_party'
-    and c.watch_party_code is not null
-    and not exists (
-      select 1
-      from public.watch_party_rooms r
-      where upper(r.code) = c.watch_party_code
-    );
 end;
 $$;
 
@@ -814,6 +823,55 @@ create policy "watch events insert own"
 drop policy if exists "watch events read own" on public.cloud_watch_events;
 create policy "watch events read own"
   on public.cloud_watch_events for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+-- Progresso streaming (continua a guardare) sincronizzato tra web e desktop
+create table if not exists public.cloud_streaming_progress (
+  user_id uuid not null references public.cloud_profiles (id) on delete cascade,
+  progress_key text not null,
+  catalog_prefix text not null default 'sc',
+  content_type text not null,
+  title_id text not null,
+  slug text not null,
+  video_id text not null,
+  title_name text not null,
+  episode_label text,
+  poster_url text,
+  position_secs double precision not null default 0,
+  duration_secs double precision,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, progress_key)
+);
+
+create index if not exists cloud_streaming_progress_user_updated_idx
+  on public.cloud_streaming_progress (user_id, updated_at desc);
+
+alter table public.cloud_streaming_progress enable row level security;
+
+drop policy if exists "streaming progress upsert own" on public.cloud_streaming_progress;
+drop policy if exists "streaming progress insert own" on public.cloud_streaming_progress;
+create policy "streaming progress insert own"
+  on public.cloud_streaming_progress for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists "streaming progress update own" on public.cloud_streaming_progress;
+create policy "streaming progress update own"
+  on public.cloud_streaming_progress for update
+  to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "streaming progress read own" on public.cloud_streaming_progress;
+create policy "streaming progress read own"
+  on public.cloud_streaming_progress for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+drop policy if exists "streaming progress delete own" on public.cloud_streaming_progress;
+create policy "streaming progress delete own"
+  on public.cloud_streaming_progress for delete
   to authenticated
   using (auth.uid() = user_id);
 

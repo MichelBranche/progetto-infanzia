@@ -253,6 +253,18 @@ export function useStreamingCatalogs(profileId: string): UseStreamingCatalogsRes
   }, [refreshContinue, profileId]);
 
   useEffect(() => {
+    const onProgressChanged = () => {
+      void refreshContinue();
+    };
+    window.addEventListener("branchefy:streaming-progress-changed", onProgressChanged);
+    window.addEventListener("branchefy:cloud-sync-complete", onProgressChanged);
+    return () => {
+      window.removeEventListener("branchefy:streaming-progress-changed", onProgressChanged);
+      window.removeEventListener("branchefy:cloud-sync-complete", onProgressChanged);
+    };
+  }, [refreshContinue]);
+
+  useEffect(() => {
     let cancelled = false;
     if (!hasBootData) {
       setScLoading(true);

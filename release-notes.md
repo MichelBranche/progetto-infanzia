@@ -26,4 +26,4 @@
 ## Piattaforme
 
 - **Windows**: aggiornamento automatico in-app
-- **macOS**: scarica il `.dmg` dalla release
+- **macOS**: aggiornamento automatico in-app (installazione iniziale da `.dmg`)

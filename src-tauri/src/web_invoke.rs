@@ -114,6 +114,36 @@ pub async fn dispatch_web_command(
                 .remove_profile_pin(&parsed.profile_id, &parsed.current_pin)?;
             ok(())
         }
+        "set_profile_avatar_bytes_cmd" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                profile_id: String,
+                bytes: Vec<u8>,
+            }
+            let parsed: Args = parse_args(args)?;
+            crate::profile_avatar::save_profile_avatar_bytes(
+                &state.db,
+                &parsed.profile_id,
+                &parsed.bytes,
+            )?;
+            ok(state
+                .db
+                .get_profile(&parsed.profile_id)?
+                .ok_or_else(|| "Profilo non trovato".to_string())?)
+        }
+        "get_profile_avatar_data_url_cmd" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                profile_id: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            let bytes = state.db.get_profile_avatar_jpeg(&parsed.profile_id)?;
+            ok(bytes
+                .as_deref()
+                .map(crate::profile_avatar::profile_avatar_data_url))
+        }
         "get_settings_cmd" => ok(state.db.get_settings(state.media_root.read().as_path())?),
         "update_settings_cmd" => {
             #[derive(Deserialize)]

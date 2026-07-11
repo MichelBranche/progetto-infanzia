@@ -83,6 +83,15 @@ export async function setProfileAvatar(
   if (isTauri()) {
     profile = await invoke<Profile>("set_profile_avatar_cmd", { profileId, sourcePath });
     invalidateProfileAvatarCache(profileId);
+  } else if (isWebShell() && sourcePath.startsWith("data:")) {
+    const comma = sourcePath.indexOf(",");
+    const base64 = sourcePath.slice(comma + 1);
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    profile = await setProfileAvatarFromBytes(profileId, bytes);
+  } else if (isWebShell()) {
+    throw new Error("Su web carica solo immagini JPEG dal dispositivo.");
   } else {
     profile = await updateDevProfile(profileId, {
       avatarStyle: "photo",
@@ -109,12 +118,14 @@ export async function setProfileAvatarFromBytes(
   profileId: string,
   bytes: Uint8Array,
 ): Promise<Profile> {
-  if (isTauri()) {
+  if (isTauri() || isWebShell()) {
     const profile = await invoke<Profile>("set_profile_avatar_bytes_cmd", {
       profileId,
       bytes: Array.from(bytes),
     });
     invalidateProfileAvatarCache(profileId);
+    const { syncLocalProfileAvatarToCloud } = await import("./cloudAvatar");
+    await syncLocalProfileAvatarToCloud(profileId).catch(() => {});
     return profile;
   }
   const blob = new Blob([bytes], { type: "image/jpeg" });
@@ -136,6 +147,13 @@ export async function setProfileAvatarFromBytes(
 export async function fetchProfileAvatarDataUrl(
   profileId: string,
 ): Promise<string | null> {
-  if (!isTauri()) return null;
-  return invoke<string | null>("get_profile_avatar_data_url_cmd", { profileId });
+  if (isTauri() || isWebShell()) {
+    return invoke<string | null>("get_profile_avatar_data_url_cmd", { profileId });
+  }
+  const profiles = await fetchDevProfiles();
+  const profile = profiles.find((p) => p.id === profileId);
+  if (profile?.avatarImagePath?.startsWith("data:")) {
+    return profile.avatarImagePath;
+  }
+  return null;
 }
