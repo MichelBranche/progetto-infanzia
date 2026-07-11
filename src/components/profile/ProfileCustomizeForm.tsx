@@ -413,14 +413,14 @@ export function ProfileCustomizeForm({
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="grid grid-cols-8 gap-1.5 sm:grid-cols-10"
+                    className="grid grid-cols-6 gap-2 sm:grid-cols-8 sm:gap-1.5 md:grid-cols-10"
                   >
                     {PROFILE_EMOJIS.map((e) => (
                       <button
                         key={e}
                         type="button"
                         onClick={() => patch({ avatarEmoji: e })}
-                        className={`flex aspect-square items-center justify-center rounded-xl text-xl transition-all ${
+                        className={`flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-xl transition-all active:scale-95 ${
                           value.avatarEmoji === e
                             ? "bg-accent/15 ring-1 ring-accent/40"
                             : "bg-white/[0.03] hover:bg-white/[0.07]"

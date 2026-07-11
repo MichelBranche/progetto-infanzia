@@ -38,7 +38,7 @@ export function SettingsCard({
     <section className={`${SETTINGS_CARD} ${accentRing} ${className}`.trim()}>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-accent/15 via-accent/5 to-transparent" />
       <div className="noise-overlay pointer-events-none absolute inset-0 opacity-[0.06]" />
-      <div className="relative p-5 sm:p-6">{children}</div>
+      <div className="relative p-4 sm:p-6">{children}</div>
     </section>
   );
 }
@@ -71,12 +71,12 @@ export function SettingsSection({
 }) {
   return (
     <SettingsCard variant={variant}>
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-3">
             {Icon && <SettingsIconBadge icon={Icon} />}
             <div className="min-w-0">
-              <h3 className="font-display text-[16px] font-semibold tracking-[-0.02em] text-text-primary">
+              <h3 className="font-display text-[15px] font-semibold tracking-[-0.02em] text-text-primary sm:text-[16px]">
                 {title}
               </h3>
               {description && (
@@ -87,7 +87,7 @@ export function SettingsSection({
             </div>
           </div>
         </div>
-        {headerRight}
+        {headerRight && <div className="shrink-0 self-start sm:self-center">{headerRight}</div>}
       </div>
       {children && <div className="mt-5">{children}</div>}
     </SettingsCard>
@@ -202,7 +202,7 @@ export function SettingsSegmented<T extends string>({
             key={option.id}
             type="button"
             onClick={() => onChange(option.id)}
-            className={`flex-1 rounded-full px-3 py-2 text-[12px] font-medium transition-all ${
+            className={`flex-1 rounded-full px-3 py-2.5 text-[12px] font-medium transition-all min-h-[44px] ${
               active
                 ? "bg-white text-void shadow-[0_2px_12px_rgba(0,0,0,0.25)]"
                 : "text-text-muted hover:text-text-primary"
@@ -231,15 +231,15 @@ export function SettingsSwitch({
       disabled={disabled}
       onClick={onChange}
       aria-pressed={enabled}
-      className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+      className={`relative h-8 w-14 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
         enabled
           ? "bg-mint shadow-[0_0_16px_rgba(196,181,253,0.42)]"
           : "bg-white/15"
       }`}
     >
       <span
-        className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform ${
-          enabled ? "left-[22px]" : "left-0.5"
+        className={`absolute top-0.5 h-7 w-7 rounded-full bg-white shadow-sm transition-transform ${
+          enabled ? "left-[26px]" : "left-0.5"
         }`}
       />
     </button>
@@ -305,7 +305,7 @@ export function SettingsButton({
   return (
     <button
       type="button"
-      className={`inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-[12px] font-semibold transition-all disabled:opacity-50 ${styles[variant]} ${className}`}
+      className={`inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full px-5 py-2.5 text-[12px] font-semibold transition-all disabled:opacity-50 ${styles[variant]} ${className}`}
       {...props}
     >
       {children}
@@ -329,7 +329,7 @@ export function SettingsPill({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-all disabled:opacity-50 ${
+      className={`inline-flex min-h-[44px] items-center rounded-full border px-4 py-2 text-[12px] font-medium transition-all disabled:opacity-50 ${
         active
           ? "border-accent/40 bg-accent/12 text-text-primary shadow-[0_0_20px_rgba(94,234,212,0.12)]"
           : "border-white/[0.08] bg-white/[0.02] text-text-muted hover:border-white/15 hover:text-text-secondary"

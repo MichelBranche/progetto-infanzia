@@ -43,7 +43,7 @@ export function AmbientThemePicker() {
               type="button"
               onClick={() => selectTheme(theme.id)}
               aria-pressed={active}
-              className={`group relative overflow-hidden rounded-xl border px-3 py-3 text-left transition-all ${
+              className={`group relative min-h-[88px] overflow-hidden rounded-xl border px-3 py-3.5 text-left transition-all active:scale-[0.98] sm:min-h-0 sm:py-3 ${
                 active
                   ? "border-accent/50 bg-accent/[0.08] shadow-[0_0_28px_rgba(94,234,212,0.14)]"
                   : "border-white/[0.06] bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.04]"

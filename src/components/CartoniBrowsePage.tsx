@@ -298,7 +298,7 @@ function CommunityFeatured({
 
 function CartoniLoadingSkeleton() {
   return (
-    <div className="pb-20">
+    <div className="pb-[max(5rem,var(--mobile-nav-height))] sm:pb-20">
       <div className="h-[38vh] min-h-[260px] shimmer" />
       <div className="page-px mt-8 space-y-8">
         <div className="flex gap-2">
@@ -395,7 +395,7 @@ export function CartoniBrowsePage({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.35 }}
-      className="relative z-0 pb-20"
+      className="relative z-0 pb-[max(5rem,var(--mobile-nav-height))] sm:pb-20"
     >
       <CartoniHero
         posters={layout.heroPosters}

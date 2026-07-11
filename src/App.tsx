@@ -1163,7 +1163,7 @@ function AppContent() {
 
         <main
           ref={mainScrollRef}
-          className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden max-md:pb-24 ${
+          className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden max-md:pb-[var(--mobile-nav-height)] ${
             activeNav === "home" && !seriesKey ? "lf-home-scroll" : ""
           } ${
             (activeNav === "film" || activeNav === "serie") && !seriesKey

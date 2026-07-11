@@ -1298,14 +1298,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   return (
     <div
       ref={containerRef}
-      className="relative flex h-full flex-col bg-black"
+      className="player-shell relative flex h-full flex-col bg-black"
       onMouseMove={resetHideTimer}
       onClick={resetHideTimer}
+      onTouchStart={resetHideTimer}
+      onTouchMove={resetHideTimer}
     >
       <video
         ref={videoRef}
         src={effectiveIsHls && Hls.isSupported() ? undefined : effectiveStreamUrl}
         className="player-video h-full w-full object-contain"
+        playsInline
         onClick={(e) => {
           e.stopPropagation();
           void togglePlay();
@@ -1412,8 +1415,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         animate={{ opacity: showControls || showEpisodes || showQualityMenu || showSubtitleMenu ? 1 : 0 }}
         transition={{ duration: 0.2 }}
       >
-        <div className="pointer-events-auto bg-gradient-to-b from-black/80 to-transparent px-6 py-5">
-          <div className="flex items-center gap-4">
+        <div className="pointer-events-auto bg-gradient-to-b from-black/80 to-transparent px-4 py-4 sm:px-6 sm:py-5">
+          <div className="flex items-center gap-2 sm:gap-4">
             <button
               onClick={() => void handleBack()}
               className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/40 backdrop-blur-sm transition-colors hover:bg-black/60"
@@ -1421,7 +1424,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />
             </button>
             <div className="min-w-0 flex-1">
-              <h1 className="truncate font-display text-lg font-semibold text-white">
+              <h1 className="truncate font-display text-base font-semibold text-white sm:text-lg">
                 {episodeDisplayTitle(media)}
               </h1>
               <p className="mt-0.5 truncate text-[11px] font-medium uppercase tracking-wider text-white/50">
@@ -1441,10 +1444,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   setShowEpisodes(true);
                   setShowControls(true);
                 }}
-                className="flex items-center gap-2 rounded border border-white/15 bg-black/40 px-3 py-2 text-[12px] text-white/90 backdrop-blur-sm hover:bg-black/60"
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white/90 backdrop-blur-sm hover:bg-black/60 sm:h-auto sm:w-auto sm:gap-2 sm:rounded sm:px-3 sm:py-2"
+                aria-label="Episodi"
               >
                 <ListVideo className="h-4 w-4" />
-                Episodi
+                <span className="hidden text-[12px] sm:inline">Episodi</span>
               </button>
             )}
             {canCast && (
@@ -1498,7 +1502,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           </div>
         )}
 
-        <div className="pointer-events-auto bg-gradient-to-t from-black/90 via-black/50 to-transparent px-6 pb-6 pt-16">
+        <div className="pointer-events-auto bg-gradient-to-t from-black/90 via-black/50 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-12 sm:px-6 sm:pb-6 sm:pt-16">
           <PlayerScrubBar
             duration={duration}
             currentTime={currentTime}
@@ -1519,8 +1523,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             }}
           />
 
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2 sm:gap-4">
+          <div className="flex items-center justify-between gap-2 sm:gap-4">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-4">
               <button
                 type="button"
                 onClick={() => void togglePlay()}
@@ -1542,24 +1546,26 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               <button
                 onClick={() => skip(-10)}
                 disabled={isPartyGuest}
-                className={`hidden h-9 w-9 items-center justify-center rounded-full text-white/80 sm:flex ${
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/80 ${
                   isPartyGuest
                     ? "cursor-default opacity-40"
                     : "hover:bg-white/10 hover:text-white"
                 }`}
                 title="Indietro 10s"
+                aria-label="Indietro 10 secondi"
               >
                 <RotateCcw className="h-4 w-4" />
               </button>
               <button
                 onClick={() => skip(10)}
                 disabled={isPartyGuest}
-                className={`hidden h-9 w-9 items-center justify-center rounded-full text-white/80 sm:flex ${
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/80 ${
                   isPartyGuest
                     ? "cursor-default opacity-40"
                     : "hover:bg-white/10 hover:text-white"
                 }`}
                 title="Avanti 10s"
+                aria-label="Avanti 10 secondi"
               >
                 <RotateCw className="h-4 w-4" />
               </button>
@@ -1568,7 +1574,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 <button
                   type="button"
                   onClick={playPrevEpisode}
-                  className="flex h-9 items-center gap-1.5 rounded-full border border-white/15 px-3 text-white/90 transition-colors hover:bg-white/10 hover:text-white"
+                  className="hidden h-9 items-center gap-1.5 rounded-full border border-white/15 px-3 text-white/90 transition-colors hover:bg-white/10 hover:text-white sm:flex"
                   title="Episodio precedente"
                 >
                   <SkipBack className="h-4 w-4" />
@@ -1582,7 +1588,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 <button
                   type="button"
                   onClick={playNextEpisode}
-                  className="flex h-9 items-center gap-1.5 rounded-full border border-white/15 px-3 text-white/90 transition-colors hover:bg-white/10 hover:text-white"
+                  className="hidden h-9 items-center gap-1.5 rounded-full border border-white/15 px-3 text-white/90 transition-colors hover:bg-white/10 hover:text-white sm:flex"
                   title="Prossimo episodio"
                 >
                   <SkipForward className="h-4 w-4" />
@@ -1593,7 +1599,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               )}
 
               <div
-                className="relative flex items-center"
+                className="relative hidden items-center sm:flex"
                 onMouseEnter={() => setShowVolume(true)}
                 onMouseLeave={() => setShowVolume(false)}
               >
@@ -1632,7 +1638,24 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 </motion.div>
               </div>
 
-              <span className="text-[12px] tabular-nums text-white/70">
+              <button
+                onClick={() => {
+                  const video = videoRef.current;
+                  if (!video) return;
+                  video.muted = !video.muted;
+                  setMuted(video.muted);
+                }}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white sm:hidden"
+                aria-label={muted || volume === 0 ? "Attiva audio" : "Disattiva audio"}
+              >
+                {muted || volume === 0 ? (
+                  <VolumeX className="h-5 w-5" />
+                ) : (
+                  <Volume2 className="h-5 w-5" />
+                )}
+              </button>
+
+              <span className="hidden text-[12px] tabular-nums text-white/70 sm:inline">
                 {formatDuration(currentTime)} / {formatDuration(duration)}
               </span>
             </div>

@@ -200,7 +200,7 @@ export function InviteFriendsPage({
         <div className="noise-overlay absolute inset-0 opacity-[0.035]" />
       </div>
 
-      <div className="page-px relative pb-24 pt-[calc(var(--app-nav-height)+1.75rem)] sm:pt-[calc(var(--app-nav-height)+2.25rem)]">
+      <div className="page-px relative pb-[max(6rem,var(--mobile-nav-height))] pt-[calc(var(--app-nav-height)+1.25rem)] sm:pb-24 sm:pt-[calc(var(--app-nav-height)+2.25rem)]">
         <div className="mx-auto w-full max-w-2xl">
           <motion.header
             initial={{ opacity: 0, y: 18 }}

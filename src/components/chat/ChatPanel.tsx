@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Send, Trash2 } from "lucide-react";
+import { ArrowLeft, Loader2, Send, Trash2 } from "lucide-react";
 import { useConversationChat } from "../../hooks/useConversationChat";
 import { parseWatchPartyInviteChatBody } from "../../lib/watchPartyInviteChatMessage";
 import { ChatEmojiPicker } from "./ChatEmojiPicker";
@@ -15,6 +15,7 @@ interface ChatPanelProps {
   onDeleteChat?: () => void | Promise<void>;
   deletingChat?: boolean;
   canDeleteChat?: boolean;
+  onBack?: () => void;
 }
 
 export function ChatPanel({
@@ -27,6 +28,7 @@ export function ChatPanel({
   onDeleteChat,
   deletingChat = false,
   canDeleteChat = false,
+  onBack,
 }: ChatPanelProps) {
   const { messages, loading, sending, error, send } = useConversationChat(
     conversationId,
@@ -81,16 +83,32 @@ export function ChatPanel({
   return (
     <div
       className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0a0a0e]/80 ${
-        compact ? "h-[min(42vh,360px)]" : "h-[min(62vh,560px)]"
+        compact
+          ? "h-[min(42vh,360px)]"
+          : className
+            ? ""
+            : "h-[min(62vh,560px)]"
       } ${className}`}
     >
-      {(title || subtitle || (canDeleteChat && onDeleteChat)) && (
+      {(onBack || title || subtitle || (canDeleteChat && onDeleteChat)) && (
         <div className="flex items-start justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
-          <div className="min-w-0">
+          <div className="flex min-w-0 items-start gap-2">
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-text-secondary transition-colors hover:bg-white/[0.08] hover:text-text-primary lg:hidden"
+                aria-label="Torna alle conversazioni"
+              >
+                <ArrowLeft className="h-4 w-4" strokeWidth={1.85} />
+              </button>
+            )}
+            <div className="min-w-0">
             {title && (
               <p className="font-display text-[14px] font-medium text-text-primary">{title}</p>
             )}
             {subtitle && <p className="mt-0.5 text-[11px] text-text-muted">{subtitle}</p>}
+            </div>
           </div>
           {canDeleteChat && onDeleteChat && (
             <button

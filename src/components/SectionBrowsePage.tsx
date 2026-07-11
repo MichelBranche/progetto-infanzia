@@ -135,7 +135,7 @@ export function SectionBrowsePage(props: SectionBrowsePageProps) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.35 }}
-      className={`page-px pb-20 ${lordFlixBrowse ? "lf-discovery-page" : ""}`}
+      className={`page-px pb-[max(5rem,var(--mobile-nav-height))] sm:pb-20 ${lordFlixBrowse ? "lf-discovery-page" : ""}`}
     >
       <header
         className={`lf-discovery-header ${lordFlixBrowse ? "lf-discovery-header--browse" : ""}`}

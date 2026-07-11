@@ -244,7 +244,7 @@ export function AnimePage({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.35 }}
-      className="page-px pb-20 lf-discovery-page"
+      className="page-px pb-[max(5rem,var(--mobile-nav-height))] lf-discovery-page sm:pb-20"
     >
       <header className="lf-discovery-header lf-discovery-header--browse">
         <div className="lf-discovery-header__row">

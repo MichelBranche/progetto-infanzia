@@ -90,6 +90,15 @@ export function SearchOverlay({
   }, [open, onClose]);
 
   useEffect(() => {
+    if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open]);
+
+  useEffect(() => {
     const node = loadMoreRef.current;
     if (!node || !streamingHasMore || streamingLoadingMore || !onLoadMoreStreaming) {
       return;
@@ -121,11 +130,11 @@ export function SearchOverlay({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          className="absolute inset-x-0 bottom-0 top-[4.5rem] z-[25] bg-void sm:top-[5.25rem]"
+          className="search-overlay absolute inset-x-0 bottom-0 z-[25] bg-void"
           aria-hidden={!open}
         >
           <div className="flex h-full min-h-0 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-16">
+            <div className="search-overlay__scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
               {showInitialLoader && (
                 <div className="flex items-center gap-3 page-px py-8 text-text-muted">
                   <Loader2 className="h-5 w-5 animate-spin" />
@@ -267,8 +276,8 @@ function SearchSection({
   children: ReactNode;
 }) {
   return (
-    <section className="mt-4 sm:mt-6">
-      <h3 className="page-px font-display text-base font-semibold tracking-[-0.02em] text-text-primary sm:text-lg">
+    <section className="mt-3 sm:mt-6">
+      <h3 className="page-px font-display text-[15px] font-semibold tracking-[-0.02em] text-text-primary sm:text-lg">
         {title}
       </h3>
       <div className="mt-3">{children}</div>

@@ -180,11 +180,11 @@ export function NetflixTop10Row({
     <RowInteractionContext.Provider value={{ collapseEpoch }}>
       <section className="group/top10 row-pointer-pass relative z-10 overflow-visible py-3 hover:z-30 sm:py-4">
         <div className="page-px">
-          <div className="mb-4 flex flex-col items-center gap-3 sm:mb-5">
+            <div className="mb-4 flex flex-col items-center gap-3 sm:mb-5">
             <h2 className="font-display text-center text-xl font-semibold tracking-[-0.02em] text-text-primary sm:text-2xl">
               {title}
             </h2>
-            <div className="hidden items-center gap-1.5 opacity-0 transition-opacity group-hover/top10:opacity-100 sm:flex">
+            <div className="flex items-center gap-1.5 sm:opacity-0 sm:transition-opacity sm:group-hover/top10:opacity-100">
               <button
                 type="button"
                 onClick={() => scroll("left")}

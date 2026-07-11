@@ -333,7 +333,7 @@ export function WatchPartyPanel({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/65 p-4 backdrop-blur-md sm:items-center sm:p-6"
+          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/65 backdrop-blur-md sm:items-center sm:p-6"
           onClick={onClose}
         >
           <motion.div
@@ -344,8 +344,9 @@ export function WatchPartyPanel({
             exit={{ opacity: 0, y: 20, scale: 0.98 }}
             transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
             onClick={(e) => e.stopPropagation()}
-            className="relative flex max-h-[min(88vh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0a0a0c] shadow-[0_32px_80px_rgba(0,0,0,0.65)]"
+            className="watch-party-sheet relative flex max-h-[min(88vh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0a0a0c] shadow-[0_32px_80px_rgba(0,0,0,0.65)] max-sm:max-w-none"
           >
+            <div className="watch-party-sheet__handle" aria-hidden />
             <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-accent/20 via-accent/5 to-transparent" />
             <div className="noise-overlay pointer-events-none absolute inset-0 opacity-[0.08]" />
 
@@ -439,7 +440,7 @@ export function WatchPartyPanel({
                         conversationId={partyChatId}
                         currentUserId={cloudProfile.id}
                         compact
-                        className="max-h-[240px]"
+                        className="max-h-[min(36vh,280px)] sm:max-h-[240px]"
                       />
                     </div>
                   )}
@@ -621,7 +622,7 @@ export function WatchPartyPanel({
               )}
             </div>
 
-            <div className="relative border-t border-white/[0.06] bg-black/30 px-6 py-4 sm:px-7">
+            <div className="relative border-t border-white/[0.06] bg-black/30 px-4 py-4 sm:px-7">
               {activeSession ? (
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
                   {onLeaveParty && (

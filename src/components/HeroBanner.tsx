@@ -384,7 +384,7 @@ export const HeroBanner = memo(function HeroBanner({
       className={`lf-hero pointer-events-none relative z-20 w-full shrink-0 ${
         fullPage
           ? "lf-hero--full"
-          : "h-[85vh] min-h-[420px] max-h-[820px] overflow-hidden"
+          : "h-[min(72vh,720px)] min-h-[380px] max-h-[820px] overflow-hidden sm:h-[85vh] sm:min-h-[420px]"
       }`}
     >
       <div

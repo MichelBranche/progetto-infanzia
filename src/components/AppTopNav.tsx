@@ -8,6 +8,7 @@ import {
   MoreHorizontal,
   Search,
   Settings,
+  Users,
   X,
 } from "lucide-react";
 import { getNavSections, type NavItem } from "../data/nav";
@@ -190,8 +191,14 @@ export function AppTopNav({
     width: number;
   } | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
-  const { open: friendsMenuOpen, closeMenu: closeFriendsMenu, registerAnchor } =
-    useFriendsMenu();
+  const {
+    open: friendsMenuOpen,
+    closeMenu: closeFriendsMenu,
+    registerAnchor,
+    openMenu: openFriendsMenu,
+    friends,
+    onlineCount,
+  } = useFriendsMenu();
 
   useEffect(() => {
     registerAnchor(friendsDockRef.current);
@@ -433,7 +440,7 @@ export function AppTopNav({
       >
       <div
         ref={innerRef}
-        className="app-top-nav__inner flex h-full w-full min-w-0 items-center justify-between gap-2 px-6 sm:gap-3 lg:px-12"
+        className="app-top-nav__inner flex h-full w-full min-w-0 items-center justify-between gap-2 px-4 sm:gap-3 sm:px-6 lg:px-12"
       >
         <div className="flex min-w-0 shrink-0 items-center gap-3 sm:gap-4">
           <button
@@ -448,21 +455,53 @@ export function AppTopNav({
           </button>
 
           {!searchActive && (
-            <div className="app-top-nav__friends-zone relative shrink-0">
-              <div
-                ref={friendsDockRef}
-                className="glass-header app-top-nav__left-dock flex items-center gap-1 p-1.5"
-              >
-                <AppTopNavFriendsBar />
+            <>
+              <div className="app-top-nav__friends-zone relative hidden shrink-0 md:block">
+                <div
+                  ref={friendsDockRef}
+                  className="glass-header app-top-nav__left-dock flex items-center gap-1 p-1.5"
+                >
+                  <AppTopNavFriendsBar />
 
-                <span
-                  className="app-top-nav__left-dock-divider h-6 w-px shrink-0 bg-white/10"
-                  aria-hidden
-                />
+                  <span
+                    className="app-top-nav__left-dock-divider h-6 w-px shrink-0 bg-white/10"
+                    aria-hidden
+                  />
 
-                <AppTopNavFriendsChevron />
+                  <AppTopNavFriendsChevron />
+                </div>
               </div>
-            </div>
+
+              <div className="app-top-nav__friends-zone relative shrink-0 md:hidden">
+                <button
+                  type="button"
+                  onClick={(event) => openFriendsMenu(event.currentTarget)}
+                  aria-expanded={friendsMenuOpen}
+                  aria-label={
+                    friends.length > 0
+                      ? `Amici, ${onlineCount} online`
+                      : "Apri menu amici"
+                  }
+                  className={`glass-header app-top-nav__friends-mobile-btn flex h-10 items-center gap-2 rounded-full px-2.5 transition-colors ${
+                    friendsMenuOpen ? "bg-white/[0.1]" : ""
+                  }`}
+                >
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.08]">
+                    <Users className="h-4 w-4 text-white/85" strokeWidth={1.85} />
+                  </span>
+                  {friends.length > 0 && (
+                    <span className="min-w-0 text-left leading-tight">
+                      <span className="block text-[11px] font-medium text-white/90">
+                        {onlineCount} online
+                      </span>
+                      <span className="block text-[10px] text-white/45">
+                        {friends.length} amici
+                      </span>
+                    </span>
+                  )}
+                </button>
+              </div>
+            </>
           )}
         </div>
 

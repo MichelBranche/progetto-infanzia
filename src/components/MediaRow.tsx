@@ -98,17 +98,17 @@ export function MediaRow({
             type="button"
             onClick={() => scroll("left")}
             aria-label="Scorri a sinistra"
-            className="absolute left-4 top-1/2 z-[60] hidden h-12 w-12 -translate-y-1/2 cursor-pointer items-center justify-center bg-transparent opacity-0 drop-shadow-lg transition-all duration-300 hover:scale-110 group-hover/row:opacity-100 lg:flex"
+            className="absolute left-2 top-1/2 z-[60] flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/35 text-white/90 opacity-80 backdrop-blur-sm transition-all active:scale-95 sm:left-4 sm:h-12 sm:w-12 sm:opacity-0 sm:bg-transparent sm:backdrop-blur-none lg:group-hover/row:opacity-100"
           >
-            <ChevronLeft className="h-10 w-10 text-white drop-shadow-md" />
+            <ChevronLeft className="h-7 w-7 drop-shadow-md sm:h-10 sm:w-10" />
           </button>
           <button
             type="button"
             onClick={() => scroll("right")}
             aria-label="Scorri a destra"
-            className="absolute right-4 top-1/2 z-[60] hidden h-12 w-12 -translate-y-1/2 cursor-pointer items-center justify-center bg-transparent opacity-0 drop-shadow-lg transition-all duration-300 hover:scale-110 group-hover/row:opacity-100 lg:flex"
+            className="absolute right-2 top-1/2 z-[60] flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/35 text-white/90 opacity-80 backdrop-blur-sm transition-all active:scale-95 sm:right-4 sm:h-12 sm:w-12 sm:opacity-0 sm:bg-transparent sm:backdrop-blur-none lg:group-hover/row:opacity-100"
           >
-            <ChevronRight className="h-10 w-10 text-white drop-shadow-md" />
+            <ChevronRight className="h-7 w-7 drop-shadow-md sm:h-10 sm:w-10" />
           </button>
 
           <div

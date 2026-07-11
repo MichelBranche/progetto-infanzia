@@ -47,9 +47,13 @@ export function ChatsPage() {
       ]);
       setChats(chatList);
       setFriends(friendList);
-      setSelectedId((prev) =>
-        prev && chatList.some((c) => c.id === prev) ? prev : (chatList[0]?.id ?? null),
-      );
+      setSelectedId((prev) => {
+        if (prev && chatList.some((c) => c.id === prev)) return prev;
+        const preferDesktopList =
+          typeof window !== "undefined" &&
+          window.matchMedia("(min-width: 1024px)").matches;
+        return preferDesktopList ? (chatList[0]?.id ?? null) : null;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -154,10 +158,10 @@ export function ChatsPage() {
   }
 
   return (
-    <div className="page-px pb-16 pt-24 sm:pt-28">
+    <div className="page-px pb-16 pt-20 sm:pt-24 lg:pt-28">
       <div className="mx-auto max-w-5xl">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
+          <div className={selectedId ? "hidden lg:block" : ""}>
             <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-accent">
               Social
             </p>
@@ -171,7 +175,9 @@ export function ChatsPage() {
           <button
             type="button"
             onClick={() => setShowGroupForm((v) => !v)}
-            className="inline-flex items-center gap-2 self-start rounded-full border border-white/12 bg-white/[0.04] px-4 py-2 text-[12px] font-medium text-text-secondary hover:bg-white/[0.07]"
+            className={`inline-flex items-center gap-2 self-start rounded-full border border-white/12 bg-white/[0.04] px-4 py-2 text-[12px] font-medium text-text-secondary hover:bg-white/[0.07] ${
+              selectedId ? "hidden lg:inline-flex" : ""
+            }`}
           >
             <Plus className="h-3.5 w-3.5" />
             Nuovo gruppo
@@ -179,7 +185,7 @@ export function ChatsPage() {
         </div>
 
         {showGroupForm && (
-          <ProfileCard className="mb-5">
+          <ProfileCard className={`mb-5 ${selectedId ? "hidden lg:block" : ""}`}>
             <ProfileSectionLabel>Nuovo gruppo</ProfileSectionLabel>
             <input
               value={groupTitle}
@@ -231,7 +237,11 @@ export function ChatsPage() {
           </div>
         ) : (
           <div className="grid gap-4 lg:grid-cols-[minmax(260px,300px)_1fr]">
-            <ProfileCard className="flex max-h-[min(72vh,700px)] flex-col overflow-hidden p-0">
+            <ProfileCard
+              className={`flex max-h-[min(72vh,700px)] flex-col overflow-hidden p-0 ${
+                selectedId ? "hidden lg:flex" : ""
+              }`}
+            >
               <p className="border-b border-white/[0.06] px-4 py-3.5 text-[11px] font-medium uppercase tracking-[0.2em] text-text-muted">
                 Conversazioni ({chats.length})
               </p>
@@ -283,21 +293,29 @@ export function ChatsPage() {
               </div>
             </ProfileCard>
 
-            <ChatPanel
-              conversationId={selectedId}
-              currentUserId={cloudProfile.id}
-              title={selectedChat ? chatDisplayTitle(selectedChat) : undefined}
-              subtitle={
-                selectedChat?.kind === "watch_party"
-                  ? `Watch party · ${selectedChat.watchPartyCode}`
-                  : selectedChat?.kind === "group"
-                    ? `${selectedChat.memberCount} membri`
-                    : undefined
-              }
-              canDeleteChat={Boolean(selectedChat && selectedChat.kind !== "watch_party")}
-              deletingChat={deletingChat}
-              onDeleteChat={handleDeleteChat}
-            />
+            {selectedId ? (
+              <ChatPanel
+                conversationId={selectedId}
+                currentUserId={cloudProfile.id}
+                title={selectedChat ? chatDisplayTitle(selectedChat) : undefined}
+                subtitle={
+                  selectedChat?.kind === "watch_party"
+                    ? `Watch party · ${selectedChat.watchPartyCode}`
+                    : selectedChat?.kind === "group"
+                      ? `${selectedChat.memberCount} membri`
+                      : undefined
+                }
+                canDeleteChat={Boolean(selectedChat && selectedChat.kind !== "watch_party")}
+                deletingChat={deletingChat}
+                onDeleteChat={handleDeleteChat}
+                onBack={() => setSelectedId(null)}
+                className="h-[min(calc(100dvh-var(--app-nav-height)-var(--mobile-nav-height)-2rem),680px)] lg:h-[min(62vh,560px)]"
+              />
+            ) : (
+              <div className="hidden items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center text-[13px] text-text-muted lg:flex">
+                Seleziona una conversazione
+              </div>
+            )}
           </div>
         )}
       </div>

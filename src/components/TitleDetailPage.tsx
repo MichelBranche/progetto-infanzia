@@ -466,7 +466,7 @@ export function TitleDetailPage({
 
   return (
     <div className="min-h-full bg-void pb-16">
-      <div className="relative min-h-[72vh] w-full overflow-hidden">
+      <div className="relative min-h-[min(65vh,640px)] w-full overflow-hidden sm:min-h-[72vh]">
         {detail.heroImage ? (
           <img
             src={detail.heroImage}
@@ -487,7 +487,7 @@ export function TitleDetailPage({
           <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />
         </button>
 
-        <div className="page-px relative flex min-h-[72vh] flex-col justify-end">
+        <div className="page-px relative flex min-h-[min(65vh,640px)] flex-col justify-end pb-8 pt-24 sm:min-h-[72vh] sm:pb-10 sm:pt-28">
           <div className="max-w-3xl pb-5 pt-28 sm:pb-6">
             {detail.logo ? (
               <img
