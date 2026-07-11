@@ -1,3 +1,5 @@
+import { playAudioElement } from "./webAudio";
+
 const CARD_NAV_SOUND_SRC = "/audio/card-navigation.wav";
 const CARD_OPEN_TITLE_SOUND_SRC = "/audio/card-open-title.mp3";
 
@@ -20,7 +22,7 @@ function playCached(
     audio.volume = volume;
   }
   audio.currentTime = 0;
-  void audio.play().catch(() => undefined);
+  playAudioElement(audio);
   return audio;
 }
 

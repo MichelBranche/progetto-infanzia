@@ -1,3 +1,5 @@
+import { playAudioElement } from "./webAudio";
+
 const FRIEND_REQUEST_SOUND_SRC = "/audio/richiesta-amicizia.wav";
 
 let cachedAudio: HTMLAudioElement | null = null;
@@ -10,7 +12,7 @@ export function playFriendRequestNotificationSound() {
       cachedAudio.volume = 0.92;
     }
     cachedAudio.currentTime = 0;
-    void cachedAudio.play().catch(() => undefined);
+    playAudioElement(cachedAudio);
   } catch {
     // ignore autoplay / missing asset errors
   }

@@ -4,6 +4,7 @@ import { ArrowLeft, Plus, Pencil, Trash2, Lock, Settings2 } from "lucide-react";
 import { useProfile } from "../context/ProfileContext";
 import { useAppAccess } from "../context/AppAccessContext";
 import { isBrowserDevMode } from "../lib/tauriEnv";
+import { isWebShell } from "../lib/runtimeInvoke";
 import { BootLiquidBackground } from "./LiquidBackground";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { setProfileAvatar, updateProfile } from "../lib/profilesApi";
@@ -181,7 +182,9 @@ export function ProfileSelectScreen() {
                 {formTitle}
               </p>
               <p className="mt-0.5 text-[13px] text-text-muted">
-                Personalizza nome, ruolo e avatar
+                {creating && isWebShell() && profiles.length === 0
+                  ? "Il tuo account è attivo. Crea un profilo locale per iniziare."
+                  : "Personalizza nome, ruolo e avatar"}
               </p>
             </div>
           </header>

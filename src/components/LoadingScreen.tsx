@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { BranchefyIntro } from "./BranchefyIntro";
 import { BootLiquidBackground } from "./LiquidBackground";
 import { readIntroSoundPref } from "../lib/settingsApi";
+import { isWebShell } from "../lib/runtimeInvoke";
+import { onWebAudioUnlock, playAudioElement } from "../lib/webAudio";
 
 const INTRO_SOUND_DELAY_MS = 500;
 const INTRO_HOLD_MS = 3500;
@@ -49,14 +51,26 @@ export function LoadingScreen({
     audio.volume = 0.92;
     audioRef.current = audio;
 
-    const playTimer = window.setTimeout(() => {
+    const playIntro = () => {
       if (!readIntroSoundPref()) return;
       audio.currentTime = 0;
-      void audio.play().catch(() => undefined);
-    }, INTRO_SOUND_DELAY_MS);
+      playAudioElement(audio);
+    };
+
+    let playTimer: number | undefined;
+    let cancelUnlock: (() => void) | undefined;
+
+    if (isWebShell()) {
+      cancelUnlock = onWebAudioUnlock(() => {
+        window.setTimeout(playIntro, INTRO_SOUND_DELAY_MS);
+      });
+    } else {
+      playTimer = window.setTimeout(playIntro, INTRO_SOUND_DELAY_MS);
+    }
 
     return () => {
-      window.clearTimeout(playTimer);
+      if (playTimer !== undefined) window.clearTimeout(playTimer);
+      cancelUnlock?.();
       audio.pause();
       audioRef.current = null;
     };

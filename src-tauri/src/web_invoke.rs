@@ -52,12 +52,20 @@ pub async fn dispatch_web_command(
     match command {
         "get_profiles" => ok(state.db.get_profiles()?),
         "create_profile_cmd" => {
-            let input: CreateProfileInput = parse_args(args)?;
-            ok(state.db.create_profile(&input)?)
+            #[derive(Deserialize)]
+            struct Args {
+                input: CreateProfileInput,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(state.db.create_profile(&parsed.input)?)
         }
         "delete_profile_cmd" => {
-            let id: String = parse_args(args)?;
-            state.db.delete_profile(&id)?;
+            #[derive(Deserialize)]
+            struct Args {
+                id: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            state.db.delete_profile(&parsed.id)?;
             ok(())
         }
         "update_profile_cmd" => {
@@ -80,6 +88,7 @@ pub async fn dispatch_web_command(
         }
         "set_profile_pin_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 profile_id: String,
                 pin: String,
@@ -94,6 +103,7 @@ pub async fn dispatch_web_command(
         }
         "remove_profile_pin_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 profile_id: String,
                 current_pin: String,
@@ -107,6 +117,7 @@ pub async fn dispatch_web_command(
         "get_settings_cmd" => ok(state.db.get_settings(state.media_root.read().as_path())?),
         "update_settings_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 profile_id: String,
                 input: UpdateSettingsInput,
@@ -123,6 +134,7 @@ pub async fn dispatch_web_command(
         }
         "fetch_sc_meta_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 title_id: i64,
                 slug: String,
@@ -138,9 +150,11 @@ pub async fn dispatch_web_command(
         }
         "fetch_sc_season_episodes_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 title_id: i64,
                 slug: String,
+                #[serde(rename = "season")]
                 season_number: i32,
             }
             let parsed: Args = parse_args(args)?;
@@ -161,6 +175,7 @@ pub async fn dispatch_web_command(
         }
         "resolve_sc_stream_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 title_id: i64,
                 slug: String,
@@ -185,6 +200,7 @@ pub async fn dispatch_web_command(
         }
         "resolve_sc_preview_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 title_id: i64,
                 slug: String,
@@ -232,11 +248,16 @@ pub async fn dispatch_web_command(
             ok(task.await.map_err(|e| format!("Errore anime: {e}"))??)
         }
         "fetch_saturn_meta_cmd" => {
-            let slug: String = parse_args(args)?;
+            #[derive(Deserialize)]
+            struct Args {
+                slug: String,
+            }
+            let parsed: Args = parse_args(args)?;
             if !crate::saturn_catalog::enabled(&state.db) {
                 return Err("Catalogo AnimeSaturn disabilitato".into());
             }
             let db = state.db.clone();
+            let slug = parsed.slug;
             let task = tokio::task::spawn_blocking(move || {
                 crate::saturn_playback::fetch_title_meta(db.as_ref(), &slug)
             });
@@ -244,6 +265,7 @@ pub async fn dispatch_web_command(
         }
         "resolve_saturn_stream_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 slug: String,
                 #[serde(default)]
@@ -268,22 +290,32 @@ pub async fn dispatch_web_command(
             ok(task.await.map_err(|e| format!("Errore saturn stream: {e}"))??)
         }
         "resolve_saturn_poster_cmd" => {
-            let slug: String = parse_args(args)?;
+            #[derive(Deserialize)]
+            struct Args {
+                slug: String,
+            }
+            let parsed: Args = parse_args(args)?;
             if !crate::saturn_catalog::enabled(&state.db) {
                 return ok(Option::<String>::None);
             }
             let db = state.db.clone();
+            let slug = parsed.slug;
             let task = tokio::task::spawn_blocking(move || {
                 crate::saturn_catalog::resolve_poster_for_slug(db.as_ref(), &slug)
             });
             ok(task.await.map_err(|e| format!("Errore poster: {e}"))?)
         }
         "fetch_loonex_meta_cmd" => {
-            let slug: String = parse_args(args)?;
+            #[derive(Deserialize)]
+            struct Args {
+                slug: String,
+            }
+            let parsed: Args = parse_args(args)?;
             if !crate::loonex_catalog::enabled(&state.db) {
                 return Err("Catalogo Loonex Cartoni disabilitato".into());
             }
             let db = state.db.clone();
+            let slug = parsed.slug;
             let task = tokio::task::spawn_blocking(move || {
                 crate::loonex_playback::fetch_title_meta(db.as_ref(), &slug)
             });
@@ -291,6 +323,7 @@ pub async fn dispatch_web_command(
         }
         "resolve_loonex_stream_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 slug: String,
                 #[serde(default)]
@@ -315,8 +348,14 @@ pub async fn dispatch_web_command(
             ok(task.await.map_err(|e| format!("Errore loonex stream: {e}"))??)
         }
         "fetch_youtube_meta_cmd" => {
-            let playlist_id: String = parse_args(args)?;
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                playlist_id: String,
+            }
+            let parsed: Args = parse_args(args)?;
             let db = state.db.clone();
+            let playlist_id = parsed.playlist_id;
             let task = tokio::task::spawn_blocking(move || {
                 crate::youtube_playback::fetch_title_meta(db.as_ref(), &playlist_id)
             });
@@ -324,6 +363,7 @@ pub async fn dispatch_web_command(
         }
         "resolve_youtube_stream_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 playlist_id: String,
                 video_id: String,
@@ -341,6 +381,7 @@ pub async fn dispatch_web_command(
         }
         "update_streaming_watch_progress_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 profile_id: String,
                 input: StreamingWatchProgressInput,
@@ -351,6 +392,7 @@ pub async fn dispatch_web_command(
         }
         "get_streaming_watch_progress_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 profile_id: String,
                 catalog_prefix: String,
@@ -371,6 +413,7 @@ pub async fn dispatch_web_command(
         }
         "list_streaming_title_progress_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 profile_id: String,
                 catalog_prefix: String,
@@ -389,6 +432,7 @@ pub async fn dispatch_web_command(
         }
         "get_streaming_continue_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 profile_id: String,
                 #[serde(default)]
@@ -399,6 +443,7 @@ pub async fn dispatch_web_command(
         }
         "get_streaming_watch_history_cmd" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 profile_id: String,
                 #[serde(default)]
@@ -408,8 +453,13 @@ pub async fn dispatch_web_command(
             ok(state.db.list_streaming_watch_history(&parsed.profile_id, parsed.limit.unwrap_or(50))?)
         }
         "list_streaming_list_cmd" => {
-            let profile_id: String = parse_args(args)?;
-            ok(state.db.list_streaming_list(&profile_id)?)
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                profile_id: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(state.db.list_streaming_list(&parsed.profile_id)?)
         }
         "toggle_streaming_list_cmd" => {
             #[derive(Deserialize)]
@@ -425,6 +475,7 @@ pub async fn dispatch_web_command(
                 release_info: Option<String>,
             }
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Args {
                 profile_id: String,
                 item: StreamingListInput,
@@ -443,8 +494,13 @@ pub async fn dispatch_web_command(
             )?)
         }
         "has_streaming_access_cmd" => {
-            let profile_id: String = parse_args(args)?;
-            ok(state.db.profile_has_streaming_access(&profile_id)?)
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                profile_id: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(state.db.profile_has_streaming_access(&parsed.profile_id)?)
         }
         "mangadex_fetch_cmd" => {
             #[derive(Deserialize)]
@@ -457,8 +513,12 @@ pub async fn dispatch_web_command(
             ok(crate::mangadex::mangadex_fetch_cmd(parsed.path, parsed.query).await?)
         }
         "extract_image_palette_cmd" => {
-            let image_url: String = parse_args(args)?;
-            ok(crate::image_palette::extract_image_palette_cmd(image_url).await?)
+            #[derive(Deserialize)]
+            struct Args {
+                url: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(crate::image_palette::extract_image_palette_cmd(parsed.url).await?)
         }
         "get_library" => ok(crate::models::Library {
             items: vec![],
