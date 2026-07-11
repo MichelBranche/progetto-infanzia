@@ -5,6 +5,10 @@ import type { StremioMetaPreview } from "../types/stremio";
 import type { MediaItem } from "../types/media";
 import { watchProgressPercent } from "../types/media";
 import { isRowDragging } from "../hooks/useRowScrollContainer";
+import {
+  playCardNavigationSound,
+  playCardOpenTitleSound,
+} from "../lib/cardNavigationSound";
 import { PosterImage } from "./PosterImage";
 
 export interface LordFlixContinueCardProps {
@@ -105,6 +109,7 @@ export const LordFlixContinueCard = memo(function LordFlixContinueCard({
       event.preventDefault();
       return;
     }
+    playCardOpenTitleSound();
     openBrowseItem(browse, {
       onPlay,
       onPlayStreaming,
@@ -123,6 +128,9 @@ export const LordFlixContinueCard = memo(function LordFlixContinueCard({
     <button
       type="button"
       className="lf-continue-card group/card"
+      onMouseEnter={() => {
+        if (!isRowDragging()) playCardNavigationSound();
+      }}
       onClick={handleClick}
       onPointerDown={handlePointerDown}
       aria-label={title}

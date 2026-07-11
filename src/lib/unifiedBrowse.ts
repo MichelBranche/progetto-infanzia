@@ -19,6 +19,10 @@ export type LibraryMediaType = "film" | "serie" | "cartone";
 const ANIMATION_CONTEXT =
   /anim|cartoon|carton|anime|bambin|kid|family|famiglia|disney|pixar|dreamworks|nickelodeon|miyazaki|sc-genre-animation|sc-genre-family|sc-genre-kids/i;
 
+export function isCartoniCatalogPreview(preview: StremioMetaPreview): boolean {
+  return preview.catalogPrefix === "loonex" || preview.catalogPrefix === "youtube";
+}
+
 function parseYear(releaseInfo?: string): number | undefined {
   if (!releaseInfo) return undefined;
   const match = releaseInfo.match(/\d{4}/);
@@ -59,6 +63,18 @@ export function isAnimationStreamingPreview(
   return (
     isAnimationContext(resolved) || isAnimationFromGenres(preview.genres)
   );
+}
+
+/** Cartoni section: solo cataloghi Loonex e YouTube. */
+export function isCartoniStreamingPreview(
+  preview: StremioMetaPreview,
+  _context?: { rowKey?: string; rowTitle?: string },
+): boolean {
+  return isCartoniCatalogPreview(preview);
+}
+
+export function isCartoniBrowseItem(item: BrowseItem): boolean {
+  return item.kind === "streaming" && isCartoniCatalogPreview(item.preview);
 }
 
 export function classifyStreamingMediaType(
@@ -264,7 +280,7 @@ function previewMatchesCollection(
   if (rule === "all") return true;
   if (rule === "capsula") return streamingInCapsula(preview);
   if (collectionId === "cartoni") {
-    return isAnimationStreamingPreview(preview);
+    return isCartoniStreamingPreview(preview);
   }
   return rule.includes(preview.mediaType as LibraryMediaType);
 }
@@ -345,25 +361,7 @@ function streamingPreviewContextKey(preview: StremioMetaPreview): string {
   return `${preview.type}:${preview.id}`;
 }
 
-function streamingPreviewHasPoster(preview: StremioMetaPreview): boolean {
-  return Boolean(preview.poster?.trim());
-}
-
-/** Loonex index entries may omit artwork; rows/detail can still supply it later. */
-function includeAnimationCatalogPreview(preview: StremioMetaPreview): boolean {
-  if (preview.catalogPrefix === "loonex") return true;
-  if (preview.catalogPrefix === "youtube") return true;
-  return streamingPreviewHasPoster(preview);
-}
-
-function animationCatalogPreviewRank(preview: StremioMetaPreview): number {
-  if (preview.catalogPrefix === "loonex") return 0;
-  if (preview.catalogPrefix === "youtube") return 0;
-  if (preview.catalogPrefix === "saturn") return 1;
-  return 2;
-}
-
-function streamingForAnimation(
+function streamingForCartoniCatalog(
   previews: StremioMetaPreview[],
   contextByKey: Map<string, { rowKey: string; rowTitle: string }>,
   streamingRows: StreamingRow[],
@@ -375,11 +373,11 @@ function streamingForAnimation(
     preview: StremioMetaPreview,
     context?: { rowKey: string; rowTitle: string },
   ) => {
+    if (!isCartoniCatalogPreview(preview)) return;
     const key = streamingPreviewDedupeKey(preview);
     if (seen.has(key)) return;
     const resolved =
       context ?? contextByKey.get(streamingPreviewContextKey(preview));
-    if (!isAnimationStreamingPreview(preview, resolved)) return;
     seen.add(key);
     result.push(
       streamingBrowseItem(enrichStreamingPreview(preview, resolved)),
@@ -387,29 +385,14 @@ function streamingForAnimation(
   };
 
   for (const preview of previews) {
-    if (preview.catalogPrefix !== "loonex") continue;
     push(preview);
   }
 
-  // Curated animation rows (Loonex cartoni, SC sliders) first — usually with covers.
   for (const row of streamingRows) {
-    if (!isAnimationContext({ rowKey: row.key, rowTitle: row.title })) {
-      continue;
-    }
     const context = { rowKey: row.key, rowTitle: row.title };
     for (const item of row.items) {
       push(item, context);
     }
-  }
-
-  const catalogCandidates = previews
-    .filter(includeAnimationCatalogPreview)
-    .sort(
-      (a, b) => animationCatalogPreviewRank(a) - animationCatalogPreviewRank(b),
-    );
-
-  for (const preview of catalogCandidates) {
-    push(preview);
   }
 
   return result;
@@ -459,7 +442,7 @@ function streamingForCollection(
   }
   if (collectionId === "cartoni") {
     return previews
-      .filter((preview) => isAnimationStreamingPreview(preview))
+      .filter((preview) => isCartoniStreamingPreview(preview))
       .map(streamingBrowseItem);
   }
   return streamingForTypes(previews, rule);
@@ -797,13 +780,12 @@ export function mergedSectionBrowseItems(
   }
 
   if (section === "cartoni") {
-    const local = toBrowseItems(localItems);
-    const streaming = streamingForAnimation(
+    const streaming = streamingForCartoniCatalog(
       enriched,
       contextByKey,
       streamingRows,
     );
-    return dedupeBrowseItems([...local, ...streaming]);
+    return dedupeBrowseItems(streaming);
   }
 
   if (section === "serie") {
@@ -849,7 +831,7 @@ export function buildCartoniHomeRow(
   return {
     key: "home-cartoni",
     title: "Cartoni",
-    subtitle: "Loonex, YouTube, animazione e libreria locale",
+    subtitle: "Loonex e YouTube",
     items: items.slice(0, HOME_ROW_DISPLAY_LIMIT),
   };
 }

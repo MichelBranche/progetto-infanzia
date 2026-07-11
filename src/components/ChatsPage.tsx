@@ -4,13 +4,17 @@ import { CloudAuthPanel } from "./CloudAuthPanel";
 import { ChatPanel } from "./chat/ChatPanel";
 import { ProfileCard, ProfileEmptyState, ProfileSectionLabel } from "./profile/ProfileUi";
 import { useCloudAccount } from "../context/CloudAccountContext";
+import { useChatPopup } from "../context/ChatPopupContext";
 import { listCloudFriends } from "../lib/cloudFriends";
 import {
   chatDisplayTitle,
   consumePendingChatId,
   createGroupChat,
+  deleteChatConversation,
   listMyChats,
 } from "../lib/cloudChat";
+import { formatChatMessagePreview } from "../lib/watchPartyInviteChatMessage";
+import { closeChatPopup } from "../lib/chatPopup";
 import type { ChatConversation } from "../types/chat";
 import type { CloudFriend } from "../types/cloud";
 
@@ -25,6 +29,8 @@ export function ChatsPage() {
   const [groupTitle, setGroupTitle] = useState("");
   const [groupMemberIds, setGroupMemberIds] = useState<string[]>([]);
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const [deletingChat, setDeletingChat] = useState(false);
+  const chatPopup = useChatPopup();
 
   const refresh = useCallback(async () => {
     if (!cloudProfile) {
@@ -97,6 +103,31 @@ export function ChatsPage() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setCreatingGroup(false);
+    }
+  };
+
+  const handleDeleteChat = async () => {
+    if (!selectedChat || !selectedId || selectedChat.kind === "watch_party") return;
+    const label = chatDisplayTitle(selectedChat);
+    const confirmed = window.confirm(
+      selectedChat.kind === "group"
+        ? `Vuoi uscire da "${label}" o eliminarla se ne sei il creatore?`
+        : `Eliminare la chat con ${label}?`,
+    );
+    if (!confirmed) return;
+
+    setDeletingChat(true);
+    setError(null);
+    try {
+      await deleteChatConversation(selectedId);
+      closeChatPopup({ conversationId: selectedId });
+      chatPopup.close();
+      setSelectedId(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeletingChat(false);
     }
   };
 
@@ -238,10 +269,11 @@ export function ChatsPage() {
                             {title}
                           </p>
                           <p className="mt-0.5 truncate text-[11px] text-text-muted">
-                            {chat.lastMessage?.body ??
-                              (chat.kind === "watch_party"
+                            {chat.lastMessage?.body
+                              ? formatChatMessagePreview(chat.lastMessage.body)
+                              : chat.kind === "watch_party"
                                 ? `Stanza ${chat.watchPartyCode}`
-                                : `${chat.memberCount} membri`)}
+                                : `${chat.memberCount} membri`}
                           </p>
                         </div>
                       </button>
@@ -262,6 +294,9 @@ export function ChatsPage() {
                     ? `${selectedChat.memberCount} membri`
                     : undefined
               }
+              canDeleteChat={Boolean(selectedChat && selectedChat.kind !== "watch_party")}
+              deletingChat={deletingChat}
+              onDeleteChat={handleDeleteChat}
             />
           </div>
         )}

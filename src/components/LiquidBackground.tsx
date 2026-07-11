@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 import { useHeroAmbientActive } from "../context/HeroAmbientContext";
 import { getAmbientDisplayPalette } from "../lib/ambientCss";
 import { getUserAmbientPalette } from "../lib/ambientThemes";
-
 // Fallback shader se la palette utente non è disponibile.
 const REF_C1: [number, number, number] = [224, 0, 145];
 const REF_C2: [number, number, number] = [122, 31, 162];
@@ -204,7 +203,7 @@ function useLiquidCanvas(
   }, []);
 }
 
-export function LiquidBackground() {
+function LiquidBackgroundCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { active } = useHeroAmbientActive();
   const activeRef = useRef(active);
@@ -222,11 +221,14 @@ export function LiquidBackground() {
   );
 }
 
+export function LiquidBackground() {
+  return <LiquidBackgroundCanvas />;
+}
 /**
  * Variante standalone (senza HeroAmbientContext) per schermate di boot:
  * usa sempre la palette LordFlix di riferimento, a piena visibilità.
  */
-export function BootLiquidBackground({ className = "" }: { className?: string }) {
+function BootLiquidBackgroundCanvas({ className = "" }: { className?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const activeRef = useRef(false);
 
@@ -237,4 +239,8 @@ export function BootLiquidBackground({ className = "" }: { className?: string })
       <canvas ref={canvasRef} className="liquid-bg__canvas" />
     </div>
   );
+}
+
+export function BootLiquidBackground({ className = "" }: { className?: string }) {
+  return <BootLiquidBackgroundCanvas className={className} />;
 }

@@ -27,6 +27,10 @@ import { StreamingVideoPreview } from "./StreamingVideoPreview";
 import { StreamingBadges } from "./StreamingBadges";
 import { useLibrary } from "../context/LibraryContext";
 import { useRowInteraction, isRowDragging } from "../hooks/useRowScrollContainer";
+import {
+  playCardNavigationSound,
+  playCardOpenTitleSound,
+} from "../lib/cardNavigationSound";
 
 const CARD_DRAG_THRESHOLD_PX = 8;
 
@@ -124,6 +128,7 @@ export const MediaCard = memo(function MediaCard({
       pointerDragRef.current.active = false;
       return;
     }
+    playCardOpenTitleSound();
     if (onOpenDetail) {
       onOpenDetail(browse);
       return;
@@ -145,6 +150,7 @@ export const MediaCard = memo(function MediaCard({
 
   const handleEnter = () => {
     if (isRowDragging()) return;
+    playCardNavigationSound();
     hoverTimer.current = window.setTimeout(() => {
       if (isRowDragging()) return;
       setExpanded(true);
@@ -230,6 +236,7 @@ export const MediaCard = memo(function MediaCard({
     return (
       <motion.article
         className="group relative w-full cursor-pointer"
+        onMouseEnter={handleEnter}
         onClick={handleClick}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}

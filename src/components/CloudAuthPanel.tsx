@@ -10,7 +10,16 @@ import {
   UserPlus,
 } from "lucide-react";
 import { useCloudAccount } from "../context/CloudAccountContext";
-import { SettingsCard } from "./settings/SettingsUi";
+import {
+  SettingsAlert,
+  SettingsButton,
+  SettingsCard,
+  SettingsField,
+  SettingsIconBadge,
+  SettingsInput,
+  SettingsInset,
+  SettingsSegmented,
+} from "./settings/SettingsUi";
 
 type AuthMode = "login" | "register";
 
@@ -40,11 +49,9 @@ export function CloudAuthPanel() {
     return (
       <SettingsCard>
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.05]">
-            <Cloud className="h-5 w-5 text-text-muted" />
-          </div>
+          <SettingsIconBadge icon={Cloud} className="opacity-70" />
           <div>
-            <h3 className="text-[15px] font-medium text-text-primary">
+            <h3 className="font-display text-[15px] font-semibold tracking-[-0.02em] text-text-primary">
               Account online
             </h3>
             <p className="mt-1 text-[13px] leading-relaxed text-text-muted">
@@ -80,51 +87,49 @@ export function CloudAuthPanel() {
 
   if (profile) {
     return (
-      <section className="overflow-hidden rounded-2xl border border-accent/25 bg-gradient-to-br from-accent/10 via-accent/5 to-transparent p-5">
+      <SettingsCard variant="accent">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-accent/15">
-              <Cloud className="h-5 w-5 text-accent" />
-            </div>
+            <SettingsIconBadge icon={Cloud} />
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-accent">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">
                 Connesso
               </p>
-              <p className="mt-1 text-[16px] font-medium text-text-primary">
+              <p className="font-display mt-1 text-[17px] font-semibold tracking-[-0.02em] text-text-primary">
                 {profile.displayName}
               </p>
               <p className="text-[13px] text-text-muted">{profile.email}</p>
             </div>
           </div>
-          <button
-            type="button"
+          <SettingsButton
+            variant="secondary"
             onClick={() => void signOut()}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-[11px] text-text-secondary hover:bg-white/[0.04] hover:text-text-primary"
+            className="shrink-0 px-3 py-2"
           >
             <LogOut className="h-3 w-3" />
             Esci
-          </button>
+          </SettingsButton>
         </div>
 
-        <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-white/[0.06] bg-black/20 px-4 py-3">
+        <SettingsInset className="mt-5 flex flex-wrap items-center gap-3">
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted">
+            <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-text-muted">
               Codice amico cloud
             </p>
             <p className="font-mono text-lg font-semibold tracking-[0.2em] text-text-primary">
               {profile.friendCode}
             </p>
           </div>
-          <button
-            type="button"
+          <SettingsButton
+            variant="secondary"
             onClick={() => void copyFriendCode()}
-            className="ml-auto inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-[11px] text-text-primary hover:bg-white/[0.04]"
+            className="ml-auto px-3 py-2"
           >
             <Copy className="h-3.5 w-3.5" />
             {copied ? "Copiato" : "Copia"}
-          </button>
-        </div>
-      </section>
+          </SettingsButton>
+        </SettingsInset>
+      </SettingsCard>
     );
   }
 
@@ -150,11 +155,9 @@ export function CloudAuthPanel() {
   return (
     <SettingsCard>
       <div className="mb-5 flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10">
-          <Cloud className="h-5 w-5 text-accent" />
-        </div>
+        <SettingsIconBadge icon={Cloud} />
         <div>
-          <h3 className="text-[15px] font-medium text-text-primary">
+          <h3 className="font-display text-[15px] font-semibold tracking-[-0.02em] text-text-primary">
             Account online
           </h3>
           <p className="text-[12px] text-text-muted">
@@ -165,52 +168,28 @@ export function CloudAuthPanel() {
         </div>
       </div>
 
-      <div className="mb-5 flex rounded-xl bg-white/[0.04] p-1">
-        <button
-          type="button"
-          onClick={() => {
-            setMode("login");
-            setError(null);
-            setMessage(null);
-          }}
-          className={`flex-1 rounded-lg py-2 text-[12px] font-medium transition-colors ${
-            mode === "login"
-              ? "bg-white text-black shadow-sm"
-              : "text-text-muted hover:text-text-primary"
-          }`}
-        >
-          Accedi
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setMode("register");
-            setError(null);
-            setMessage(null);
-          }}
-          className={`flex-1 rounded-lg py-2 text-[12px] font-medium transition-colors ${
-            mode === "register"
-              ? "bg-white text-black shadow-sm"
-              : "text-text-muted hover:text-text-primary"
-          }`}
-        >
-          Registrati
-        </button>
-      </div>
+      <SettingsSegmented
+        value={mode}
+        options={[
+          { id: "login", label: "Accedi" },
+          { id: "register", label: "Registrati" },
+        ]}
+        onChange={(next) => {
+          setMode(next);
+          setError(null);
+          setMessage(null);
+        }}
+      />
 
-      {error && (
-        <p className="mb-3 rounded-lg border border-warm/20 bg-warm/10 px-3 py-2 text-[12px] text-warm">
-          {error}
-        </p>
-      )}
+      {error && <SettingsAlert className="mt-4">{error}</SettingsAlert>}
       {message && (
-        <p className="mb-3 rounded-lg border border-mint/20 bg-mint/10 px-3 py-2 text-[12px] text-mint">
+        <SettingsAlert variant="success" className="mt-4">
           {message}
-        </p>
+        </SettingsAlert>
       )}
 
       <form
-        className="space-y-3"
+        className="mt-5 space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
           if (!busy && email.trim() && password.length >= 6) {
@@ -219,47 +198,34 @@ export function CloudAuthPanel() {
         }}
       >
         {mode === "register" && (
-          <div>
-            <label className="mb-1.5 block text-[11px] font-medium text-text-muted">
-              Nome visualizzato
-            </label>
-            <input
+          <SettingsField label="Nome visualizzato">
+            <SettingsInput
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="Come ti vedono gli amici"
               autoComplete="name"
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-[13px] outline-none focus:border-accent/30"
             />
-          </div>
+          </SettingsField>
         )}
-        <div>
-          <label className="mb-1.5 block text-[11px] font-medium text-text-muted">
-            Email
-          </label>
-          <input
+        <SettingsField label="Email">
+          <SettingsInput
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="tu@email.it"
             autoComplete="email"
-            className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-[13px] outline-none focus:border-accent/30"
           />
-        </div>
-        <div>
-          <label className="mb-1.5 block text-[11px] font-medium text-text-muted">
-            Password
-          </label>
+        </SettingsField>
+        <SettingsField label="Password">
           <div className="relative">
-            <input
+            <SettingsInput
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Minimo 6 caratteri"
-              autoComplete={
-                mode === "register" ? "new-password" : "current-password"
-              }
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 pr-10 text-[13px] outline-none focus:border-accent/30"
+              autoComplete={mode === "register" ? "new-password" : "current-password"}
+              className="pr-11"
             />
             <button
               type="button"
@@ -274,11 +240,12 @@ export function CloudAuthPanel() {
               )}
             </button>
           </div>
-        </div>
-        <button
+        </SettingsField>
+        <SettingsButton
           type="submit"
+          variant="primary"
           disabled={busy || !email.trim() || password.length < 6}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-[14px] font-semibold text-black disabled:opacity-50"
+          className="w-full py-3"
         >
           {busy ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -288,7 +255,7 @@ export function CloudAuthPanel() {
             <LogIn className="h-4 w-4" />
           )}
           {mode === "register" ? "Crea account" : "Accedi"}
-        </button>
+        </SettingsButton>
       </form>
     </SettingsCard>
   );

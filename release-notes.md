@@ -1,25 +1,27 @@
 ## Novità
 
-- **Restyling LordFlix**: homepage con hero, righe, card poster, continue watching e footer ridisegnati
-- **Sfondo animato WebGL**: aurora liquida su Film, Serie TV, caricamento e selezione profilo
-- **Nuova intro Branchefy**: wordmark chromatic con reveal, sweep di luce e aurora sullo sfondo
-- **Impostazioni rinnovate**: card in stile popup aggiornamento e scelta del colore dello sfondo animato (5 temi)
-- **Watch party**: pannello modale centrato, join online/LAN più chiaro e feedback migliorato
-- **Animazioni lista**: effetti sparkle potenziati sui tasti «+» per aggiungere titoli
-- **Loghi hero**: titoli in evidenza ingranditi del 50%
+- **Barra amici in top nav**: avatar stack, stato online/away/DND, chat rapida e inviti watch party
+- **Inviti watch party**: invita amici dalla barra amici, dal menu amici o dal pannello «Guarda insieme»
+- **Inviti in chat privata**: card dedicata con titolo, codice stanza e pulsante **Unisciti**
+- **Stato stanza negli inviti**: ogni invito in chat mostra se la stanza è ancora **attiva** o **chiusa** (aggiornamento live)
+- **Suoni**: notifica invito watch party e suoni su navigazione/apertura card
+- **Chat migliorata**: picker emoji, invio messaggi più affidabile, eliminazione conversazioni
+- **Popup chat**: apri una chat con un amico senza uscire da ciò che stai guardando
 
 ## Miglioramenti
 
-- Sezioni Film e Serie TV con layout discovery e filtri in stile LordFlix
-- Top nav e navigazione mobile aggiornate al nuovo design system
-- Selezione profilo con aurora liquida e brand chromatic
-- Patina scura della hero che dissolve gradualmente nel backdrop (niente taglio netto prima di Top 10)
-- Logo «B» corretto in top nav e footer (niente clipping da skew)
+- Inviti watch party anche per stanze **LAN** (con IP host in chat)
+- Menu profilo e amici in portal per evitare problemi di rendering su Tauri
+- Presenza amici condivisa senza crash (fix schermo nero su Profilo)
+- Animazioni pill della navigazione ripristinate su desktop Tauri
+- Aurora liquida e colori hero mantenuti con fix mirati per WebView2
 
 ## Correzioni
 
-- Fix clipping caratteri su wordmark chromatic (intro, nav, footer)
-- Fix join watch party in modalità Online vs stessa rete
+- Fix crash `useWatchPartyHost` fuori dal provider quando si apre il player da watch party
+- Fix schermo nero aprendo Profilo (doppia sottoscrizione presence Supabase)
+- Fix join watch party da invito (cloud e LAN)
+- Pulizia chat watch party quando la stanza viene chiusa (migrazione Supabase)
 
 ## Piattaforme
 

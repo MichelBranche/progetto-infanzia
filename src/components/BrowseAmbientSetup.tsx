@@ -7,10 +7,13 @@ export function isBrowseAmbientSection(
   activeNav: string,
   seriesKey: string | null,
 ): boolean {
-  return (activeNav === "film" || activeNav === "serie") && !seriesKey;
+  return (
+    (activeNav === "film" || activeNav === "serie" || activeNav === "anime") &&
+    !seriesKey
+  );
 }
 
-/** Attiva palette e classe root per l'aurora liquid su Film / Serie TV. */
+/** Attiva palette e classe root per l'aurora liquid su Film / Serie TV / Anime. */
 export function BrowseAmbientSetup({
   activeNav,
   seriesKey,

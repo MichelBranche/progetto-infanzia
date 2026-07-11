@@ -68,7 +68,12 @@ export function useCloudFriendPresence(active = true) {
     if (ids.length === 0) return;
 
     const poll = window.setInterval(() => void refresh(), HEARTBEAT_MS);
-    const unsub = subscribeFriendsPresence(ids, () => void refresh());
+    let unsub = () => {};
+    try {
+      unsub = subscribeFriendsPresence(ids, () => void refresh());
+    } catch (error) {
+      console.warn("[presence] realtime subscribe failed:", error);
+    }
 
     return () => {
       window.clearInterval(poll);

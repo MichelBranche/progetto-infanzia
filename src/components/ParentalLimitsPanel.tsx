@@ -13,6 +13,14 @@ import {
   type ProfileLimits,
 } from "../lib/parentalApi";
 import type { InstalledAddon } from "../types/stremio";
+import {
+  SettingsCheckboxRow,
+  SettingsDivider,
+  SettingsEmpty,
+  SettingsField,
+  SettingsInput,
+  SettingsPill,
+} from "./settings/SettingsUi";
 
 export function ParentalLimitsPanel({ parentProfileId }: { parentProfileId: string }) {
   const { profiles } = useProfile();
@@ -71,40 +79,34 @@ export function ParentalLimitsPanel({ parentProfileId }: { parentProfileId: stri
 
   if (children.length === 0) {
     return (
-      <p className="mt-2 text-[13px] text-text-muted">
+      <SettingsEmpty>
         Crea un profilo bambino per impostare limiti di tempo.
-      </p>
+      </SettingsEmpty>
     );
   }
 
   return (
-    <div className="mt-4 space-y-4">
+    <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         {children.map((child) => (
-          <button
+          <SettingsPill
             key={child.id}
-            type="button"
+            active={selectedId === child.id}
             onClick={() => setSelectedId(child.id)}
-            className={`rounded-full border px-3 py-1.5 text-[12px] ${
-              selectedId === child.id
-                ? "border-accent/40 bg-accent/10 text-text-primary"
-                : "border-white/[0.08] text-text-muted"
-            }`}
           >
             {child.name}
-          </button>
+          </SettingsPill>
         ))}
       </div>
 
       {loading || !limits ? (
-        <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
+        <div className="flex justify-center py-6">
+          <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
+        </div>
       ) : (
         <>
-          <label className="block">
-            <span className="text-[12px] text-text-muted">
-              Limite giornaliero (minuti, 0 = illimitato)
-            </span>
-            <input
+          <SettingsField label="Limite giornaliero (minuti, 0 = illimitato)">
+            <SettingsInput
               type="number"
               min={0}
               max={600}
@@ -116,16 +118,13 @@ export function ParentalLimitsPanel({ parentProfileId }: { parentProfileId: stri
                   dailyLimitMins: Number(e.target.value) || 0,
                 })
               }
-              onBlur={() =>
-                void save({ dailyLimitMins: limits.dailyLimitMins })
-              }
-              className="mt-2 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-[13px] outline-none focus:border-accent/30"
+              onBlur={() => void save({ dailyLimitMins: limits.dailyLimitMins })}
             />
-          </label>
+          </SettingsField>
+
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className="text-[12px] text-text-muted">Inizio niente TV</span>
-              <input
+            <SettingsField label="Inizio niente TV">
+              <SettingsInput
                 type="time"
                 value={limits.bedtimeStart ?? ""}
                 disabled={saving}
@@ -138,12 +137,10 @@ export function ParentalLimitsPanel({ parentProfileId }: { parentProfileId: stri
                     bedtimeEnd: limits.bedtimeEnd || "",
                   })
                 }
-                className="mt-2 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-[13px] outline-none focus:border-accent/30"
               />
-            </label>
-            <label className="block">
-              <span className="text-[12px] text-text-muted">Fine niente TV</span>
-              <input
+            </SettingsField>
+            <SettingsField label="Fine niente TV">
+              <SettingsInput
                 type="time"
                 value={limits.bedtimeEnd ?? ""}
                 disabled={saving}
@@ -156,58 +153,55 @@ export function ParentalLimitsPanel({ parentProfileId }: { parentProfileId: stri
                     bedtimeEnd: limits.bedtimeEnd || "",
                   })
                 }
-                className="mt-2 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-[13px] outline-none focus:border-accent/30"
               />
-            </label>
+            </SettingsField>
           </div>
 
           {STREMIO_ADDONS_ENABLED && (
-          <div className="border-t border-white/[0.06] pt-4">
-            <p className="text-[13px] font-medium text-text-primary">
-              Addon streaming consentiti
-            </p>
-            <p className="mt-1 text-[12px] text-text-muted">
-              Solo gli addon selezionati compaiono in «In streaming» per questo
-              bambino.
-            </p>
-            {allAddons.length === 0 ? (
-              <p className="mt-3 text-[12px] text-text-muted">
-                Installa prima degli addon nella sezione sopra.
-              </p>
-            ) : (
-              <ul className="mt-3 space-y-2">
-                {allAddons.map((addon) => {
-                  const checked = allowedAddonIds.includes(addon.id);
-                  return (
-                    <label
-                      key={addon.id}
-                      className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={allowlistSaving}
-                        onChange={() => {
-                          const next = checked
-                            ? allowedAddonIds.filter((id) => id !== addon.id)
-                            : [...allowedAddonIds, addon.id];
-                          setAllowedAddonIds(next);
-                          setAllowlistSaving(true);
-                          void setAddonAllowlist(
-                            parentProfileId,
-                            selectedId,
-                            next,
-                          ).finally(() => setAllowlistSaving(false));
-                        }}
-                        className="rounded border-white/20"
-                      />
-                      <span className="text-[13px] text-text-primary">{addon.name}</span>
-                    </label>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
+            <>
+              <SettingsDivider className="my-5" />
+              <div>
+                <p className="font-display text-[14px] font-medium tracking-[-0.01em] text-text-primary">
+                  Addon streaming consentiti
+                </p>
+                <p className="mt-1 text-[12px] text-text-muted">
+                  Solo gli addon selezionati compaiono in «In streaming» per questo
+                  bambino.
+                </p>
+                {allAddons.length === 0 ? (
+                  <SettingsEmpty className="mt-3">
+                    Installa prima degli addon nella sezione sopra.
+                  </SettingsEmpty>
+                ) : (
+                  <ul className="mt-3 space-y-2">
+                    {allAddons.map((addon) => {
+                      const checked = allowedAddonIds.includes(addon.id);
+                      return (
+                        <li key={addon.id}>
+                          <SettingsCheckboxRow
+                            checked={checked}
+                            disabled={allowlistSaving}
+                            label={addon.name}
+                            onChange={() => {
+                              const next = checked
+                                ? allowedAddonIds.filter((id) => id !== addon.id)
+                                : [...allowedAddonIds, addon.id];
+                              setAllowedAddonIds(next);
+                              setAllowlistSaving(true);
+                              void setAddonAllowlist(
+                                parentProfileId,
+                                selectedId,
+                                next,
+                              ).finally(() => setAllowlistSaving(false));
+                            }}
+                          />
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </>
           )}
         </>
       )}

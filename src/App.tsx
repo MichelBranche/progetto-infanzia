@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useStreamingSearch } from "./lib/useStreamingSearch";
 import { LoadingScreen } from "./components/LoadingScreen";
@@ -9,7 +9,7 @@ import { AppMobileNavBar } from "./components/AppMobileNavBar";
 import { LiquidBackground } from "./components/LiquidBackground";
 import { HomeHeroBackdrop } from "./components/HomeHeroBackdrop";
 import { BrowseAmbientSetup } from "./components/BrowseAmbientSetup";
-import { HeroAmbientProvider } from "./context/HeroAmbientContext";
+import { HeroAmbientProvider, useHeroAmbientControls } from "./context/HeroAmbientContext";
 import { HeroBanner } from "./components/HeroBanner";
 import { MediaRow } from "./components/MediaRow";
 import { SectionBrowsePage } from "./components/SectionBrowsePage";
@@ -26,6 +26,9 @@ import { usePresenceHeartbeat } from "./hooks/useFriendPresence";
 import { NotificationProvider, useNotifications } from "./context/NotificationContext";
 import { CloudFriendAlertsProvider, useCloudFriendAlertsContext } from "./context/CloudFriendAlertsContext";
 import { ChatMessageAlertsProvider } from "./context/ChatMessageAlertsContext";
+import { ChatPopupProvider } from "./context/ChatPopupContext";
+import { FriendsMenuProvider } from "./context/FriendsMenuContext";
+import { IS_TAURI_SHELL } from "./lib/tauriShell";
 import { ProfileProvider, useProfile } from "./context/ProfileContext";
 import {
   AppAccessProvider,
@@ -73,8 +76,18 @@ import {
   browseDetailAction,
   similarBrowseItems,
 } from "./lib/browseDetail";
+import { useWatchPartyInviteAlerts } from "./hooks/useWatchPartyInviteAlerts";
+import { WatchPartyHostProvider } from "./context/WatchPartyHostContext";
+import { joinCloudWatchParty } from "./lib/cloudWatchParty";
+import { ensureWatchPartyChat } from "./lib/cloudChat";
 import type { WatchPartySession } from "./types/watchParty";
 import type { MangaBrowseItem } from "./types/mangadex";
+import { FRIEND_REQUESTS_EVENT } from "./lib/friendRequestsNavigation";
+import {
+  consumePendingWatchPartyInvite,
+  WATCH_PARTY_JOIN_EVENT,
+} from "./lib/watchPartyInviteNavigation";
+import { guestSessionFromInvitePayload } from "./lib/watchPartyInviteChatMessage";
 import { getMangaProgress } from "./lib/mangaProgress";
 
 const WatchPage = lazy(() =>
@@ -150,6 +163,97 @@ function SuspenseRoute({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
 }
 
+const APP_FRAME_CLASS =
+  "relative flex h-full min-h-0 flex-col lordflix-shell lordflix-app-frame";
+
+function AppFrame({ children }: { children: ReactNode }) {
+  if (IS_TAURI_SHELL) {
+    return <div className={APP_FRAME_CLASS}>{children}</div>;
+  }
+  return (
+    <motion.div
+      className={APP_FRAME_CLASS}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+function RouteFrame({
+  routeKey,
+  children,
+}: {
+  routeKey: string;
+  children: ReactNode;
+}) {
+  // WebView2: key sulla route rimonta tutto l'albero e può lasciare schermo nero.
+  if (IS_TAURI_SHELL) {
+    return <>{children}</>;
+  }
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={routeKey}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -6 }}
+        transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+      >
+        {children}
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+/** WebView2: spegne solo backdrop hero fuori home; aurora e palette restano attivi. */
+function TauriHeroAmbientBridge({
+  activeNav,
+  seriesKey,
+}: {
+  activeNav: string;
+  seriesKey: string | null;
+}) {
+  const { setActive, setBackdropUrl } = useHeroAmbientControls();
+
+  useEffect(() => {
+    if (!IS_TAURI_SHELL) return;
+    const onHome = activeNav === "home" && !seriesKey;
+    if (onHome) {
+      setActive(true);
+      return;
+    }
+    setActive(false);
+    setBackdropUrl(null);
+  }, [activeNav, seriesKey, setActive, setBackdropUrl]);
+
+  return null;
+}
+
+/**
+ * WebView2: mantiene la home nel DOM (nascosta) quando si naviga altrove,
+ * così aurora/WebGL/hero ambient non vengono smontati e il compositor resta stabile.
+ */
+function TauriKeepAliveSlot({
+  enabled,
+  show,
+  children,
+}: {
+  enabled: boolean;
+  show: boolean;
+  children: ReactNode;
+}) {
+  if (!enabled) {
+    return show ? <>{children}</> : null;
+  }
+  return (
+    <div className={show ? "relative z-[1]" : "hidden"} aria-hidden={!show}>
+      {children}
+    </div>
+  );
+}
+
 function AppContent() {
   const { activeProfile, clearProfile, isParent } = useProfile();
   const { profile: cloudProfile, user, signOut } = useCloudAccount();
@@ -178,6 +282,42 @@ function AppContent() {
   const [addonWatch, setAddonWatch] = useState<AddonWatchTarget | null>(null);
   const [detailSimilar, setDetailSimilar] = useState<BrowseItem[]>([]);
   const [partyGuestSession, setPartyGuestSession] = useState<WatchPartySession | null>(null);
+  const handleJoinWatchPartyFromInvite = useCallback(
+    async (session: WatchPartySession) => {
+      if (session.relay === "cloud") {
+        try {
+          const room = await joinCloudWatchParty(session.room.code);
+          if (!room) {
+            notify({
+              kind: "info",
+              title: "Stanza non trovata",
+              message:
+                "La stanza potrebbe essere chiusa. Chiedi un nuovo invito all'host.",
+            });
+            return;
+          }
+          try {
+            await ensureWatchPartyChat(room.code);
+          } catch {
+            // join ok anche senza chat immediata
+          }
+          setPartyGuestSession({ role: "guest", room, relay: "cloud" });
+          return;
+        } catch (err) {
+          notify({
+            kind: "info",
+            title: "Impossibile unirsi",
+            message: err instanceof Error ? err.message : String(err),
+          });
+          return;
+        }
+      }
+      setPartyGuestSession(session);
+    },
+    [notify],
+  );
+
+  useWatchPartyInviteAlerts(handleJoinWatchPartyFromInvite);
   const [mangaDetail, setMangaDetail] = useState<MangaBrowseItem | null>(null);
   const [mangaReader, setMangaReader] = useState<{
     mangaId: string;
@@ -284,9 +424,29 @@ function AppContent() {
       setSearchOpen(false);
       setActiveNav("chats");
     };
+    const openFriendRequests = () => {
+      setSeriesKey(null);
+      setMangaDetail(null);
+      setMangaReader(null);
+      setSearchOpen(false);
+      setSearchQuery("");
+      setProfileTab("friends");
+      setActiveNav("profile");
+    };
+    const joinWatchPartyFromChat = () => {
+      const payload = consumePendingWatchPartyInvite();
+      if (!payload) return;
+      void handleJoinWatchPartyFromInvite(guestSessionFromInvitePayload(payload));
+    };
     window.addEventListener("branchefy:open-chat", openChats);
-    return () => window.removeEventListener("branchefy:open-chat", openChats);
-  }, []);
+    window.addEventListener(FRIEND_REQUESTS_EVENT, openFriendRequests);
+    window.addEventListener(WATCH_PARTY_JOIN_EVENT, joinWatchPartyFromChat);
+    return () => {
+      window.removeEventListener("branchefy:open-chat", openChats);
+      window.removeEventListener(FRIEND_REQUESTS_EVENT, openFriendRequests);
+      window.removeEventListener(WATCH_PARTY_JOIN_EVENT, joinWatchPartyFromChat);
+    };
+  }, [handleJoinWatchPartyFromInvite]);
 
   const ensureGuestCanPlay = useCallback(() => {
     if (isGuest && guestLimitReached) {
@@ -752,6 +912,12 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
+    if (!IS_TAURI_SHELL) return;
+    const el = mainScrollRef.current;
+    if (el) el.scrollTop = 0;
+  }, [activeNav, seriesKey]);
+
+  useEffect(() => {
     if (activeNav !== "home" || !activeProfile?.id) return;
     const el = mainScrollRef.current;
     if (!el) return;
@@ -930,12 +1096,17 @@ function AppContent() {
   const sectionInfo = sectionMeta[activeNav];
 
   return (
-    <HeroAmbientProvider>
-    <motion.div
-      className="relative flex h-full min-h-0 flex-col lordflix-shell lordflix-app-frame"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
+    <FriendsMenuProvider
+      profileId={activeProfile.id}
+      profileName={activeProfile.name}
+      onNavigate={handleNav}
+      onJoinWatchParty={(session) => {
+        setPartyGuestSession(session);
+      }}
     >
+    <HeroAmbientProvider>
+    <TauriHeroAmbientBridge activeNav={activeNav} seriesKey={seriesKey} />
+    <AppFrame>
       <BrowseAmbientSetup activeNav={activeNav} seriesKey={seriesKey} />
       <LiquidBackground />
       <HomeHeroBackdrop />
@@ -1005,14 +1176,7 @@ function AppContent() {
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/10 border-t-accent" />
             </div>
           ) : (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={seriesKey ?? activeNav}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
-              >
+            <RouteFrame routeKey={seriesKey ?? activeNav}>
                 {!(activeNav === "home" && !seriesKey) && (
                   <div
                     className="shrink-0"
@@ -1069,20 +1233,22 @@ function AppContent() {
                 )}
 
                 {!seriesKey && activeNav === "profile" && (
-                  <ProfilePage
-                    profile={activeProfile}
-                    profileId={activeProfile.id}
-                    activeTab={profileTab}
-                    onTabChange={setProfileTab}
-                    streamingList={streamingList}
-                    streamingListKeys={streamingListKeys}
-                    onPlayStreaming={handlePlayStreaming}
-                    onToggleStreamingList={handleToggleStreamingList}
-                    onJoinSession={(session) => {
-                      setPartyGuestSession(session);
-                    }}
-                    pendingFriendRequests={pendingFriendRequests}
-                  />
+                  <div className={IS_TAURI_SHELL ? "relative z-[3]" : undefined}>
+                    <ProfilePage
+                      profile={activeProfile}
+                      profileId={activeProfile.id}
+                      activeTab={profileTab}
+                      onTabChange={setProfileTab}
+                      streamingList={streamingList}
+                      streamingListKeys={streamingListKeys}
+                      onPlayStreaming={handlePlayStreaming}
+                      onToggleStreamingList={handleToggleStreamingList}
+                      onJoinSession={(session) => {
+                        setPartyGuestSession(session);
+                      }}
+                      pendingFriendRequests={pendingFriendRequests}
+                    />
+                  </div>
                 )}
 
                 {!seriesKey && activeNav === "activity" && isParent && (
@@ -1127,7 +1293,8 @@ function AppContent() {
                   </SuspenseRoute>
                 )}
 
-                {!seriesKey && activeNav === "home" && (
+                {!seriesKey && (activeNav === "home" || IS_TAURI_SHELL) && (
+                  <TauriKeepAliveSlot enabled={IS_TAURI_SHELL} show={activeNav === "home"}>
                   <>
                     {!homeContentReady && !continueHomeRow ? (
                       <div className="pb-16">
@@ -1294,6 +1461,7 @@ function AppContent() {
                       </>
                     )}
                   </>
+                  </TauriKeepAliveSlot>
                 )}
 
                 {!seriesKey &&
@@ -1346,8 +1514,7 @@ function AppContent() {
                     onToggleStreamingList={handleToggleStreamingList}
                   />
                 )}
-              </motion.div>
-            </AnimatePresence>
+            </RouteFrame>
           )}
         </main>
       </div>
@@ -1366,8 +1533,9 @@ function AppContent() {
           />
         </SuspenseRoute>
       )}
-    </motion.div>
+    </AppFrame>
     </HeroAmbientProvider>
+    </FriendsMenuProvider>
   );
 }
 
@@ -1448,7 +1616,11 @@ function AppGate() {
             <AppUpdaterProvider>
               <CloudFriendAlertsProvider>
                 <ChatMessageAlertsProvider>
-                  <AppContent />
+                  <ChatPopupProvider>
+                    <WatchPartyHostProvider>
+                      <AppContent />
+                    </WatchPartyHostProvider>
+                  </ChatPopupProvider>
                 </ChatMessageAlertsProvider>
               </CloudFriendAlertsProvider>
             </AppUpdaterProvider>

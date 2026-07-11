@@ -1,5 +1,6 @@
 import type { BrowseItem } from "./browse";
 import { browseItemMedia, browseItemTitle } from "./browse";
+import { isCartoniBrowseItem } from "./unifiedBrowse";
 import type { StremioMetaPreview } from "../types/stremio";
 
 export type CartoniGridFilter = "all" | "popular" | "local" | "streaming";
@@ -38,20 +39,25 @@ export interface CartoniBrowseStats {
 
 export function cartoniBrowseStats(items: BrowseItem[]): CartoniBrowseStats {
   let loonex = 0;
-  let streaming = 0;
-  let local = 0;
+  let youtube = 0;
   for (const item of items) {
-    if (item.kind !== "streaming") {
-      local += 1;
-      continue;
-    }
-    streaming += 1;
+    if (item.kind !== "streaming") continue;
     if (item.preview.catalogPrefix === "loonex") loonex += 1;
+    if (item.preview.catalogPrefix === "youtube") youtube += 1;
   }
-  return { total: items.length, loonex, streaming, local };
+  return {
+    total: items.length,
+    loonex,
+    streaming: loonex + youtube,
+    local: 0,
+  };
 }
 
 export const GRID_PAGE_SIZE = 20;
+
+function onlyCartoni(items: BrowseItem[]): BrowseItem[] {
+  return items.filter(isCartoniBrowseItem);
+}
 
 function hasPoster(item: BrowseItem): boolean {
   return Boolean(browseItemMedia(item).posterUrl?.trim());
@@ -63,8 +69,14 @@ function isLoonex(
   return item.kind === "streaming" && item.preview.catalogPrefix === "loonex";
 }
 
-function isLocal(item: BrowseItem): boolean {
-  return item.kind !== "streaming";
+function isYoutube(
+  item: BrowseItem,
+): item is Extract<BrowseItem, { kind: "streaming" }> {
+  return item.kind === "streaming" && item.preview.catalogPrefix === "youtube";
+}
+
+function isCatalogStreaming(item: BrowseItem): boolean {
+  return isLoonex(item) || isYoutube(item);
 }
 
 function withResume(item: BrowseItem): boolean {
@@ -76,16 +88,12 @@ function withResume(item: BrowseItem): boolean {
 }
 
 export function buildCartoniBrowseLayout(items: BrowseItem[]): CartoniBrowseLayout {
-  const local: BrowseItem[] = [];
-  const streaming: BrowseItem[] = [];
-
-  for (const item of items) {
-    if (isLocal(item)) local.push(item);
-    else streaming.push(item);
-  }
+  const cartoniItems = onlyCartoni(items);
+  const streaming = cartoniItems.filter(isCatalogStreaming);
 
   const loonex = streaming.filter(isLoonex);
-  const withPoster = items.filter(hasPoster);
+  const youtube = streaming.filter(isYoutube);
+  const withPoster = cartoniItems.filter(hasPoster);
 
   const heroPosters = withPoster
     .slice(0, 8)
@@ -95,13 +103,17 @@ export function buildCartoniBrowseLayout(items: BrowseItem[]): CartoniBrowseLayo
   const communityPick =
     loonex.find((item) => item.preview.description?.trim()) ??
     loonex[0] ??
+    youtube[0] ??
     withPoster[0] ??
-    items[0] ??
+    cartoniItems[0] ??
     null;
 
-  const novita = (loonex.length > 0 ? loonex : streaming).slice(0, 14);
+  const novita = (loonex.length > 0 ? loonex : youtube.length > 0 ? youtube : streaming).slice(
+    0,
+    14,
+  );
 
-  const popular = [...items]
+  const popular = [...cartoniItems]
     .filter(withResume)
     .concat(streaming.filter((item) => !withResume(item)))
     .filter((item, index, arr) => arr.indexOf(item) === index)
@@ -129,9 +141,9 @@ export function buildCartoniBrowseLayout(items: BrowseItem[]): CartoniBrowseLayo
     novita,
     collections,
     popular: popular.length > 0 ? popular : streaming.slice(0, 14),
-    local,
+    local: [],
     streaming,
-    all: items,
+    all: cartoniItems,
   };
 }
 
@@ -139,17 +151,22 @@ export function filterCartoniGrid(
   items: BrowseItem[],
   filter: CartoniGridFilter,
 ): BrowseItem[] {
+  const cartoniItems = onlyCartoni(items);
   switch (filter) {
     case "local":
-      return items.filter(isLocal);
+      return cartoniItems.filter(
+        (item) => item.kind === "streaming" && item.preview.catalogPrefix === "youtube",
+      );
     case "streaming":
-      return items.filter((item) => !isLocal(item));
+      return cartoniItems.filter(
+        (item) => item.kind === "streaming" && item.preview.catalogPrefix === "loonex",
+      );
     case "popular":
-      return items.filter(withResume).length > 0
-        ? items.filter(withResume)
-        : items.filter((item) => !isLocal(item)).slice(0, 40);
+      return cartoniItems.filter(withResume).length > 0
+        ? cartoniItems.filter(withResume)
+        : cartoniItems.slice(0, 40);
     default:
-      return items;
+      return cartoniItems;
   }
 }
 

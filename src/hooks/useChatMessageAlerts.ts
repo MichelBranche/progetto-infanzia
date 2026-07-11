@@ -8,6 +8,10 @@ import {
   listMyChats,
   subscribeIncomingChatMessages,
 } from "../lib/cloudChat";
+import {
+  formatChatMessagePreview,
+  isWatchPartyInviteChatBody,
+} from "../lib/watchPartyInviteChatMessage";
 import { sendOsNotification } from "../lib/osNotifications";
 import type { ChatConversation } from "../types/chat";
 import type { ChatMessage } from "../types/chat";
@@ -15,9 +19,7 @@ import type { ChatMessage } from "../types/chat";
 const POLL_FALLBACK_MS = 45_000;
 
 function previewBody(body: string) {
-  const trimmed = body.trim();
-  if (trimmed.length <= 120) return trimmed;
-  return `${trimmed.slice(0, 117)}…`;
+  return formatChatMessagePreview(body);
 }
 
 export function useChatMessageAlerts() {
@@ -42,6 +44,8 @@ export function useChatMessageAlerts() {
 
   const pushMessageAlert = useCallback(
     (message: ChatMessage) => {
+      if (isWatchPartyInviteChatBody(message.body)) return;
+
       const chat = chatsRef.current.get(message.conversationId);
       const chatTitle = chat ? chatDisplayTitle(chat) : "Chat";
       const title =
@@ -54,8 +58,12 @@ export function useChatMessageAlerts() {
         kind: "message",
         title,
         message: previewBody(message.body),
+        conversationId: message.conversationId,
       });
-      void sendOsNotification(title, previewBody(message.body));
+      void sendOsNotification(title, previewBody(message.body), {
+        conversationId: message.conversationId,
+        chatTitle,
+      });
     },
     [notify],
   );

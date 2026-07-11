@@ -1,5 +1,5 @@
 import { getSupabase } from "./supabaseClient";
-import { ensureWatchPartyChat } from "./cloudChat";
+import { deleteWatchPartyChat, ensureWatchPartyChat } from "./cloudChat";
 import type { WatchPartyContent, WatchPartyRoom } from "../types/watchParty";
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -70,7 +70,18 @@ export async function createCloudWatchParty(
   const supabase = getSupabase();
   if (!supabase) throw new Error("Cloud non configurato");
 
-  // Un host ha al massimo una stanza: rimuovi eventuali stanze precedenti.
+  // Un host ha al massimo una stanza: rimuovi eventuali stanze precedenti e le chat collegate.
+  const { data: oldRooms } = await supabase
+    .from("watch_party_rooms")
+    .select("code")
+    .eq("host_id", hostId);
+
+  if (oldRooms?.length) {
+    await Promise.all(
+      oldRooms.map((row) => deleteWatchPartyChat(String(row.code)).catch(() => undefined)),
+    );
+  }
+
   await supabase.from("watch_party_rooms").delete().eq("host_id", hostId);
 
   for (let attempt = 0; attempt < 8; attempt++) {
@@ -166,10 +177,13 @@ export async function closeCloudWatchParty(
   const supabase = getSupabase();
   if (!supabase) return;
 
+  const normalized = code.toUpperCase();
+  await deleteWatchPartyChat(normalized).catch(() => undefined);
+
   await supabase
     .from("watch_party_rooms")
     .delete()
-    .eq("code", code.toUpperCase())
+    .eq("code", normalized)
     .eq("host_id", hostId);
 }
 

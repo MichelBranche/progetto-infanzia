@@ -1,31 +1,34 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import {
-  Bell,
   CircleUser,
   Home,
-  LogOut,
   MoreHorizontal,
   Search,
   Settings,
-  Users,
   X,
 } from "lucide-react";
 import { getNavSections, type NavItem } from "../data/nav";
 import { useAddons } from "../context/AddonsContext";
 import type { Profile } from "../types/profile";
-import { roleLabel } from "../types/profile";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { AppTopNavMoreMenu, animateAppTopNavMoreMenuClose } from "./AppTopNavMoreMenu";
+import { AppTopNavProfileMenuPanel } from "./AppTopNavProfileMenu";
+import { AppTopNavFriendsBar } from "./AppTopNavFriendsBar";
+import { AppTopNavFriendsChevron } from "./AppTopNavFriendsChevron";
+import { useFriendsMenu } from "../context/FriendsMenuContext";
 import {
   animateNavLinkHover,
+  animateToolbarIconHover,
   useAppTopNavEntrance,
 } from "../hooks/useAppTopNavMotion";
 import { useGlassNavIndicator } from "../hooks/useGlassNavIndicator";
 
 gsap.registerPlugin(useGSAP);
+
+const PROFILE_MENU_WIDTH = 200;
 
 export const APP_NAV_BAR_HEIGHT = 68;
 /** Altezza totale riservata (barra + distacco dal bordo superiore). */
@@ -115,6 +118,46 @@ function NavPill({
   );
 }
 
+function NavToolbarButton({
+  children,
+  className = "",
+  registerRef,
+  slidingActive = false,
+  onMouseEnter,
+  onMouseLeave,
+  ...props
+}: React.ComponentProps<"button"> & {
+  children: ReactNode;
+  registerRef?: (el: HTMLButtonElement | null) => void;
+  slidingActive?: boolean;
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  return (
+    <button
+      ref={(el) => {
+        buttonRef.current = el;
+        registerRef?.(el);
+      }}
+      type="button"
+      onMouseEnter={(event) => {
+        if (buttonRef.current) animateToolbarIconHover(buttonRef.current, true);
+        onMouseEnter?.(event);
+      }}
+      onMouseLeave={(event) => {
+        if (buttonRef.current) animateToolbarIconHover(buttonRef.current, false);
+        onMouseLeave?.(event);
+      }}
+      className={`app-top-nav__toolbar-item app-top-nav__icon-btn lf-nav-link lf-nav-link--sliding lf-nav-link--toolbar ${
+        slidingActive ? "lf-nav-link--sliding-active" : ""
+      } ${className}`.trim()}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function AppTopNav({
   activeId,
   profile,
@@ -132,14 +175,28 @@ export function AppTopNav({
 }: AppTopNavProps) {
   const innerRef = useRef<HTMLDivElement>(null);
   const desktopNavRef = useRef<HTMLElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const altroButtonRef = useRef<HTMLButtonElement>(null);
   const { hasStreaming } = useAddons();
   const inputRef = useRef<HTMLInputElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const mobileProfileMenuRef = useRef<HTMLDivElement>(null);
+  const friendsDockRef = useRef<HTMLDivElement>(null);
+  const profileMenuPanelRef = useRef<HTMLDivElement>(null);
+  const profileMenuAnchorRef = useRef<HTMLElement | null>(null);
   const altroMorePanelRef = useRef<HTMLDivElement>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [profileMenuPos, setProfileMenuPos] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const { open: friendsMenuOpen, closeMenu: closeFriendsMenu, registerAnchor } =
+    useFriendsMenu();
+
+  useEffect(() => {
+    registerAnchor(friendsDockRef.current);
+  }, [registerAnchor]);
+
   const [desktopNav, setDesktopNav] = useState(
     () =>
       typeof window !== "undefined" &&
@@ -201,18 +258,92 @@ export function AppTopNav({
       desktopNav,
     ]);
 
+  const toolbarActiveId = useMemo(() => {
+    if (profileMenuOpen) return "toolbar-avatar";
+    if (activeId === "settings") return "toolbar-settings";
+    if (activeId === "profile") return "toolbar-profile";
+    return "";
+  }, [profileMenuOpen, activeId]);
+
+  const { register: registerToolbarItem, indicator: toolbarIndicator } =
+    useGlassNavIndicator(toolbarRef, toolbarActiveId, [
+      toolbarActiveId,
+      profileMenuOpen,
+      activeId,
+      desktopNav,
+    ]);
+
   const closeMoreMenu = useCallback(() => {
     animateAppTopNavMoreMenuClose(altroMorePanelRef, () => setMoreOpen(false));
   }, []);
+
+  const updateProfileMenuPos = useCallback((anchor?: HTMLElement | null) => {
+    const el = anchor ?? profileMenuAnchorRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const left = Math.max(
+      8,
+      Math.min(
+        rect.right - PROFILE_MENU_WIDTH,
+        window.innerWidth - PROFILE_MENU_WIDTH - 8,
+      ),
+    );
+    setProfileMenuPos({
+      top: rect.bottom + 8,
+      left,
+      width: PROFILE_MENU_WIDTH,
+    });
+  }, []);
+
+  const closeProfileMenu = useCallback(() => {
+    setProfileMenuOpen(false);
+    setProfileMenuPos(null);
+  }, []);
+
+  const toggleProfileMenu = useCallback(
+    (anchor: HTMLElement | null) => {
+      closeFriendsMenu();
+      if (profileMenuOpen) {
+        closeProfileMenu();
+        return;
+      }
+      if (moreOpen) closeMoreMenu();
+      profileMenuAnchorRef.current = anchor;
+      updateProfileMenuPos(anchor);
+      setProfileMenuOpen(true);
+    },
+    [
+      closeFriendsMenu,
+      closeMoreMenu,
+      closeProfileMenu,
+      moreOpen,
+      profileMenuOpen,
+      updateProfileMenuPos,
+    ],
+  );
 
   const toggleMoreMenu = () => {
     if (moreOpen) {
       closeMoreMenu();
       return;
     }
-    setProfileMenuOpen(false);
+    closeProfileMenu();
+    closeFriendsMenu();
     setMoreOpen(true);
   };
+
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    const onResize = () => updateProfileMenuPos();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [profileMenuOpen, updateProfileMenuPos]);
+
+  useEffect(() => {
+    if (!friendsMenuOpen) return;
+    closeProfileMenu();
+    if (moreOpen) closeMoreMenu();
+  }, [closeMoreMenu, closeProfileMenu, friendsMenuOpen, moreOpen]);
 
   useEffect(() => {
     if (searchActive) {
@@ -222,13 +353,14 @@ export function AppTopNav({
 
   useEffect(() => {
     if (!profileMenuOpen && !moreOpen) return;
+
     const onPointerDown = (event: MouseEvent) => {
       const target = event.target as Node;
       if (
-        !menuRef.current?.contains(target) &&
-        !mobileProfileMenuRef.current?.contains(target)
+        !profileMenuPanelRef.current?.contains(target) &&
+        !profileMenuAnchorRef.current?.contains(target)
       ) {
-        setProfileMenuOpen(false);
+        closeProfileMenu();
       }
       if (
         !desktopNavRef.current?.contains(target) &&
@@ -239,17 +371,22 @@ export function AppTopNav({
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setProfileMenuOpen(false);
+        closeProfileMenu();
         if (moreOpen) closeMoreMenu();
       }
     };
-    window.addEventListener("mousedown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
+
+    const attachId = window.setTimeout(() => {
+      window.addEventListener("mousedown", onPointerDown);
+      window.addEventListener("keydown", onKeyDown);
+    }, 0);
+
     return () => {
+      window.clearTimeout(attachId);
       window.removeEventListener("mousedown", onPointerDown);
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [profileMenuOpen, moreOpen, closeMoreMenu]);
+  }, [closeMoreMenu, closeProfileMenu, moreOpen, profileMenuOpen]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -288,25 +425,46 @@ export function AppTopNav({
   );
 
   return (
-    <header
-      className={`app-top-nav fixed inset-x-0 z-50 ${
-        searchActive ? "z-[60]" : ""
-      }`}
-    >
+    <>
+      <header
+        className={`app-top-nav fixed inset-x-0 z-50 ${
+          searchActive ? "z-[60]" : ""
+        }`}
+      >
       <div
         ref={innerRef}
         className="app-top-nav__inner flex h-full w-full min-w-0 items-center justify-between gap-2 px-6 sm:gap-3 lg:px-12"
       >
-        <button
-          type="button"
-          onClick={() => onNavigate("home")}
-          className="app-top-nav__brand group pointer-events-auto flex shrink-0 items-center pr-1"
-          aria-label="Home Branchefy"
-        >
-          <span className="app-top-nav__brand-logo chromatic-logo chromatic-logo--skew">
-            B
-          </span>
-        </button>
+        <div className="flex min-w-0 shrink-0 items-center gap-3 sm:gap-4">
+          <button
+            type="button"
+            onClick={() => onNavigate("home")}
+            className="app-top-nav__brand group pointer-events-auto flex shrink-0 items-center"
+            aria-label="Home Branchefy"
+          >
+            <span className="app-top-nav__brand-logo chromatic-logo chromatic-logo--skew">
+              B
+            </span>
+          </button>
+
+          {!searchActive && (
+            <div className="app-top-nav__friends-zone relative shrink-0">
+              <div
+                ref={friendsDockRef}
+                className="glass-header app-top-nav__left-dock flex items-center gap-1 p-1.5"
+              >
+                <AppTopNavFriendsBar />
+
+                <span
+                  className="app-top-nav__left-dock-divider h-6 w-px shrink-0 bg-white/10"
+                  aria-hidden
+                />
+
+                <AppTopNavFriendsChevron />
+              </div>
+            </div>
+          )}
+        </div>
 
         {searchActive ? (
           <div className="app-top-nav__search-field flex min-w-0 flex-1 items-center gap-2 border-b border-white/25 pb-1">
@@ -339,7 +497,7 @@ export function AppTopNav({
                   ref={desktopNavRef}
                   aria-label="Navigazione principale"
                   role="tablist"
-                  className="glass-header relative flex min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-visible p-1.5 scrollbar-hide"
+                  className="glass-header app-top-nav__nav-dock relative flex min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-visible p-1.5 scrollbar-hide"
                 >
                   <div
                     className="lf-nav-slider pill-glow"
@@ -420,193 +578,125 @@ export function AppTopNav({
                 )}
               </div>
 
-              <div className="glass-header flex items-center gap-0.5 p-1.5">
-              <button
-                type="button"
-                onClick={onOpenSearch}
-                className="app-top-nav__icon app-top-nav__icon-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
-                aria-label="Cerca"
+              <div
+                ref={toolbarRef}
+                className="glass-header app-top-nav__toolbar relative flex items-center gap-0.5 p-1.5"
               >
-                <Search className="h-[18px] w-[18px]" strokeWidth={1.85} />
-              </button>
+                <div
+                  className="lf-nav-slider pill-glow"
+                  style={{
+                    transform: `translate3d(${toolbarIndicator.x}px, 0, 0)`,
+                    width: toolbarIndicator.width,
+                    opacity: toolbarIndicator.opacity,
+                  }}
+                  aria-hidden
+                />
 
-              <button
-                type="button"
-                onClick={() => onNavigate("settings")}
-                className="app-top-nav__icon app-top-nav__icon-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
-                aria-label="Impostazioni"
-              >
-                <Settings className="h-[18px] w-[18px]" strokeWidth={1.75} />
-              </button>
+                <div className="relative z-[1] flex items-center gap-0.5">
+                  <NavToolbarButton
+                    onClick={onOpenSearch}
+                    registerRef={(el) => registerToolbarItem("toolbar-search", el)}
+                    aria-label="Cerca"
+                  >
+                    <Search className="h-[18px] w-[18px] shrink-0" strokeWidth={1.85} />
+                  </NavToolbarButton>
 
-              <button
-                type="button"
-                onClick={() => onNavigate("profile")}
-                className="app-top-nav__icon app-top-nav__icon-btn hidden h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 lg:flex"
-                aria-label="Profilo e lista"
-                title="Profilo e lista"
-              >
-                <CircleUser className="h-[19px] w-[19px]" strokeWidth={1.75} />
-              </button>
+                  <NavToolbarButton
+                    onClick={() => onNavigate("settings")}
+                    slidingActive={activeId === "settings"}
+                    registerRef={(el) => registerToolbarItem("toolbar-settings", el)}
+                    aria-label="Impostazioni"
+                  >
+                    <Settings className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} />
+                  </NavToolbarButton>
 
-              <div ref={menuRef} className="relative shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setProfileMenuOpen((open) => !open)}
-                  aria-expanded={profileMenuOpen}
-                  className="app-top-nav__icon-btn flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full p-0 ring-2 ring-white/25 transition-[opacity,ring-color] hover:ring-white/45"
-                >
-                  <ProfileAvatar profile={profile} size="sm" />
-                </button>
-                <AnimatePresence>
-                  {profileMenuOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -6, scale: 0.98 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -6, scale: 0.98 }}
-                      transition={{ duration: 0.18 }}
-                      className="absolute right-0 top-[calc(100%+8px)] z-50 min-w-[200px] overflow-hidden rounded-xl border border-white/[0.08] bg-[#0c0c0f] py-1 shadow-[0_20px_60px_rgba(0,0,0,0.55)]"
-                      role="menu"
-                    >
-                      <div className="border-b border-white/[0.06] px-3.5 py-2.5">
-                        <p className="font-display text-[13px] font-medium text-text-primary">
-                          {profile.name}
-                        </p>
-                        <p className="text-[10px] uppercase tracking-[0.16em] text-text-muted">
-                          {roleLabel(profile.role)}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setProfileMenuOpen(false);
-                          onNavigate("profile");
-                        }}
-                        className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-text-primary"
-                      >
-                        <CircleUser className="h-4 w-4 shrink-0" strokeWidth={1.5} />
-                        Profilo e lista
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setProfileMenuOpen(false);
-                          onSwitchProfile();
-                        }}
-                        className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-text-primary"
-                      >
-                        <Users className="h-4 w-4 shrink-0" strokeWidth={1.5} />
-                        Cambia profilo
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setProfileMenuOpen(false);
-                          onLogout();
-                        }}
-                        className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-warm"
-                      >
-                        <LogOut className="h-4 w-4 shrink-0" strokeWidth={1.5} />
-                        Logout
-                      </button>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
+                  <NavToolbarButton
+                    onClick={() => {
+                      closeProfileMenu();
+                      closeFriendsMenu();
+                      onNavigate("profile");
+                    }}
+                    slidingActive={activeId === "profile"}
+                    registerRef={(el) => registerToolbarItem("toolbar-profile", el)}
+                    className="hidden lg:inline-flex"
+                    aria-label="Profilo e lista"
+                    title="Profilo e lista"
+                  >
+                    <CircleUser className="h-[19px] w-[19px] shrink-0" strokeWidth={1.75} />
+                  </NavToolbarButton>
+
+                  <NavToolbarButton
+                    onClick={(event) => toggleProfileMenu(event.currentTarget)}
+                    aria-expanded={profileMenuOpen}
+                    slidingActive={profileMenuOpen}
+                    registerRef={(el) => registerToolbarItem("toolbar-avatar", el)}
+                    className={`app-top-nav__toolbar-avatar shrink-0 ${
+                      profileMenuOpen
+                        ? ""
+                        : "ring-2 ring-white/25 hover:ring-white/45"
+                    }`}
+                  >
+                    <ProfileAvatar
+                      profile={profile}
+                      size="sm"
+                      className="pointer-events-none !h-full !w-full !rounded-full"
+                    />
+                  </NavToolbarButton>
+                </div>
               </div>
             </div>
 
             <div className="app-top-nav__actions pointer-events-auto ml-auto flex shrink-0 items-center gap-0.5 md:hidden">
-              <button
-                type="button"
+              <NavToolbarButton
                 onClick={onOpenSearch}
-                className="app-top-nav__icon app-top-nav__icon-btn flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+                className="app-top-nav__icon flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
                 aria-label="Cerca"
               >
                 <Search className="h-[19px] w-[19px]" strokeWidth={1.85} />
-              </button>
+              </NavToolbarButton>
 
-              <button
-                type="button"
-                className="app-top-nav__icon app-top-nav__icon-btn flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
-                aria-label="Notifiche"
+              <NavToolbarButton
+                onClick={(event) => toggleProfileMenu(event.currentTarget)}
+                aria-expanded={profileMenuOpen}
+                className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full p-0 ring-2 ring-white/30 transition-[opacity,ring-color] hover:ring-white/50"
               >
-                <Bell className="h-[19px] w-[19px]" strokeWidth={1.85} />
-              </button>
-
-              <div ref={mobileProfileMenuRef} className="relative shrink-0 md:hidden">
-                <button
-                  type="button"
-                  onClick={() => setProfileMenuOpen((open) => !open)}
-                  aria-expanded={profileMenuOpen}
-                  className="app-top-nav__icon-btn flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full p-0 ring-2 ring-white/30 transition-[opacity,ring-color] hover:ring-white/50"
-                >
-                  <ProfileAvatar profile={profile} size="sm" />
-                </button>
-                <AnimatePresence>
-                  {profileMenuOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -6, scale: 0.98 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -6, scale: 0.98 }}
-                      transition={{ duration: 0.18 }}
-                      className="absolute right-0 top-[calc(100%+8px)] z-50 min-w-[200px] overflow-hidden rounded-xl border border-white/[0.08] bg-[#0c0c0f] py-1 shadow-[0_20px_60px_rgba(0,0,0,0.55)]"
-                      role="menu"
-                    >
-                      <div className="border-b border-white/[0.06] px-3.5 py-2.5">
-                        <p className="font-display text-[13px] font-medium text-text-primary">
-                          {profile.name}
-                        </p>
-                        <p className="text-[10px] uppercase tracking-[0.16em] text-text-muted">
-                          {roleLabel(profile.role)}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setProfileMenuOpen(false);
-                          onNavigate("profile");
-                        }}
-                        className="flex w-full px-3.5 py-2.5 text-left text-[13px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-text-primary"
-                      >
-                        Profilo e lista
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setProfileMenuOpen(false);
-                          onSwitchProfile();
-                        }}
-                        className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-text-primary"
-                      >
-                        <Users className="h-4 w-4" />
-                        Cambia profilo
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setProfileMenuOpen(false);
-                          onLogout();
-                        }}
-                        className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-warm"
-                      >
-                        <LogOut className="h-4 w-4" />
-                        Logout
-                      </button>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
+                <ProfileAvatar profile={profile} size="sm" />
+              </NavToolbarButton>
             </div>
           </>
         )}
       </div>
     </header>
+      {profileMenuOpen &&
+        profileMenuPos &&
+        createPortal(
+          <div
+            ref={profileMenuPanelRef}
+            className="app-top-nav__profile-panel fixed z-[200]"
+            style={{
+              top: profileMenuPos.top,
+              left: profileMenuPos.left,
+              width: profileMenuPos.width,
+            }}
+          >
+            <AppTopNavProfileMenuPanel
+              profile={profile}
+              onNavigateProfile={() => {
+                closeProfileMenu();
+                onNavigate("profile");
+              }}
+              onSwitchProfile={() => {
+                closeProfileMenu();
+                onSwitchProfile();
+              }}
+              onLogout={() => {
+                closeProfileMenu();
+                onLogout();
+              }}
+            />
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }

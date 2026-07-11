@@ -38,6 +38,7 @@ import {
 } from "../lib/watchPartyApi";
 import type { CloudFriend, LanFriendPresence } from "../types/cloud";
 import type { WatchPartySession } from "../types/watchParty";
+import { FRIEND_REQUESTS_EVENT } from "../lib/friendRequestsNavigation";
 import { isLanFeaturesEnabled } from "../lib/platform";
 
 type EnrichedCloudFriend = CloudFriend & {
@@ -118,6 +119,18 @@ export function FriendsPage({
   useEffect(() => {
     void loadMeta();
   }, [loadMeta]);
+
+  useEffect(() => {
+    const scrollToPending = () => {
+      window.setTimeout(() => {
+        document
+          .getElementById("friend-requests-pending")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 280);
+    };
+    window.addEventListener(FRIEND_REQUESTS_EVENT, scrollToPending);
+    return () => window.removeEventListener(FRIEND_REQUESTS_EVENT, scrollToPending);
+  }, []);
 
   const refreshAll = async () => {
     await Promise.all([
@@ -274,6 +287,7 @@ export function FriendsPage({
                     avatarUrl={friend.avatarUrl}
                     online
                     away={friend.presence?.status === "away"}
+                    dnd={friend.presence?.status === "dnd"}
                     onPress={() => setSelectedFriend(friend)}
                     trailing={
                       <button
@@ -316,6 +330,7 @@ export function FriendsPage({
           </ProfileCard>
 
           {cloudProfile && pendingRequests.length > 0 && (
+            <div id="friend-requests-pending">
             <ProfileCard className="border-accent/20 bg-accent/[0.03]">
               <ProfileSectionLabel>Richieste in attesa</ProfileSectionLabel>
               <ul>
@@ -372,6 +387,7 @@ export function FriendsPage({
                 ))}
               </ul>
             </ProfileCard>
+            </div>
           )}
 
           {(totalOffline > 0 || cloudProfile || visibleLanOffline.length > 0) && (

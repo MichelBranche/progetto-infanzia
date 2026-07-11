@@ -161,6 +161,70 @@
   transform: skewX(-6deg) scale(1.08);
 }
 
+.app-top-nav__brand-logo.chromatic-logo--skew {
+  font-size: clamp(2.35rem, 4.8vw, 3.15rem);
+  line-height: 1.05;
+}
+
+
+.app-top-nav__friends-zone {
+  overflow: visible;
+}
+
+.app-top-nav__left-dock {
+  max-width: min(42vw, 320px);
+  margin-left: 0.65rem;
+  overflow: visible;
+  position: relative;
+  z-index: 2;
+}
+
+.app-top-nav__friends-panel {
+  transform: translateZ(0);
+}
+
+.app-top-nav__profile-panel {
+  transform: translateZ(0);
+}
+
+@media (min-width: 640px) {
+  .app-top-nav__left-dock {
+    margin-left: 1rem;
+  }
+}
+
+.app-top-nav__friend-stack-item {
+  margin-left: -0.45rem;
+}
+
+.app-top-nav__friend-stack-item:first-child {
+  margin-left: 0;
+}
+
+.app-top-nav__friend-stack-ring {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.app-top-nav__friend-stack-more {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.app-top-nav__friend-stack-empty {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+@media (min-width: 640px) {
+  .app-top-nav__friend-stack-ring,
+  .app-top-nav__friend-stack-more,
+  .app-top-nav__friend-stack-empty {
+    width: 2rem;
+    height: 2rem;
+  }
+}
+
 .app-top-nav__brand {
   overflow: visible;
   padding-left: 0.15rem;
@@ -347,6 +411,66 @@ html.lf-browse-ambient .liquid-bg__canvas {
 }
 
 .lf-nav-link--sliding-active svg {
+  color: var(--lf-pill-active-text);
+  stroke: currentColor;
+}
+
+.lf-nav-link--toolbar {
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  padding: 0;
+  justify-content: center;
+}
+
+/* Toolbar: annulla padding testuale del pill nav (altrimenti le icone collassano). */
+.lf-nav-link--sliding.lf-nav-link--toolbar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  box-sizing: border-box;
+}
+
+.lf-nav-link--sliding.lf-nav-link--toolbar svg {
+  flex-shrink: 0;
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.app-top-nav__toolbar-avatar {
+  padding: 0;
+  overflow: hidden;
+  border-radius: 9999px;
+}
+
+.app-top-nav__toolbar-avatar > * {
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 100%;
+  min-height: 100%;
+  border-radius: 9999px !important;
+}
+
+.glass-header.app-top-nav__toolbar .app-top-nav__icon-btn:hover {
+  background: transparent;
+}
+
+.glass-header.app-top-nav__toolbar
+  .lf-nav-link--toolbar:hover:not(.lf-nav-link--sliding-active) {
+  color: #fff;
+  background: transparent;
+}
+
+.glass-header.app-top-nav__toolbar .lf-nav-link--sliding-active .app-top-nav__icon,
+.glass-header.app-top-nav__toolbar .lf-nav-link--sliding-active svg {
   color: var(--lf-pill-active-text);
   stroke: currentColor;
 }
@@ -1173,10 +1297,8 @@ html.lf-browse-ambient .liquid-bg__canvas {
   gap: 0.125rem;
   border-radius: 9999px;
   border: 1px solid rgb(255 255 255 / 0.08);
-  background: #14141466;
+  background: rgb(20 20 22 / 0.9);
   padding: 0.3rem 0.45rem;
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  backdrop-filter: blur(20px) saturate(150%);
   box-shadow: 0 10px 40px rgb(0 0 0 / 0.2);
   transition:
     background-color 0.3s ease,
@@ -1184,9 +1306,19 @@ html.lf-browse-ambient .liquid-bg__canvas {
     box-shadow 0.3s ease;
 }
 
+/* WebView2/Tauri: backdrop-filter sul nav causa schermo nero a menu aperti */
+html.is-tauri .glass-header,
+.glass-header.app-top-nav__left-dock,
+.glass-header.app-top-nav__toolbar,
+.glass-header.app-top-nav__nav-dock {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  background: rgb(20 20 22 / 0.94);
+}
+
 @media (min-width: 1024px) {
   .glass-header:hover {
-    background: #1e1e1e80;
+    background: rgb(30 30 34 / 0.96);
     border-color: #ffffff1f;
   }
 }

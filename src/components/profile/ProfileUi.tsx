@@ -126,12 +126,28 @@ export function ProfileEmptyState({
   );
 }
 
-export function OnlineDot({ online, away }: { online: boolean; away?: boolean }) {
+export function OnlineDot({
+  online,
+  away,
+  dnd,
+}: {
+  online: boolean;
+  away?: boolean;
+  dnd?: boolean;
+}) {
   if (!online) {
     return (
       <span
         className="inline-flex h-2 w-2 rounded-full bg-white/20"
         title="Offline"
+      />
+    );
+  }
+  if (dnd) {
+    return (
+      <span
+        className="relative inline-flex h-2 w-2 rounded-full bg-red-400"
+        title="Non disturbare"
       />
     );
   }
@@ -154,6 +170,7 @@ export function FriendListRow({
   subtitle,
   online,
   away,
+  dnd,
   avatarUrl,
   trailing,
   onPress,
@@ -162,6 +179,7 @@ export function FriendListRow({
   subtitle?: string;
   online: boolean;
   away?: boolean;
+  dnd?: boolean;
   avatarUrl?: string;
   trailing?: ReactNode;
   onPress?: () => void;
@@ -184,7 +202,7 @@ export function FriendListRow({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <OnlineDot online={online} away={away} />
+          <OnlineDot online={online} away={away} dnd={dnd} />
           <p className="truncate font-display text-[14px] font-medium tracking-[-0.02em] text-text-primary">
             {name}
           </p>

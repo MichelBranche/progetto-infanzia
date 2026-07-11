@@ -19,6 +19,7 @@ export function formatPresenceLabel(
   if (!presence?.lastSeenAt) return undefined;
 
   if (isPresenceOnline(presence.lastSeenAt)) {
+    if (presence.status === "dnd") return "Non disturbare";
     if (presence.status === "away") return "Assente · app aperta";
     if (presence.activity) return presence.activity;
     return "Online su Branchefy";

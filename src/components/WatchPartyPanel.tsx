@@ -27,6 +27,7 @@ import type {
   WatchPartySession,
 } from "../types/watchParty";
 import { ChatPanel } from "./chat/ChatPanel";
+import { WatchPartyFriendInviteList } from "./WatchPartyFriendInviteList";
 
 type PanelTab = "create" | "join";
 
@@ -448,6 +449,14 @@ export function WatchPartyPanel({
                     partyChatError && (
                       <p className="mt-4 text-[12px] text-warm">{partyChatError}</p>
                     )}
+
+                  {activeSession.role === "host" && (
+                    <WatchPartyFriendInviteList
+                      profileId={profileId}
+                      profileName={profileName}
+                      active={open}
+                    />
+                  )}
                 </section>
               ) : (
                 <>

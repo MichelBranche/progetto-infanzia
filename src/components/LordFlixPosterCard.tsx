@@ -6,6 +6,10 @@ import type { StremioMetaPreview } from "../types/stremio";
 import type { MediaItem } from "../types/media";
 import { mediaTypeLabel, watchProgressPercent } from "../types/media";
 import { isRowDragging } from "../hooks/useRowScrollContainer";
+import {
+  playCardNavigationSound,
+  playCardOpenTitleSound,
+} from "../lib/cardNavigationSound";
 import { PosterImage, posterUrlFor } from "./PosterImage";
 
 export interface LordFlixPosterCardProps {
@@ -126,6 +130,7 @@ export const LordFlixPosterCard = memo(function LordFlixPosterCard({
       event.preventDefault();
       return;
     }
+    playCardOpenTitleSound();
     openBrowseItem(browse, {
       onOpen,
       onPlay,
@@ -145,6 +150,9 @@ export const LordFlixPosterCard = memo(function LordFlixPosterCard({
     <button
       type="button"
       className={`lf-browse-card group/card ${isGrid ? "lf-browse-card--grid" : ""}`}
+      onMouseEnter={() => {
+        if (!isRowDragging()) playCardNavigationSound();
+      }}
       onClick={handleClick}
       onPointerDown={handlePointerDown}
       aria-label={title}

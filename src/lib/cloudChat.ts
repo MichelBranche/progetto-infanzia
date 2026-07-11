@@ -1,4 +1,6 @@
 import { getSupabase } from "./supabaseClient";
+import type { WatchPartyInvitePayload } from "./cloudWatchPartyInvite";
+import { buildWatchPartyInviteChatBody } from "./watchPartyInviteChatMessage";
 import type { ChatConversation, ChatMessage } from "../types/chat";
 
 function mapMessage(row: {
@@ -68,6 +70,26 @@ export async function listMyChats(): Promise<ChatConversation[]> {
   return rows.map((row) => mapConversation(row as Record<string, unknown>));
 }
 
+export async function deleteChatConversation(conversationId: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("Cloud non configurato");
+
+  const { error } = await supabase.rpc("delete_chat_conversation", {
+    conv_id: conversationId,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteWatchPartyChat(roomCode: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  const { error } = await supabase.rpc("delete_watch_party_chat", {
+    lookup_code: roomCode.trim().toUpperCase(),
+  });
+  if (error) throw new Error(error.message);
+}
+
 export async function openDirectChat(otherUserId: string): Promise<string> {
   const supabase = getSupabase();
   if (!supabase) throw new Error("Cloud non configurato");
@@ -121,6 +143,15 @@ export async function fetchChatMessages(
 
   if (error) throw new Error(error.message);
   return (data ?? []).map(mapMessage);
+}
+
+export async function sendWatchPartyInviteChatMessage(
+  otherUserId: string,
+  payload: WatchPartyInvitePayload,
+): Promise<string> {
+  const conversationId = await openDirectChat(otherUserId);
+  await sendChatMessage(conversationId, buildWatchPartyInviteChatBody(payload));
+  return conversationId;
 }
 
 export async function sendChatMessage(

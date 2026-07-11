@@ -44,10 +44,17 @@ import { formatDuration, mediaTypeLabel } from "../types/media";
 import { PosterImage } from "./PosterImage";
 import { CastDialog } from "./CastDialog";
 import { PlayerScrubBar } from "./PlayerScrubBar";
+import {
+  PlayerActionFeedback,
+  type PlayerActionKind,
+  type PlayerActionPulse,
+} from "./PlayerActionFeedback";
 import { WatchPartyPanel } from "./WatchPartyPanel";
 import { useWatchPartySync, DRIFT_THRESHOLD_SEC } from "../hooks/useWatchPartySync";
 import { closeCloudWatchParty } from "../lib/cloudWatchParty";
 import { closeWatchParty } from "../lib/watchPartyApi";
+import { useWatchPartyHost } from "../context/WatchPartyHostContext";
+import { closeChatPopup } from "../lib/chatPopup";
 import type { WatchPartySession } from "../types/watchParty";
 import { parseRemoteProxyId } from "../lib/cast";
 import {
@@ -169,6 +176,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const { activeProfile } = useProfile();
   const { notify } = useNotifications();
   const { profile: cloudProfile } = useCloudAccount();
+  const { setHostSession } = useWatchPartyHost();
   const profileId = activeProfile?.id ?? "";
   const profileName = activeProfile?.name ?? "Utente";
   const containerRef = useRef<HTMLDivElement>(null);
@@ -187,10 +195,22 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     null,
   );
   const pendingGuestSeekRef = useRef<number | null>(null);
+  const applyingPartyRemoteRef = useRef(false);
+  const hostLiveTimeRef = useRef(0);
+  const notifyPartySeekRef = useRef<(position: number, nextPlaying?: boolean) => void>(
+    () => {},
+  );
   const guestPlaybackRef = useRef<number | null>(null);
+  const actionPulseIdRef = useRef(0);
+  const actionPulseTimerRef = useRef<number | null>(null);
   const { isGuest, guestLimitReached, recordGuestPlayback } = useAppAccess();
 
-  const [playing, setPlaying] = useState(true);
+  const [playing, setPlaying] = useState(() => {
+    if (watchPartySessionProp?.role === "guest") {
+      return watchPartySessionProp.room.playing;
+    }
+    return true;
+  });
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [currentTime, setCurrentTime] = useState(0);
@@ -226,6 +246,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     () => readPlayerAudioLanguage(),
   );
   const [audioSwitching, setAudioSwitching] = useState(false);
+  const [actionPulse, setActionPulse] = useState<PlayerActionPulse | null>(null);
   const streamAudioLangRef = useRef<PlayerStreamAudioLanguage>(streamAudioLang);
   streamAudioLangRef.current = streamAudioLang;
   const canShowAudioMenu =
@@ -236,6 +257,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     partySession?.role === "guest" && partyStreamUrl ? partyStreamUrl : streamUrl;
   const effectiveIsHls =
     partySession?.role === "guest" && partyStreamUrl ? partyIsHls : isHls;
+  const isPartyGuest = partySession?.role === "guest";
+  const isPartyHost = partySession?.role === "host";
   const remoteProxyId = useMemo(
     () => parseRemoteProxyId(effectiveStreamUrl),
     [effectiveStreamUrl],
@@ -377,6 +400,28 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       hideTimer.current = setTimeout(() => setShowControls(false), 3500);
     }
   }, [showEpisodes, showQualityMenu, showSubtitleMenu]);
+
+  const flashAction = useCallback((kind: PlayerActionKind, delta?: number) => {
+    if (actionPulseTimerRef.current != null) {
+      window.clearTimeout(actionPulseTimerRef.current);
+    }
+    actionPulseIdRef.current += 1;
+    const id = actionPulseIdRef.current;
+    setActionPulse({ id, kind, delta });
+    actionPulseTimerRef.current = window.setTimeout(() => {
+      setActionPulse((current) => (current?.id === id ? null : current));
+      actionPulseTimerRef.current = null;
+    }, 720);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (actionPulseTimerRef.current != null) {
+        window.clearTimeout(actionPulseTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const toggleFullscreen = useCallback(async () => {
     if (document.fullscreenElement) {
@@ -641,21 +686,47 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const video = videoRef.current;
     if (!video) return;
 
-    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-      pendingGuestSeekRef.current = position;
-    } else if (Math.abs(video.currentTime - position) > DRIFT_THRESHOLD_SEC) {
-      video.currentTime = position;
-      setCurrentTime(position);
-      pendingGuestSeekRef.current = null;
+    applyingPartyRemoteRef.current = true;
+
+    const drift = Math.abs(video.currentTime - position);
+    const pausedDriftLimit = 0.1;
+    const playingDriftLimit = DRIFT_THRESHOLD_SEC;
+    const shouldSeek =
+      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+        ? true
+        : drift > (nextPlaying ? playingDriftLimit : pausedDriftLimit);
+
+    if (shouldSeek) {
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        pendingGuestSeekRef.current = position;
+      } else {
+        try {
+          video.currentTime = position;
+        } catch {
+          pendingGuestSeekRef.current = position;
+        }
+        setCurrentTime(position);
+        pendingGuestSeekRef.current = null;
+      }
     }
 
-    if (nextPlaying && video.paused) {
-      void video.play();
-      setPlaying(true);
-    } else if (!nextPlaying && !video.paused) {
-      video.pause();
+    if (nextPlaying) {
+      if (video.paused) {
+        void video
+          .play()
+          .then(() => setPlaying(true))
+          .catch(() => setPlaying(false));
+      } else {
+        setPlaying(true);
+      }
+    } else {
+      if (!video.paused) video.pause();
       setPlaying(false);
     }
+
+    window.setTimeout(() => {
+      applyingPartyRemoteRef.current = false;
+    }, 350);
   }, []);
 
   useEffect(() => {
@@ -668,23 +739,47 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const id = window.setInterval(() => {
       const target = remoteSyncTargetRef.current;
       const video = videoRef.current;
-      if (!target || !video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      if (!target || !video || applyingPartyRemoteRef.current) {
+        return;
+      }
+
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        if (pendingGuestSeekRef.current == null) {
+          pendingGuestSeekRef.current = target.position;
+        }
         return;
       }
 
       const drift = Math.abs(video.currentTime - target.position);
-      if (target.playing && drift > 0.2 && drift <= DRIFT_THRESHOLD_SEC) {
-        video.currentTime = target.position;
+      const limit = target.playing ? 0.22 : 0.08;
+      if (drift > limit) {
+        try {
+          video.currentTime = target.position;
+        } catch {
+          // ignore seek errors during buffering
+        }
         setCurrentTime(target.position);
+      }
+
+      if (target.playing && video.paused) {
+        void video.play().catch(() => {});
+        setPlaying(true);
+      } else if (!target.playing && !video.paused) {
+        video.pause();
+        setPlaying(false);
       }
 
       if (pendingGuestSeekRef.current != null) {
         const pending = pendingGuestSeekRef.current;
-        video.currentTime = pending;
+        try {
+          video.currentTime = pending;
+        } catch {
+          return;
+        }
         setCurrentTime(pending);
         pendingGuestSeekRef.current = null;
       }
-    }, 400);
+    }, 220);
 
     return () => window.clearInterval(id);
   }, [partySession?.role]);
@@ -701,6 +796,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     cloudUserId: cloudProfile?.id,
     playing,
     currentTime,
+    getHostPosition: () => hostLiveTimeRef.current,
     onRemoteSync: handleRemoteSync,
     onGuestContent: (url, guestHls) => {
       setPartyStreamUrl(url);
@@ -709,15 +805,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     },
   });
 
+  notifyPartySeekRef.current = notifyPartySeek;
+
   const updatePartySession = useCallback(
     (next: WatchPartySession | null) => {
       setPartySession(next);
+      setHostSession(next);
       onWatchPartySessionChange?.(next);
     },
-    [onWatchPartySessionChange],
+    [onWatchPartySessionChange, setHostSession],
   );
 
   const leaveParty = useCallback(async () => {
+    const closingCode = partySession?.room.code;
+    const closingRelay = partySession?.relay;
     if (partySession?.role === "host") {
       try {
         if (partySession.relay === "cloud" && cloudProfile) {
@@ -730,6 +831,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       }
     }
     updatePartySession(null);
+    if (closingCode && closingRelay === "cloud") {
+      closeChatPopup({ watchPartyCode: closingCode });
+    }
   }, [partySession, profileId, cloudProfile, updatePartySession]);
 
   const cloudProfileRef = useRef(cloudProfile);
@@ -749,7 +853,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
   const seek = useCallback(
     async (time: number) => {
-      if (partySession?.role === "guest") return;
+      if (isPartyGuest) return;
       if (castDevice) {
         const clamped = Math.max(0, duration > 0 ? Math.min(duration, time) : time);
         setCurrentTime(clamped);
@@ -770,27 +874,30 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setShowUpNext(false);
         setAutoplaySeconds(null);
       }
-      if (partySession?.role === "host") {
+      if (isPartyHost) {
         notifyPartySeek(time);
       }
       resetHideTimer();
     },
-    [castDevice, duration, resetHideTimer, partySession, notifyPartySeek],
+    [castDevice, duration, resetHideTimer, isPartyHost, isPartyGuest, notifyPartySeek],
   );
 
   const skip = useCallback(
     (delta: number) => {
+      if (isPartyGuest) return;
+      flashAction("skip", delta);
       const limit = duration > 0 ? duration : currentTime + Math.abs(delta);
       void seek(Math.max(0, Math.min(limit, currentTime + delta)));
     },
-    [currentTime, duration, seek],
+    [currentTime, duration, seek, isPartyGuest, flashAction],
   );
 
   const togglePlay = useCallback(async () => {
-    if (partySession?.role === "guest") return;
+    if (isPartyGuest) return;
     if (castDevice) {
       try {
         await castTransport(castDevice, playing ? "pause" : "play");
+        flashAction(playing ? "pause" : "play");
         setPlaying(!playing);
       } catch {
         // stato locale invariato se la TV non risponde
@@ -802,49 +909,84 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
+      flashAction("play");
       void video.play();
       setPlaying(true);
-      if (partySession?.role === "host") {
+      if (isPartyHost) {
         notifyPartySeek(video.currentTime, true);
       }
     } else {
+      flashAction("pause");
       video.pause();
       setPlaying(false);
-      if (partySession?.role === "host") {
+      if (isPartyHost) {
         notifyPartySeek(video.currentTime, false);
       }
     }
     resetHideTimer();
-  }, [castDevice, playing, resetHideTimer, partySession, notifyPartySeek]);
+  }, [
+    castDevice,
+    playing,
+    resetHideTimer,
+    isPartyHost,
+    isPartyGuest,
+    notifyPartySeek,
+    flashAction,
+  ]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || castDevice) return;
 
     const onPause = () => {
+      if (applyingPartyRemoteRef.current) return;
       setPlaying(false);
       saveProgress(video.currentTime, video.duration);
+      if (partySessionRef.current?.role === "host") {
+        notifyPartySeekRef.current(video.currentTime, false);
+      }
+    };
+
+    const onPlaying = () => {
+      if (applyingPartyRemoteRef.current) return;
+      setLoading(false);
+      if (partySessionRef.current?.role === "host") {
+        notifyPartySeekRef.current(video.currentTime, true);
+      }
     };
 
     const onLoaded = () => {
       setDuration(video.duration);
       setLoading(false);
+      const guestSession = partySessionRef.current;
+      if (guestSession?.role === "guest") {
+        const target = remoteSyncTargetRef.current;
+        const startAt =
+          target?.position ??
+          pendingGuestSeekRef.current ??
+          guestSession.room.positionSecs;
+        if (startAt > 0 && startAt < video.duration - 0.5) {
+          video.currentTime = startAt;
+          setCurrentTime(startAt);
+        }
+        const shouldPlay = target?.playing ?? guestSession.room.playing;
+        setPlaying(shouldPlay);
+        if (shouldPlay) {
+          void video.play().catch(() => setPlaying(false));
+        } else {
+          video.pause();
+        }
+        return;
+      }
       if (resumeAt > 5 && resumeAt < video.duration - 10) {
         video.currentTime = resumeAt;
         setCurrentTime(resumeAt);
-      }
-      const guestSession = partySessionRef.current;
-      if (guestSession?.role === "guest") {
-        setPlaying(guestSession.room.playing);
-        if (guestSession.room.playing) {
-          void video.play().catch(() => setPlaying(false));
-        }
-        return;
       }
       video.play().catch(() => setPlaying(false));
     };
 
     const onTimeUpdate = () => {
+      hostLiveTimeRef.current = video.currentTime;
       setCurrentTime(video.currentTime);
       if (video.buffered.length > 0) {
         setBuffered(video.buffered.end(video.buffered.length - 1));
@@ -891,22 +1033,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     };
 
     const onWaiting = () => setLoading(true);
-    const onPlaying = () => setLoading(false);
 
     video.addEventListener("loadedmetadata", onLoaded);
     video.addEventListener("pause", onPause);
+    video.addEventListener("playing", onPlaying);
     video.addEventListener("timeupdate", onTimeUpdate);
     video.addEventListener("ended", onEnded);
     video.addEventListener("waiting", onWaiting);
-    video.addEventListener("playing", onPlaying);
 
     return () => {
       video.removeEventListener("loadedmetadata", onLoaded);
       video.removeEventListener("pause", onPause);
+      video.removeEventListener("playing", onPlaying);
       video.removeEventListener("timeupdate", onTimeUpdate);
       video.removeEventListener("ended", onEnded);
       video.removeEventListener("waiting", onWaiting);
-      video.removeEventListener("playing", onPlaying);
       void saveProgress(video.currentTime, video.duration);
     };
   }, [effectiveStreamUrl, resumeAt, saveProgress, nextEp, playNextEpisode, castDevice, onPlayEpisode, notify]);
@@ -968,63 +1109,54 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (castDevice) {
+      if (isPartyGuest) {
+        const video = videoRef.current;
+        if (!video) return;
         switch (e.key) {
-          case " ":
-          case "k":
-            e.preventDefault();
-            void togglePlay();
-            resetHideTimer();
-            break;
-          case "ArrowLeft":
-            e.preventDefault();
-            skip(-10);
-            resetHideTimer();
-            break;
-          case "ArrowRight":
-            e.preventDefault();
-            skip(10);
-            resetHideTimer();
-            break;
           case "Escape":
             if (showEpisodes) setShowEpisodes(false);
             else if (isFullscreen) exitFullscreen();
+            break;
+          case "m":
+            video.muted = !video.muted;
+            setMuted(video.muted);
+            resetHideTimer();
+            break;
+          case "f":
+            toggleFullscreen();
             break;
         }
         return;
       }
 
-      const video = videoRef.current;
-      if (!video) return;
       switch (e.key) {
         case " ":
         case "k":
           e.preventDefault();
-          if (video.paused) {
-            video.play();
-            setPlaying(true);
-          } else {
-            video.pause();
-            setPlaying(false);
-          }
+          void togglePlay();
           resetHideTimer();
           break;
         case "ArrowLeft":
-          video.currentTime = Math.max(0, video.currentTime - 10);
+          e.preventDefault();
+          skip(-10);
           resetHideTimer();
           break;
         case "ArrowRight":
-          video.currentTime = Math.min(video.duration, video.currentTime + 10);
+          e.preventDefault();
+          skip(10);
           resetHideTimer();
           break;
         case "f":
           toggleFullscreen();
           break;
-        case "m":
+        case "m": {
+          const video = videoRef.current;
+          if (!video) return;
           video.muted = !video.muted;
           setMuted(video.muted);
           resetHideTimer();
           break;
+        }
         case "Escape":
           if (showEpisodes) setShowEpisodes(false);
           else if (isFullscreen) exitFullscreen();
@@ -1039,9 +1171,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     isFullscreen,
     toggleFullscreen,
     exitFullscreen,
-    castDevice,
     togglePlay,
     skip,
+    isPartyGuest,
   ]);
 
   useEffect(() => {
@@ -1185,6 +1317,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           </p>
         </div>
       )}
+
+      <PlayerActionFeedback pulse={actionPulse} />
 
       {loading && !castDevice && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -1370,7 +1504,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             progressPct={progress}
             streamUrl={effectiveStreamUrl}
             isHls={effectiveIsHls}
-            disabled={!effectiveStreamUrl || castDevice != null}
+            disabled={!effectiveStreamUrl || castDevice != null || isPartyGuest}
             onSeek={(time) => {
               if (castDevice) {
                 setCurrentTime(time);
@@ -1388,7 +1522,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               <button
                 type="button"
                 onClick={() => void togglePlay()}
-                className="flex h-10 w-10 items-center justify-center rounded-full text-white transition-transform hover:scale-105"
+                disabled={isPartyGuest}
+                className={`flex h-10 w-10 items-center justify-center rounded-full text-white transition-transform ${
+                  isPartyGuest
+                    ? "cursor-default opacity-70"
+                    : "hover:scale-105"
+                }`}
+                title={isPartyGuest ? "Controlli gestiti dall'host" : undefined}
               >
                 {playing ? (
                   <Pause className="h-6 w-6" fill="currentColor" />
@@ -1399,14 +1539,24 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
               <button
                 onClick={() => skip(-10)}
-                className="hidden h-9 w-9 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white sm:flex"
+                disabled={isPartyGuest}
+                className={`hidden h-9 w-9 items-center justify-center rounded-full text-white/80 sm:flex ${
+                  isPartyGuest
+                    ? "cursor-default opacity-40"
+                    : "hover:bg-white/10 hover:text-white"
+                }`}
                 title="Indietro 10s"
               >
                 <RotateCcw className="h-4 w-4" />
               </button>
               <button
                 onClick={() => skip(10)}
-                className="hidden h-9 w-9 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white sm:flex"
+                disabled={isPartyGuest}
+                className={`hidden h-9 w-9 items-center justify-center rounded-full text-white/80 sm:flex ${
+                  isPartyGuest
+                    ? "cursor-default opacity-40"
+                    : "hover:bg-white/10 hover:text-white"
+                }`}
                 title="Avanti 10s"
               >
                 <RotateCw className="h-4 w-4" />

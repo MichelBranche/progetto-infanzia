@@ -32,6 +32,9 @@ import { streamingListKey } from "../lib/myList";
 import { useMyList } from "../lib/useMyList";
 import type { PlayableStream, StremioMeta, StremioMetaPreview } from "../types/stremio";
 import type { WatchPartySession } from "../types/watchParty";
+import { useWatchPartySync } from "../hooks/useWatchPartySync";
+import { useProfile } from "../context/ProfileContext";
+import { useCloudAccount } from "../context/CloudAccountContext";
 import { VideoPlayer } from "./VideoPlayer";
 import { YouTubePlayer, youtubeVideoIdFromStreamUrl } from "./YouTubePlayer";
 import { StreamingTitlePage } from "./StreamingTitlePage";
@@ -140,6 +143,13 @@ export function AddonWatchPage({
   const isLoonex = catalogPrefix === "loonex" && !!slug;
   const isYoutube = catalogPrefix === "youtube" && !!slug;
   const isBuiltin = isSc || isSaturn || isLoonex || isYoutube;
+  const { activeProfile } = useProfile();
+  const { profile: cloudProfile } = useCloudAccount();
+  const profileName = activeProfile?.name ?? "Utente";
+  const watchPartySessionRef = useRef(watchPartySession);
+  watchPartySessionRef.current = watchPartySession;
+  const onWatchPartySessionChangeRef = useRef(onWatchPartySessionChange);
+  onWatchPartySessionChangeRef.current = onWatchPartySessionChange;
   const [meta, setMeta] = useState<StremioMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -172,6 +182,30 @@ export function AddonWatchPage({
     userPlaybackStartedRef.current = false;
     playbackGenerationRef.current = 0;
   }, [metaId, slug, catalogPrefix, contentType, initialVideoId, initialPreferredVideoId]);
+
+  useWatchPartySync({
+    session:
+      watchPartySession?.role === "guest" && !playback
+        ? watchPartySession
+        : null,
+    profileId,
+    profileName,
+    cloudUserId: cloudProfile?.id,
+    playing: watchPartySession?.room.playing ?? false,
+    currentTime: watchPartySession?.room.positionSecs ?? 0,
+    onRemoteSync: (nextPlaying, position) => {
+      const session = watchPartySessionRef.current;
+      if (!session || session.role !== "guest") return;
+      onWatchPartySessionChangeRef.current?.({
+        ...session,
+        room: {
+          ...session.room,
+          playing: nextPlaying,
+          positionSecs: position,
+        },
+      });
+    },
+  });
 
   const loadEpisodeProgress = useCallback(async () => {
     if (!isBuiltin || !slug || !meta) {

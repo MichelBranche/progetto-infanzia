@@ -98,7 +98,7 @@ export function AppTopNavMoreMenu({
   return (
     <div
       ref={panelRef}
-      className={`app-top-nav__more-panel pointer-events-auto absolute top-[calc(100%+10px)] z-[70] max-h-[min(70vh,420px)] min-w-[220px] overflow-y-auto rounded-xl border border-white/[0.1] bg-[#0c0c0f]/96 py-1.5 shadow-[0_24px_64px_rgba(0,0,0,0.55)] backdrop-blur-xl ${className}`}
+      className={`app-top-nav__more-panel pointer-events-auto absolute top-[calc(100%+10px)] z-[70] max-h-[min(70vh,420px)] min-w-[220px] overflow-y-auto rounded-xl border border-white/[0.1] bg-[#121216] py-1.5 shadow-[0_24px_64px_rgba(0,0,0,0.55)] ${className}`}
       role="menu"
     >
       {includePrimary && (

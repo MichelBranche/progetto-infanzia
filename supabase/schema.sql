@@ -31,7 +31,7 @@ create table if not exists public.friend_requests (
 -- Presenza online amici (heartbeat client)
 create table if not exists public.user_presence (
   user_id uuid primary key references public.cloud_profiles (id) on delete cascade,
-  status text not null default 'online' check (status in ('online', 'away', 'offline')),
+  status text not null default 'online' check (status in ('online', 'away', 'offline', 'dnd', 'invisible')),
   last_seen_at timestamptz not null default now(),
   activity text,
   app_version text,
@@ -41,6 +41,11 @@ create table if not exists public.user_presence (
 
 alter table public.user_presence add column if not exists app_version text;
 alter table public.user_presence add column if not exists platform text;
+
+-- Estende gli stati presenza (online, assente, non disturbare, invisibile).
+alter table public.user_presence drop constraint if exists user_presence_status_check;
+alter table public.user_presence add constraint user_presence_status_check
+  check (status in ('online', 'away', 'offline', 'dnd', 'invisible'));
 
 create index if not exists user_presence_last_seen_idx on public.user_presence (last_seen_at desc);
 
@@ -640,6 +645,7 @@ declare
   me uuid := auth.uid();
 begin
   if me is null then raise exception 'Non autenticato'; end if;
+  perform public.purge_inactive_watch_party_chats();
   return coalesce((
     select json_agg(row_to_json(t) order by t.updated_at desc)
     from (
@@ -663,8 +669,94 @@ begin
       from public.chat_conversations c
       join public.chat_members cm on cm.conversation_id = c.id
       where cm.user_id = me
+        and (
+          c.kind <> 'watch_party'
+          or (
+            c.watch_party_code is not null
+            and exists (
+              select 1
+              from public.watch_party_rooms r
+              where upper(r.code) = c.watch_party_code
+                and r.is_active = true
+            )
+          )
+        )
     ) t
   ), '[]'::json);
+end;
+$$;
+
+create or replace function public.delete_chat_conversation(conv_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  conv_kind text;
+  conv_creator uuid;
+begin
+  if me is null then raise exception 'Non autenticato'; end if;
+  if not public.is_chat_member(conv_id) then raise exception 'Non sei in questa conversazione'; end if;
+
+  select kind, created_by into conv_kind, conv_creator
+  from public.chat_conversations
+  where id = conv_id;
+
+  if conv_kind is null then return;
+  if conv_kind = 'watch_party' then
+    raise exception 'La chat della watch party si chiude con la stanza';
+  end if;
+
+  if conv_kind = 'direct' then
+    delete from public.chat_conversations where id = conv_id;
+    return;
+  end if;
+
+  if conv_creator = me then
+    delete from public.chat_conversations where id = conv_id;
+  else
+    delete from public.chat_members
+    where conversation_id = conv_id and user_id = me;
+    if not exists (
+      select 1 from public.chat_members where conversation_id = conv_id
+    ) then
+      delete from public.chat_conversations where id = conv_id;
+    end if;
+  end if;
+end;
+$$;
+
+create or replace function public.delete_watch_party_chat(lookup_code text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_code text := upper(trim(lookup_code));
+begin
+  delete from public.chat_conversations
+  where kind = 'watch_party' and watch_party_code = v_code;
+end;
+$$;
+
+create or replace function public.purge_inactive_watch_party_chats()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from public.chat_conversations c
+  where c.kind = 'watch_party'
+    and c.watch_party_code is not null
+    and not exists (
+      select 1
+      from public.watch_party_rooms r
+      where upper(r.code) = c.watch_party_code
+    );
 end;
 $$;
 
@@ -678,6 +770,12 @@ revoke all on function public.send_chat_message(uuid, text) from public;
 grant execute on function public.send_chat_message(uuid, text) to authenticated;
 revoke all on function public.list_my_chats() from public;
 grant execute on function public.list_my_chats() to authenticated;
+revoke all on function public.delete_chat_conversation(uuid) from public;
+grant execute on function public.delete_chat_conversation(uuid) to authenticated;
+revoke all on function public.delete_watch_party_chat(text) from public;
+grant execute on function public.delete_watch_party_chat(text) to authenticated;
+revoke all on function public.purge_inactive_watch_party_chats() from public;
+grant execute on function public.purge_inactive_watch_party_chats() to authenticated;
 
 do $$
 begin

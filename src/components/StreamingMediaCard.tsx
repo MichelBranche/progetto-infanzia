@@ -26,6 +26,10 @@ import { StreamingProviderBadge } from "./StreamingProviderBadge";
 import { StreamingVideoPreview } from "./StreamingVideoPreview";
 import { SparkleActionButton } from "./SparkleActionButton";
 import { useRowInteraction, isRowDragging } from "../hooks/useRowScrollContainer";
+import {
+  playCardNavigationSound,
+  playCardOpenTitleSound,
+} from "../lib/cardNavigationSound";
 
 const STREAM_DRAG_THRESHOLD_PX = 8;
 
@@ -131,6 +135,7 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
       pointerDragRef.current.active = false;
       return;
     }
+    playCardOpenTitleSound();
     if (onOpenDetail) {
       onOpenDetail(browse);
       return;
@@ -152,6 +157,7 @@ export const StreamingMediaCard = memo(function StreamingMediaCard({
 
   const handleEnter = () => {
     if (isRowDragging()) return;
+    playCardNavigationSound();
     if (hoverTimer.current) {
       window.clearTimeout(hoverTimer.current);
     }

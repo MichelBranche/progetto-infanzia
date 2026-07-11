@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Settings2, Volume2 } from "lucide-react";
+import { motion } from "framer-motion";
+import {
+  Blocks,
+  KeyRound,
+  Loader2,
+  Lock,
+  Shield,
+  Tv,
+  Volume2,
+} from "lucide-react";
 import { setProfilePin, removeProfilePin } from "../lib/profilesApi";
 import { fetchSettings, updateSettings } from "../lib/settingsApi";
 import { STREAMING_SERVICES } from "../data/streaming";
@@ -12,16 +21,23 @@ import { STREMIO_ADDONS_ENABLED } from "../lib/features";
 import type { AppSettings } from "../lib/settingsApi";
 import { AmbientThemePicker } from "./settings/AmbientThemePicker";
 import {
+  SettingsAlert,
   SettingsButton,
   SettingsGroupLabel,
   SettingsInput,
   SettingsPill,
   SettingsSection,
+  SettingsSwitch,
 } from "./settings/SettingsUi";
 
 interface SettingsPageProps {
   profileId: string;
 }
+
+const sectionMotion = {
+  initial: { opacity: 0, y: 14 },
+  animate: { opacity: 1, y: 0 },
+};
 
 export function SettingsPage({ profileId }: SettingsPageProps) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -109,156 +125,214 @@ export function SettingsPage({ profileId }: SettingsPageProps) {
     );
   }
 
+  let motionIndex = 0;
+
   return (
-    <div className="page-px pb-24 pt-[calc(var(--app-nav-height)+1.75rem)] sm:pt-[calc(var(--app-nav-height)+2.25rem)]">
-      <div className="mx-auto w-full max-w-lg">
-        <header className="mb-8 text-center sm:mb-10">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-accent/25 bg-accent/10 shadow-[0_0_32px_rgba(94,234,212,0.12)]">
-            <Settings2 className="h-5 w-5 text-accent" />
-          </div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-accent">
-            Branchefy
-          </p>
-          <h1 className="font-display mt-2 text-[clamp(1.65rem,4vw,2.25rem)] font-semibold tracking-[-0.04em] text-text-primary">
-            Impostazioni
-          </h1>
-          <p className="mx-auto mt-2 max-w-sm text-[13px] leading-relaxed text-text-muted">
-            Aspetto, streaming, account e controllo genitori
-          </p>
-        </header>
+    <div className="relative min-h-full">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_90%_55%_at_50%_-15%,rgba(94,234,212,0.09),transparent_65%)]" />
+        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-void/80 to-transparent" />
+        <div className="noise-overlay absolute inset-0 opacity-[0.035]" />
+      </div>
 
-        {error && (
-          <p className="mb-5 rounded-xl border border-warm/25 bg-warm/10 px-4 py-3 text-center text-[13px] text-warm">
-            {error}
-          </p>
-        )}
-
-        <div className="space-y-3">
-          <SettingsGroupLabel>Aspetto</SettingsGroupLabel>
-          <AmbientThemePicker />
-
-          <SettingsGroupLabel>Account</SettingsGroupLabel>
-          <CloudAuthPanel />
-
-          <SettingsSection
-            title="PIN profilo genitore"
-            description="Protegge l'accesso al profilo genitore e alle impostazioni"
+      <div className="page-px relative pb-24 pt-[calc(var(--app-nav-height)+1.75rem)] sm:pt-[calc(var(--app-nav-height)+2.25rem)]">
+        <div className="mx-auto w-full max-w-2xl">
+          <motion.header
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+            className="mb-8 text-center sm:mb-10"
           >
-            <div className="grid gap-3 sm:grid-cols-2">
-              <SettingsInput
-                value={currentPin}
-                onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ""))}
-                placeholder="PIN attuale"
-                maxLength={8}
-                inputMode="numeric"
-              />
-              <SettingsInput
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                placeholder="Nuovo PIN"
-                maxLength={8}
-                inputMode="numeric"
-              />
-              <SettingsInput
-                value={pinConfirm}
-                onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, ""))}
-                placeholder="Conferma PIN"
-                maxLength={8}
-                inputMode="numeric"
-                className="sm:col-span-2"
-              />
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.03] shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
+              <span className="chromatic-logo chromatic-logo--skew font-display text-[2rem] font-black leading-none tracking-[-0.08em]">
+                B
+              </span>
             </div>
-            <div className="mt-4 flex flex-wrap justify-center gap-2 sm:justify-start">
-              <SettingsButton variant="primary" onClick={() => void handleSetPin()}>
-                Salva PIN
-              </SettingsButton>
-              <SettingsButton variant="secondary" onClick={() => void handleRemovePin()}>
-                Rimuovi PIN
-              </SettingsButton>
-            </div>
-            {pinMessage && (
-              <p className="mt-3 text-center text-[12px] text-text-secondary sm:text-left">
-                {pinMessage}
-              </p>
-            )}
-          </SettingsSection>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-accent">
+              Branchefy
+            </p>
+            <h1 className="font-display mt-2 text-[clamp(1.75rem,4vw,2.5rem)] font-semibold tracking-[-0.04em] text-text-primary">
+              Impostazioni
+            </h1>
+            <p className="mx-auto mt-2 max-w-md text-[13px] leading-relaxed text-text-muted">
+              Aspetto, streaming, account e controllo genitori
+            </p>
+          </motion.header>
 
-          <SettingsGroupLabel>Streaming</SettingsGroupLabel>
-
-          <SettingsSection
-            title="I tuoi abbonamenti"
-            description="Per ogni titolo vedi dove è disponibile in streaming"
-          >
-            <div className="flex flex-wrap justify-center gap-2 sm:justify-start">
-              {STREAMING_SERVICES.map((service) => {
-                const active = settings.subscribedServices.includes(service.id);
-                return (
-                  <SettingsPill
-                    key={service.id}
-                    active={active}
-                    disabled={saving}
-                    onClick={() => toggleService(service.id)}
-                  >
-                    {service.label}
-                  </SettingsPill>
-                );
-              })}
-            </div>
-          </SettingsSection>
-
-          {STREMIO_ADDONS_ENABLED && (
-            <SettingsSection
-              title="Addon Stremio"
-              description="Cataloghi e streaming remoto"
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-5"
             >
-              <AddonManagerPanel parentProfileId={profileId} />
-            </SettingsSection>
+              <SettingsAlert variant="error">{error}</SettingsAlert>
+            </motion.div>
           )}
 
-          {STREMIO_ADDONS_ENABLED && (
-            <SettingsSection
-              title="Debrid"
-              description="Real-Debrid / AllDebrid per stream torrent in-app"
+          <div className="space-y-3">
+            <motion.div
+              {...sectionMotion}
+              transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
             >
-              <DebridPanel parentProfileId={profileId} />
-            </SettingsSection>
-          )}
+              <SettingsGroupLabel>Aspetto</SettingsGroupLabel>
+              <AmbientThemePicker />
+            </motion.div>
 
-          <SettingsGroupLabel>Famiglia</SettingsGroupLabel>
+            <motion.div
+              {...sectionMotion}
+              transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
+            >
+              <SettingsGroupLabel>Account</SettingsGroupLabel>
+              <CloudAuthPanel />
+            </motion.div>
 
-          <SettingsSection
-            title="Limiti profili bambino"
-            description="Tempo giornaliero e fascia oraria consentita"
-          >
-            <ParentalLimitsPanel parentProfileId={profileId} />
-          </SettingsSection>
-
-          <SettingsGroupLabel>App</SettingsGroupLabel>
-
-          <SettingsSection
-            icon={Volume2}
-            title="Suono intro"
-            description="Effetto sonoro all'avvio di Branchefy"
-            headerRight={
-              <button
-                type="button"
-                onClick={() =>
-                  void saveSettings({ introSoundEnabled: !settings.introSoundEnabled })
-                }
-                className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
-                  settings.introSoundEnabled ? "bg-accent" : "bg-white/15"
-                }`}
+            <motion.div
+              {...sectionMotion}
+              transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
+            >
+              <SettingsSection
+                icon={Lock}
+                title="PIN profilo genitore"
+                description="Protegge l'accesso al profilo genitore e alle impostazioni"
               >
-                <span
-                  className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform ${
-                    settings.introSoundEnabled ? "left-[22px]" : "left-0.5"
-                  }`}
-                />
-              </button>
-            }
-          />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <SettingsInput
+                    value={currentPin}
+                    onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ""))}
+                    placeholder="PIN attuale"
+                    maxLength={8}
+                    inputMode="numeric"
+                  />
+                  <SettingsInput
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                    placeholder="Nuovo PIN"
+                    maxLength={8}
+                    inputMode="numeric"
+                  />
+                  <SettingsInput
+                    value={pinConfirm}
+                    onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, ""))}
+                    placeholder="Conferma PIN"
+                    maxLength={8}
+                    inputMode="numeric"
+                    className="sm:col-span-2"
+                  />
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <SettingsButton variant="primary" onClick={() => void handleSetPin()}>
+                    Salva PIN
+                  </SettingsButton>
+                  <SettingsButton variant="secondary" onClick={() => void handleRemovePin()}>
+                    Rimuovi PIN
+                  </SettingsButton>
+                </div>
+                {pinMessage && (
+                  <p className="mt-3 text-[12px] text-text-secondary">{pinMessage}</p>
+                )}
+              </SettingsSection>
+            </motion.div>
 
-          <AppUpdaterSection />
+            <motion.div
+              {...sectionMotion}
+              transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
+            >
+              <SettingsGroupLabel>Streaming</SettingsGroupLabel>
+
+              <SettingsSection
+                icon={Tv}
+                title="I tuoi abbonamenti"
+                description="Per ogni titolo vedi dove è disponibile in streaming"
+              >
+                <div className="flex flex-wrap gap-2">
+                  {STREAMING_SERVICES.map((service) => {
+                    const active = settings.subscribedServices.includes(service.id);
+                    return (
+                      <SettingsPill
+                        key={service.id}
+                        active={active}
+                        disabled={saving}
+                        onClick={() => toggleService(service.id)}
+                      >
+                        {service.label}
+                      </SettingsPill>
+                    );
+                  })}
+                </div>
+              </SettingsSection>
+            </motion.div>
+
+            {STREMIO_ADDONS_ENABLED && (
+              <motion.div
+                {...sectionMotion}
+                transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
+              >
+                <SettingsSection
+                  icon={Blocks}
+                  title="Addon Stremio"
+                  description="Cataloghi e streaming remoto"
+                >
+                  <AddonManagerPanel parentProfileId={profileId} />
+                </SettingsSection>
+              </motion.div>
+            )}
+
+            {STREMIO_ADDONS_ENABLED && (
+              <motion.div
+                {...sectionMotion}
+                transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
+              >
+                <SettingsSection
+                  icon={KeyRound}
+                  title="Debrid"
+                  description="Real-Debrid / AllDebrid per stream torrent in-app"
+                >
+                  <DebridPanel parentProfileId={profileId} />
+                </SettingsSection>
+              </motion.div>
+            )}
+
+            <motion.div
+              {...sectionMotion}
+              transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
+            >
+              <SettingsGroupLabel>Famiglia</SettingsGroupLabel>
+
+              <SettingsSection
+                icon={Shield}
+                title="Limiti profili bambino"
+                description="Tempo giornaliero e fascia oraria consentita"
+              >
+                <ParentalLimitsPanel parentProfileId={profileId} />
+              </SettingsSection>
+            </motion.div>
+
+            <motion.div
+              {...sectionMotion}
+              transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
+            >
+              <SettingsGroupLabel>App</SettingsGroupLabel>
+
+              <SettingsSection
+                icon={Volume2}
+                title="Suono intro"
+                description="Effetto sonoro all'avvio di Branchefy"
+                headerRight={
+                  <SettingsSwitch
+                    enabled={settings.introSoundEnabled}
+                    disabled={saving}
+                    onChange={() =>
+                      void saveSettings({ introSoundEnabled: !settings.introSoundEnabled })
+                    }
+                  />
+                }
+              />
+
+              <div className="mt-3">
+                <AppUpdaterSection />
+              </div>
+            </motion.div>
+          </div>
         </div>
       </div>
     </div>

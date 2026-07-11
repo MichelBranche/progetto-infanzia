@@ -190,7 +190,7 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
       title: "Manga",
       subtitle: "Tabloid MangaDex · Novità, popolari e lettura online",
     },
-    cartoni: { title: "Cartoni", subtitle: "Animazione, avventure e Loonex" },
+    cartoni: { title: "Cartoni", subtitle: "Catalogo Loonex e YouTube" },
     serie: { title: "Serie TV", subtitle: "Scopri nuove serie da guardare" },
     capsula: {
       title: "Capsula del tempo",

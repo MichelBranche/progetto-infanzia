@@ -28,10 +28,13 @@ export function useCloudFriendAlerts() {
       message?: string,
       kind: "friend" | "success" | "info" = "info",
       playSound = false,
+      action?: import("../context/NotificationContext").NotificationAction,
     ) => {
       if (playSound) playFriendRequestNotificationSound();
-      notify({ kind, title, message });
-      void sendOsNotification(title, message);
+      notify({ kind, title, message, action });
+      void sendOsNotification(title, message, {
+        action: action === "open-friend-requests" ? "friend-requests" : undefined,
+      });
     },
     [notify],
   );
@@ -65,6 +68,7 @@ export function useCloudFriendAlerts() {
                 : "Hai una nuova richiesta in attesa",
               "friend",
               true,
+              "open-friend-requests",
             );
           }
         }

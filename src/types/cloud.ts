@@ -17,7 +17,7 @@ export interface CloudFriend {
 
 export interface FriendPresence {
   userId: string;
-  status: "online" | "away" | "offline";
+  status: "online" | "away" | "offline" | "dnd" | "invisible";
   lastSeenAt: string;
   activity?: string;
   isOnline: boolean;

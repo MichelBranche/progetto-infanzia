@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, KeyRound, Loader2 } from "lucide-react";
 import { getDebridConfig, setDebridConfig, testDebrid } from "../lib/addonsApi";
+import {
+  SettingsAlert,
+  SettingsButton,
+  SettingsField,
+  SettingsInput,
+  SettingsPill,
+} from "./settings/SettingsUi";
 
 interface DebridPanelProps {
   parentProfileId: string;
@@ -10,7 +17,7 @@ const PROVIDERS = [
   { id: "none", label: "Disattivato" },
   { id: "realdebrid", label: "Real-Debrid" },
   { id: "alldebrid", label: "AllDebrid" },
-];
+] as const;
 
 const KEY_LINKS: Record<string, string> = {
   realdebrid: "https://real-debrid.com/apitoken",
@@ -78,46 +85,43 @@ export function DebridPanel({ parentProfileId }: DebridPanelProps) {
 
   if (loading) {
     return (
-      <div className="mt-4 flex justify-center py-4">
+      <div className="flex justify-center py-6">
         <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
       </div>
     );
   }
 
   return (
-    <div className="mt-4 space-y-4">
+    <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         {PROVIDERS.map((p) => (
-          <button
+          <SettingsPill
             key={p.id}
-            type="button"
+            active={provider === p.id}
             onClick={() => {
               setProvider(p.id);
               setMessage(null);
             }}
-            className={`rounded-full border px-3 py-1.5 text-[12px] transition-colors ${
-              provider === p.id
-                ? "border-accent/40 bg-accent/10 text-text-primary"
-                : "border-white/[0.08] text-text-muted hover:border-white/15"
-            }`}
           >
             {p.label}
-          </button>
+          </SettingsPill>
         ))}
       </div>
 
       {provider !== "none" && (
         <>
-          <div className="relative">
-            <KeyRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="Chiave API"
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] py-2.5 pl-9 pr-3 text-[13px] outline-none focus:border-accent/30"
-            />
-          </div>
+          <SettingsField label="Chiave API">
+            <div className="relative">
+              <KeyRound className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+              <SettingsInput
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Incolla la chiave API"
+                className="pl-10"
+              />
+            </div>
+          </SettingsField>
           {KEY_LINKS[provider] && (
             <p className="text-[12px] text-text-muted">
               Ottieni la chiave su{" "}
@@ -128,20 +132,14 @@ export function DebridPanel({ parentProfileId }: DebridPanelProps) {
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => void save()}
-          disabled={saving}
-          className="rounded-full bg-text-primary px-4 py-2 text-[12px] font-medium text-void disabled:opacity-50"
-        >
+        <SettingsButton variant="primary" onClick={() => void save()} disabled={saving}>
           {saving ? "Salvataggio…" : "Salva"}
-        </button>
+        </SettingsButton>
         {provider !== "none" && (
-          <button
-            type="button"
+          <SettingsButton
+            variant="secondary"
             onClick={() => void test()}
             disabled={testing || !apiKey}
-            className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-[12px] text-text-primary hover:bg-white/[0.04] disabled:opacity-50"
           >
             {testing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -149,18 +147,14 @@ export function DebridPanel({ parentProfileId }: DebridPanelProps) {
               <CheckCircle2 className="h-3.5 w-3.5" />
             )}
             Verifica chiave
-          </button>
+          </SettingsButton>
         )}
       </div>
 
       {message && (
-        <p
-          className={`text-[12px] ${
-            message.kind === "ok" ? "text-mint" : "text-warm"
-          }`}
-        >
+        <SettingsAlert variant={message.kind === "ok" ? "success" : "error"}>
           {message.text}
-        </p>
+        </SettingsAlert>
       )}
     </div>
   );
