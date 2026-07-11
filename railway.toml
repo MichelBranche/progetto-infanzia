@@ -1,0 +1,11 @@
+# Railway: deploy dell API Rust (non il frontend Vercel).
+# Dashboard → Settings → se vedi ancora l app su /health, imposta Builder = Dockerfile.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "web/server/Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"

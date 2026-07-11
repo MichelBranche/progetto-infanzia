@@ -53,25 +53,40 @@ Apri http://localhost:5173. Le chiamate `runtimeInvoke` vanno a `http://127.0.0.
    - `BRANCHEFY_API_URL` (URL pubblico del server Rust)
 3. Deploy
 
-## Deploy API Rust (es. Fly.io)
+## Deploy API Rust (Railway)
 
-Dalla **root del repository**:
+Railway deve eseguire il **binario Rust**, non il frontend (`web/`).
 
-```bash
-fly launch --config fly.web-api.toml --no-deploy
-fly volumes create branchefy_data --region fra --size 1 -a branchefy-web-api
-fly deploy --config fly.web-api.toml
+### Setup (una tantum)
+
+1. Crea progetto Railway dal repo GitHub
+2. **Settings → Build**:
+   - Builder: **Dockerfile**
+   - Dockerfile path: `web/server/Dockerfile`
+3. **Variables**:
+   ```
+   BRANCHEFY_DATA_DIR=/data
+   PORT=8787
+   BRANCHEFY_PUBLIC_URL=https://TUO-SERVIZIO.up.railway.app
+   ```
+4. Aggiungi un **Volume** montato su `/data`
+5. **Networking** → Generate Domain
+
+### Verifica
+
+`https://TUO-SERVIZIO.up.railway.app/health` deve rispondere JSON:
+
+```json
+{"ok":true,"service":"branchefy-web-api"}
 ```
 
-Imposta `BRANCHEFY_API_URL` su Vercel all'URL Railway (es. `https://branchefy-web-api.fly.dev`).
+Se vedi la **UI Branchefy** su `/health`, Railway sta deployando il frontend per errore.
+Vai in Settings → Build → imposta **Dockerfile** (`web/server/Dockerfile`) e redeploy.
 
-Su Railway aggiungi anche:
+Il file `railway.toml` in root forza già questo build.
 
-```
-BRANCHEFY_PUBLIC_URL=https://TUO-URL-RAILWAY.up.railway.app
-```
+### Deploy da CLI (opzionale)
 
-Senza questa variabile, copertine e streaming puntano a `127.0.0.1` e non funzionano nel browser.
 
 ## Limitazioni rispetto al desktop
 
