@@ -26,7 +26,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: path.resolve(rootDir, "dist"),
+    outDir: path.resolve(rootDir, "..", "dist"),
     emptyOutDir: true,
     rollupOptions: {
       output: {

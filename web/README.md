@@ -38,8 +38,15 @@ Apri http://localhost:5173. Le chiamate `runtimeInvoke` vanno a `http://127.0.0.
 
 ## Deploy Vercel
 
-1. Crea un progetto Vercel con **Root Directory** = `web`
-2. Variabili ambiente:
+1. Crea un progetto Vercel collegato al repo GitHub
+2. **Root Directory** = `web`
+3. **Framework Preset** = `Other` (non Vite — altrimenti cerca la cartella sbagliata)
+4. Verifica in **Settings → General**:
+   - Build Command: `npm run build`
+   - Output Directory: `dist`
+   - Install Command: `npm install`
+   - Node.js Version: `22.x`
+5. Variabili ambiente:
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_PUBLISHABLE_KEY`
    - `VITE_BRANCHEFY_WEB=1`
