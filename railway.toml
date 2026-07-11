@@ -4,8 +4,9 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "web/server/Dockerfile"
+watchPatterns = ["src-tauri/**", "web/server/Dockerfile", "railway.toml"]
 
 [deploy]
 healthcheckPath = "/health"
-healthcheckTimeout = 300
+healthcheckTimeout = 600
 restartPolicyType = "ON_FAILURE"
