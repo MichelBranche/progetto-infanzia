@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { useCloudAccount } from "../context/CloudAccountContext";
 import { useAppAccess } from "../context/AppAccessContext";
+import { readAppAccessMode } from "../lib/appAccess";
+import { isWebShell } from "../lib/runtimeInvoke";
 import { GUEST_DAILY_LIMIT_SECONDS } from "../lib/guestUsage";
 import { formatDuration } from "../types/media";
 
@@ -297,13 +299,23 @@ export function AppAccessScreen() {
 /** Auto-complete registered setup when cloud session already exists. */
 export function AppAccessBootstrap() {
   const { user, loading: cloudLoading } = useCloudAccount();
-  const { setupComplete, completeRegisteredSetup } = useAppAccess();
+  const { setupComplete, completeRegisteredSetup, logoutAccess, syncFromStorage } =
+    useAppAccess();
 
   useEffect(() => {
     if (!cloudLoading && user && !setupComplete) {
       completeRegisteredSetup();
     }
   }, [cloudLoading, user, setupComplete, completeRegisteredSetup]);
+
+  useEffect(() => {
+    if (!isWebShell() || cloudLoading || !setupComplete) return;
+    const mode = readAppAccessMode();
+    if (mode === "registered" && !user) {
+      logoutAccess();
+      syncFromStorage();
+    }
+  }, [cloudLoading, user, setupComplete, logoutAccess, syncFromStorage]);
 
   return null;
 }

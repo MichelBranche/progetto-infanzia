@@ -58,7 +58,12 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       setProfiles(data);
       setActiveProfile((current) => {
         if (!current) return current;
-        return data.find((p) => p.id === current.id) ?? current;
+        const fresh = data.find((p) => p.id === current.id);
+        if (!fresh) {
+          sessionStorage.removeItem(ACTIVE_PROFILE_KEY);
+          return null;
+        }
+        return fresh;
       });
     } catch (err) {
       console.warn("[profiles] caricamento fallito:", err);

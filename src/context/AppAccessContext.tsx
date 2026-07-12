@@ -75,12 +75,14 @@ export function AppAccessProvider({ children }: { children: ReactNode }) {
     setMode("guest");
     setSetupComplete(true);
     refreshGuestUsage();
+    window.dispatchEvent(new CustomEvent("branchefy:profiles-changed"));
   }, [refreshGuestUsage]);
 
   const completeRegisteredSetup = useCallback(() => {
     markAppAccessSetupComplete("registered");
     setMode("registered");
     setSetupComplete(true);
+    window.dispatchEvent(new CustomEvent("branchefy:profiles-changed"));
   }, []);
 
   const syncFromStorage = useCallback(() => {

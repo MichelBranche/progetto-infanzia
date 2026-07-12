@@ -41,6 +41,7 @@ import {
   useAppAccess,
 } from "./context/AppAccessContext";
 import { tryGrandfatherExistingInstall } from "./lib/appAccess";
+import { isWebShell } from "./lib/runtimeInvoke";
 import { AppAccessBootstrap, AppAccessScreen } from "./components/AppAccessScreen";
 import { EmailConfirmedPage } from "./components/EmailConfirmedPage";
 import { WebAppInstallPage } from "./components/WebAppInstallPage";
@@ -1582,7 +1583,7 @@ function AppGate() {
   }, [cloudProfile]);
 
   useEffect(() => {
-    if (!profilesLoading && profiles.length > 0) {
+    if (!isWebShell() && !profilesLoading && profiles.length > 0) {
       tryGrandfatherExistingInstall(true);
       syncFromStorage();
     }
