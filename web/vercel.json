@@ -7,23 +7,23 @@
   "rewrites": [
     {
       "source": "/sc-image/:path*",
-      "destination": "/api/sc-image/:path*"
+      "destination": "https://progetto-infanzia-production.up.railway.app/sc-image/:path*"
     },
     {
       "source": "/poster/:id",
-      "destination": "/api/poster/:id"
+      "destination": "https://progetto-infanzia-production.up.railway.app/poster/:id"
     },
     {
       "source": "/series-poster/:id",
-      "destination": "/api/series-poster/:id"
+      "destination": "https://progetto-infanzia-production.up.railway.app/series-poster/:id"
     },
     {
       "source": "/saturn-poster/:path*",
-      "destination": "/api/saturn-poster/:path*"
+      "destination": "https://progetto-infanzia-production.up.railway.app/saturn-poster/:path*"
     },
     {
       "source": "/loonex-poster/:path*",
-      "destination": "/api/loonex-poster/:path*"
+      "destination": "https://progetto-infanzia-production.up.railway.app/loonex-poster/:path*"
     },
     {
       "source": "/((?!api/|assets/|audio/|hub/|favicon|apple-touch|.*\\..*).*)",
