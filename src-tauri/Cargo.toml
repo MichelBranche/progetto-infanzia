@@ -1,14 +1,18 @@
 [package]
 name = "tauri-app"
-version = "0.2.6"
+version = "0.2.7"
 description = "Branchefy - streaming locale per famiglia"
 authors = ["miche"]
 edition = "2021"
 default-run = "tauri-app"
 
+[features]
+web-api = []
+
 [[bin]]
 name = "branchefy-web-api"
 path = "src/bin/branchefy_web_api.rs"
+required-features = ["web-api"]
 
 [lib]
 name = "tauri_app_lib"

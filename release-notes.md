@@ -17,6 +17,7 @@
 
 ## Correzioni
 
+- Fix build release macOS: il binario API web non viene più compilato nella build desktop
 - Fix crash `SparkleActionButton` su scheda titolo
 - Fix CORS e 404 su immagini `cdn.streamingcommunityz.tech` in browser
 - Fix schermo nero card promo su Tauri (disabilitato `backdrop-filter` in WebView2)

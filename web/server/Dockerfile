@@ -25,7 +25,7 @@ COPY src-tauri/ ./
 ENV CARGO_BUILD_JOBS=1
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 
-RUN cargo build --release --bin branchefy-web-api
+RUN cargo build --release --bin branchefy-web-api --features web-api
 
 FROM debian:bookworm-slim
 

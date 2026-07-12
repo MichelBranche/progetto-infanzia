@@ -16,6 +16,8 @@ const child = spawn(
     path.join(root, "src-tauri", "Cargo.toml"),
     "--bin",
     "branchefy-web-api",
+    "--features",
+    "web-api",
   ],
   {
     cwd: root,
