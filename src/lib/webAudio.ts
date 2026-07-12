@@ -1,59 +1,106 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { isWebShell } from "./runtimeInvoke";
 
-let unlocked = false;
+const INTRO_SOUND_SRC = "/audio/netflix-intro.mp3";
+
+let unlocked = !isWebShell();
 const pending: Array<() => void> = [];
 const unlockListeners = new Set<() => void>();
 let listenersAttached = false;
+let introAudioPrimed: HTMLAudioElement | null = null;
 
 function isAutoplayBlocked(error: unknown): boolean {
   return error instanceof DOMException && error.name === "NotAllowedError";
 }
 
-function markUnlocked() {
+export function unlockAppAudio(): void {
   if (unlocked) return;
   unlocked = true;
-  for (const listener of unlockListeners) listener();
+  const listeners = [...unlockListeners];
   unlockListeners.clear();
+  for (const listener of listeners) listener();
   for (const play of pending.splice(0)) play();
 }
 
 export function isWebAudioUnlocked(): boolean {
-  return unlocked || !isWebShell();
+  return unlocked;
 }
 
+/** Precarica l'MP3 intro prima del mount React. */
+export function preloadIntroAudio(): void {
+  if (introAudioPrimed) return;
+  const audio = new Audio(INTRO_SOUND_SRC);
+  audio.preload = "auto";
+  audio.setAttribute("playsinline", "");
+  audio.load();
+  introAudioPrimed = audio;
+}
+
+async function attemptPlay(audio: HTMLAudioElement): Promise<boolean> {
+  try {
+    await audio.play();
+    unlockAppAudio();
+    return true;
+  } catch (error) {
+    if (!isAutoplayBlocked(error)) return false;
+  }
+
+  const volume = audio.volume;
+  const wasMuted = audio.muted;
+  try {
+    audio.muted = true;
+    audio.volume = 0;
+    await audio.play();
+    audio.muted = wasMuted;
+    audio.volume = volume;
+    unlockAppAudio();
+    return true;
+  } catch {
+    audio.muted = wasMuted;
+    audio.volume = volume;
+    return false;
+  }
+}
+
+function queuePlay(audio: HTMLAudioElement): void {
+  const run = () => {
+    void attemptPlay(audio);
+  };
+  pending.push(run);
+}
+
+/** Riproduci audio: autoplay diretto, fallback muted, poi coda al gesto. */
+export async function playAudioElement(audio: HTMLAudioElement): Promise<boolean> {
+  if (await attemptPlay(audio)) return true;
+
+  queuePlay(audio);
+  return false;
+}
+
+/** Sblocca l'audio al primo gesto (browser + fallback WebView). */
 export function initWebAudioUnlock() {
-  if (!isWebShell() || listenersAttached) return;
+  if (listenersAttached) return;
   listenersAttached = true;
 
-  const unlock = () => markUnlocked();
+  if (isTauri()) {
+    unlockAppAudio();
+  }
+
+  preloadIntroAudio();
+
+  const unlock = () => unlockAppAudio();
 
   document.addEventListener("pointerdown", unlock, { once: true, capture: true });
   document.addEventListener("keydown", unlock, { once: true, capture: true });
   document.addEventListener("touchstart", unlock, { once: true, capture: true });
+  window.addEventListener("focus", unlock, { once: true });
 }
 
 export function onWebAudioUnlock(listener: () => void): () => void {
-  if (isWebAudioUnlocked()) {
+  if (unlocked) {
     listener();
     return () => undefined;
   }
   unlockListeners.add(listener);
   return () => unlockListeners.delete(listener);
-}
-
-export function playAudioElement(audio: HTMLAudioElement): void {
-  const attempt = () => {
-    void audio.play().then(() => markUnlocked()).catch((error) => {
-      if (isWebShell() && !unlocked && isAutoplayBlocked(error)) {
-        pending.push(attempt);
-      }
-    });
-  };
-
-  if (isWebAudioUnlocked()) {
-    attempt();
-    return;
-  }
-
-  pending.push(attempt);
 }

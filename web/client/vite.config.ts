@@ -3,14 +3,20 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { devServerProxy } from "../../vite.dev-proxy";
 
-const rootDir = path.dirname(fileURLToPath(import.meta.url));
-const webDir = path.resolve(rootDir, "..");
+const clientDir = path.dirname(fileURLToPath(import.meta.url));
+const webDir = path.resolve(clientDir, "..");
+const repoRoot = path.resolve(webDir, "..");
 
+/**
+ * Build/deploy web: stesso `src/`, `index.html` e `public/` della app desktop.
+ * Non copiare in web/app-src — una sola sorgente in root.
+ */
 export default defineConfig({
-  root: rootDir,
-  envDir: webDir,
-  publicDir: path.resolve(webDir, "public"),
+  root: repoRoot,
+  envDir: repoRoot,
+  publicDir: path.join(repoRoot, "public"),
   plugins: [react(), tailwindcss()],
   define: {
     "import.meta.env.VITE_BRANCHEFY_WEB": JSON.stringify("1"),
@@ -18,15 +24,10 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    proxy: {
-      "/api": {
-        target: "http://127.0.0.1:8787",
-        changeOrigin: true,
-      },
-    },
+    proxy: devServerProxy,
   },
   build: {
-    outDir: path.resolve(rootDir, "..", "dist"),
+    outDir: path.join(webDir, "dist"),
     emptyOutDir: true,
     rollupOptions: {
       output: {

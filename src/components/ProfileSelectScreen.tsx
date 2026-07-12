@@ -133,17 +133,27 @@ export function ProfileSelectScreen() {
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoCreateDismissed, setAutoCreateDismissed] = useState(false);
   const browserDev = isBrowserDevMode();
 
   useEffect(() => {
-    if (!loading && profiles.length === 0 && !creating && !editingProfile) {
+    if (
+      !loading &&
+      profiles.length === 0 &&
+      !creating &&
+      !editingProfile &&
+      !autoCreateDismissed
+    ) {
       setCreating(true);
     }
-  }, [loading, profiles.length, creating, editingProfile]);
+  }, [loading, profiles.length, creating, editingProfile, autoCreateDismissed]);
 
   const isFormView = creating || Boolean(editingProfile);
 
   const exitForm = () => {
+    if (creating && profiles.length === 0) {
+      setAutoCreateDismissed(true);
+    }
     setCreating(false);
     setEditingProfile(null);
     setError(null);
@@ -302,7 +312,10 @@ export function ProfileSelectScreen() {
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: profiles.length * 0.05 }}
                     type="button"
-                    onClick={() => setCreating(true)}
+                    onClick={() => {
+                      setAutoCreateDismissed(false);
+                      setCreating(true);
+                    }}
                     className="group flex w-[5.5rem] flex-col items-center gap-3 sm:w-[6.5rem]"
                   >
                     <div className="flex h-[4.75rem] w-[4.75rem] items-center justify-center rounded-full border-2 border-dashed border-white/15 bg-white/[0.02] transition-all duration-300 group-hover:scale-[1.04] group-hover:border-accent/40 group-hover:bg-accent/[0.06] sm:h-[5.5rem] sm:w-[5.5rem]">

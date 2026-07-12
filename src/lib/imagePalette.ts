@@ -1,5 +1,17 @@
-import { isTauri } from "@tauri-apps/api/core";
-import { runtimeInvoke as invoke } from "./runtimeInvoke";
+import { proxifyCdnImageUrl } from "./posterUrl";
+import { runtimeInvoke as invoke, usesBackendApi } from "./runtimeInvoke";
+
+function resolvePaletteBackendUrl(url: string): string {
+  const trimmed = url.trim();
+  const proxyMatch = trimmed.match(/\/sc-image\/(.+)$/);
+  if (proxyMatch) {
+    return `https://cdn.streamingcommunityz.tech/images/${proxyMatch[1]}`;
+  }
+  if (/^[0-9a-f-]{36}\.[a-z0-9]+$/i.test(trimmed)) {
+    return `https://cdn.streamingcommunityz.tech/images/${trimmed}`;
+  }
+  return trimmed;
+}
 
 export type RgbAccent = [number, number, number];
 
@@ -294,12 +306,12 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 async function extractPaletteFromUrlRemote(
   url: string,
 ): Promise<AmbientPalette | null> {
-  if (isTauri()) {
+  if (usesBackendApi()) {
     try {
       const result = await invoke<{
         hues: [number, number, number];
         accents: [RgbAccent, RgbAccent, RgbAccent];
-      }>("extract_image_palette_cmd", { url });
+      }>("extract_image_palette_cmd", { url: resolvePaletteBackendUrl(url) });
       if (result?.hues?.length === 3 && result.accents?.length === 3) {
         return { hues: result.hues, accents: result.accents };
       }
@@ -308,8 +320,9 @@ async function extractPaletteFromUrlRemote(
     }
   }
 
+  const browserUrl = proxifyCdnImageUrl(url) ?? url;
   try {
-    const img = await loadImage(url);
+    const img = await loadImage(browserUrl);
     return extractPaletteFromImage(img);
   } catch {
     return null;

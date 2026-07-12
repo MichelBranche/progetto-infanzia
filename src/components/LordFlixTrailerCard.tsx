@@ -13,6 +13,7 @@ export interface LordFlixTrailerCardProps {
   badge?: string;
   disabled?: boolean;
   onClick: () => void;
+  className?: string;
 }
 
 export const LordFlixTrailerCard = memo(function LordFlixTrailerCard({
@@ -21,6 +22,7 @@ export const LordFlixTrailerCard = memo(function LordFlixTrailerCard({
   badge = "Trailer ufficiale",
   disabled = false,
   onClick,
+  className = "",
 }: LordFlixTrailerCardProps) {
   const [cardGlow, setCardGlow] = useState(
     accentCss(DEFAULT_AMBIENT_PALETTE.accents[0], 0.62),
@@ -44,7 +46,7 @@ export const LordFlixTrailerCard = memo(function LordFlixTrailerCard({
   return (
     <button
       type="button"
-      className="lf-trailer-card group/trailer"
+      className={`lf-trailer-card group/trailer ${className}`.trim()}
       onClick={onClick}
       disabled={disabled}
       aria-label={title}

@@ -180,11 +180,116 @@
 }
 
 .app-top-nav__friends-mobile-btn {
-  max-width: min(42vw, 180px);
+  max-width: min(52vw, 220px);
+}
+
+.app-top-nav__friends-mobile-chevron {
+  margin-left: 0.05rem;
 }
 
 .app-top-nav__friends-panel {
   transform: translateZ(0);
+}
+
+.friends-menu-sheet__panel {
+  display: flex;
+  max-height: min(92dvh, 820px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-bottom: none;
+  border-radius: 1.75rem 1.75rem 0 0;
+  background: #0a0a0c;
+  box-shadow: 0 -12px 48px rgb(0 0 0 / 0.45);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  touch-action: pan-y;
+}
+
+.friends-menu-sheet__drag-header {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.friends-menu-sheet__handle {
+  width: 2.5rem;
+  height: 0.3rem;
+  margin: 0.65rem auto 0.35rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 0.22);
+}
+
+.friends-menu-sheet__panel::before {
+  content: none;
+  display: none;
+}
+
+.friends-menu-sheet__status-row {
+  -webkit-overflow-scrolling: touch;
+}
+
+.friends-menu-sheet__status-pill {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  background: rgb(255 255 255 / 0.04);
+  padding: 0 1rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: rgb(255 255 255 / 0.78);
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.friends-menu-sheet__status-pill--active {
+  border-color: rgb(255 255 255 / 0.18);
+  background: rgb(255 255 255 / 0.1);
+  color: #fff;
+}
+
+.friends-menu-sheet__filters {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.friends-menu-sheet__filter-btn {
+  min-height: 2.5rem;
+  flex: 1;
+  border-radius: 9999px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  background: transparent;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: rgb(255 255 255 / 0.62);
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.friends-menu-sheet__filter-btn--active {
+  border-color: rgb(255 255 255 / 0.16);
+  background: rgb(255 255 255 / 0.08);
+  color: #fff;
+}
+
+.friends-menu-sheet__list {
+  -webkit-overflow-scrolling: touch;
+}
+
+.friends-menu-sheet__action-btn {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
+.friends-menu-sheet__footer {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
 }
 
 .app-top-nav__profile-panel {
@@ -301,6 +406,17 @@ html.lf-browse-ambient .liquid-bg__canvas {
   opacity: 0.5;
 }
 
+.lf-hero-backdrop__slide > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.2);
+  filter: blur(80px) saturate(1);
+  opacity: 0.5;
+}
+
 .lf-hero-backdrop__top {
   position: absolute;
   top: 0;
@@ -345,25 +461,453 @@ html.lf-browse-ambient .liquid-bg__canvas {
 }
 
 .mobile-nav-dock {
-  padding-left: env(safe-area-inset-left, 0px);
-  padding-right: env(safe-area-inset-right, 0px);
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.75rem);
+  display: none;
+  overflow: visible;
+  padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+  padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.65rem);
+}
+
+html.lf-compact-shell .mobile-nav-dock {
+  display: block;
+}
+
+html.lf-compact-shell .lf-main-scroll {
+  padding-bottom: var(--mobile-nav-height);
+}
+
+html.lf-compact-shell .search-overlay {
+  top: 0;
+  padding-top: var(--app-nav-height);
+  padding-bottom: var(--mobile-nav-height);
+}
+
+html.lf-compact-shell .search-overlay__scroll {
+  padding-bottom: calc(var(--mobile-nav-height) + 0.5rem);
+}
+
+html.lf-compact-shell .app-top-nav__brand-logo.chromatic-logo--skew {
+  font-size: clamp(1.85rem, 3.8vw, 2.5rem);
+  line-height: 1;
+}
+
+html.lf-compact-shell .app-top-nav--compact .app-top-nav__friends-mobile-btn {
+  min-height: 2.75rem;
+}
+
+html.lf-compact-shell .app-top-nav--compact .app-top-nav__actions button {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+}
+
+@media (min-width: 768px) {
+  html.lf-mobile-device.lf-compact-shell .app-top-nav__brand-logo.chromatic-logo--skew {
+    font-size: clamp(2rem, 3.2vw, 2.65rem);
+  }
+
+  html.lf-mobile-device.lf-compact-shell .app-top-nav__friends-mobile-btn {
+    max-width: min(34vw, 240px);
+    min-height: 3rem;
+    padding-inline: 0.85rem;
+  }
+
+  html.lf-mobile-device.lf-compact-shell .app-top-nav__actions button {
+    min-height: 3rem;
+    min-width: 3rem;
+  }
+}
+
+html.lf-mobile-device .mobile-nav-dock {
+  display: block;
+}
+
+html.lf-mobile-device .lf-main-scroll {
+  padding-bottom: var(--mobile-nav-height);
+}
+
+html.lf-mobile-device .search-overlay {
+  top: 0;
+  padding-top: var(--app-nav-height);
+  padding-bottom: var(--mobile-nav-height);
+}
+
+html.lf-mobile-device .search-overlay__scroll {
+  padding-bottom: calc(var(--mobile-nav-height) + 0.5rem);
+}
+
+.lf-hero__scrim-mobile {
+  display: none;
+}
+
+html.lf-compact-shell .lf-hero__scrim-mobile {
+  display: block;
+}
+
+html.lf-compact-shell .lf-hero__content-spacer {
+  display: block;
+  flex: 1 1 auto;
+  min-height: clamp(9rem, 36svh, 16rem);
+}
+
+html.lf-compact-shell .lf-hero__content-shell {
+  justify-content: flex-end;
+  padding-bottom: calc(var(--mobile-nav-height) + 0.5rem);
+}
+
+html.lf-compact-shell .lf-hero--touch-layout.lf-hero--full,
+html.lf-compact-shell .lf-hero--full {
+  height: min(78svh, 640px);
+  min-height: 400px;
+}
+
+html.lf-compact-shell .lf-hero-actions--stacked {
+  align-items: center;
+}
+
+html.lf-compact-shell .lf-hero-actions--stacked .lf-hero-secondary {
+  width: auto;
+}
+
+html.lf-compact-shell .lf-hero-dots--inline {
+  display: flex;
+  justify-content: center;
+  padding-top: 0.15rem;
+}
+
+html.lf-compact-shell .lf-hero-dots--dock {
+  display: none;
+}
+
+html.lf-compact-shell .lf-hero__logo {
+  max-height: clamp(5.75rem, 30vw, 9.5rem);
+  min-height: 5.25rem;
+  max-width: min(94vw, 520px);
+}
+
+html.lf-mobile-device .lf-hero__scrim-mobile {
+  display: block;
+}
+
+.lf-hero__content-spacer {
+  display: none;
+}
+
+html.lf-mobile-device .lf-hero__content-spacer {
+  display: block;
+  flex: 1 1 auto;
+  min-height: clamp(9rem, 36svh, 16rem);
+}
+
+html.lf-mobile-device .lf-hero__content-shell {
+  justify-content: flex-end;
+  padding-bottom: calc(var(--mobile-nav-height) + 0.5rem);
+}
+
+html.lf-mobile-device .lf-hero--full {
+  height: min(78svh, 640px);
+  min-height: 400px;
+}
+
+html.lf-mobile-device .lf-hero__content {
+  width: 100%;
+  flex-shrink: 0;
+}
+
+html.lf-mobile-device .lf-hero-dots--inline {
+  display: flex;
+  justify-content: center;
+  padding-top: 0.15rem;
+}
+
+html.lf-mobile-device .lf-hero-dots--dock {
+  display: none;
+}
+
+html.lf-mobile-device .lf-hero__logo {
+  max-height: clamp(5.75rem, 30vw, 9.5rem);
+  min-height: 5.25rem;
+  max-width: min(94vw, 520px);
+}
+
+@media (max-width: 380px) {
+  html.lf-mobile-device .lf-hero--full {
+    height: min(82svh, 680px);
+    min-height: 420px;
+  }
+
+  html.lf-mobile-device .lf-hero__content-spacer {
+    min-height: clamp(10rem, 40svh, 18rem);
+  }
+}
+
+/* iPad / tablet touch: larger hero than phone */
+@media (min-width: 768px) {
+  html.lf-compact-shell .lf-hero--touch-layout.lf-hero--full,
+  html.lf-mobile-device.lf-compact-shell .lf-hero--touch-layout.lf-hero--full {
+    height: min(80svh, 780px);
+    min-height: 520px;
+  }
+
+  html.lf-mobile-device .lf-hero--touch-layout .lf-hero__content {
+    max-width: 42rem;
+  }
+
+  html.lf-mobile-device .lf-hero--touch-layout .lf-hero__content-spacer {
+    min-height: clamp(11rem, 28svh, 18rem);
+  }
+
+  html.lf-mobile-device .lf-hero--touch-layout .lf-hero__logo {
+    max-height: clamp(8.5rem, 11vw, 13.5rem);
+    min-height: 7rem;
+    max-width: min(80vw, 680px);
+  }
+
+  html.lf-mobile-device .lf-hero--touch-layout .lf-hero-meta__pill {
+    padding: 0.38rem 0.82rem;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+  }
+
+  html.lf-mobile-device .lf-hero--touch-layout .lf-hero-dot {
+    height: 0.625rem;
+  }
+
+  html.lf-mobile-device .lf-hero--touch-layout .lf-hero-dot--idle {
+    width: 0.625rem;
+  }
+
+  html.lf-mobile-device .lf-hero--touch-layout .lf-hero-dot--active {
+    width: 2.5rem;
+  }
+
+  html.lf-mobile-device .mobile-nav-bar {
+    width: min(100%, 32rem);
+    padding: 0.38rem;
+  }
+
+  html.lf-mobile-device .mobile-nav-item {
+    min-height: 3.5rem;
+    gap: 0.28rem;
+  }
+
+  html.lf-mobile-device .mobile-nav-item__label {
+    font-size: 0.68rem;
+  }
 }
 
 .mobile-nav-bar {
-  bottom: 0;
+  position: relative;
+  display: block;
+  width: min(100%, 26rem);
+  margin-inline: auto;
+  overflow: hidden;
+  border-radius: 9999px;
+  padding: 0.3rem;
+  isolation: isolate;
 }
 
-.mobile-nav-layout {
-  width: auto;
-  min-width: 280px;
-  max-width: 95vw;
-  justify-content: space-around;
+.mobile-nav-items {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 100%;
+  align-items: stretch;
+  gap: 0.15rem;
+}
+
+.mobile-nav-item {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-height: 3.25rem;
+  padding: 0.35rem 0.15rem;
+  border-radius: 9999px;
+  border: none;
+  background: transparent;
+  font-size: 0.625rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: rgb(255 255 255 / 0.62);
+  transition: color 0.32s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-nav-item:active:not(.mobile-nav-item--active) {
+  color: rgb(255 255 255 / 0.88);
+}
+
+.mobile-nav-item--active {
+  color: var(--lf-pill-active-text);
+  font-weight: 600;
+}
+
+.mobile-nav-item__icon {
+  flex-shrink: 0;
+  width: 1.125rem;
+  height: 1.125rem;
+  color: inherit;
+  stroke: currentcolor;
+}
+
+.mobile-nav-item__label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-nav-slider {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  border-radius: 9999px;
+  background: #fff;
+  pointer-events: none;
+  box-shadow: 0 1px 10px rgb(0 0 0 / 0.18);
+  will-change: transform, width, height, opacity;
+  transition:
+    transform var(--lf-nav-transition),
+    width var(--lf-nav-transition),
+    height var(--lf-nav-transition),
+    opacity 0.22s ease;
 }
 
 .mobile-profile-menu {
   position: absolute;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 5.5rem);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 5.25rem);
+}
+
+.mobile-nav-more-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  border: none;
+  pointer-events: auto;
+  background: rgb(0 0 0 / 0.28);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: mobile-nav-more-backdrop-in 0.22s ease;
+}
+
+html.is-tauri .mobile-nav-more-backdrop {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgb(0 0 0 / 0.42);
+}
+
+@keyframes mobile-nav-more-backdrop-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.mobile-nav-more-bubble {
+  position: fixed;
+  z-index: 55;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 11.5rem;
+  padding: 0.45rem;
+  border-radius: 1.15rem;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  background: rgb(18 18 22 / 0.96);
+  box-shadow:
+    0 18px 48px rgb(0 0 0 / 0.45),
+    0 0 0 1px rgb(255 255 255 / 0.04) inset;
+  transform: translateX(-50%);
+  will-change: transform, opacity;
+}
+
+.mobile-nav-more-bubble__tail {
+  position: absolute;
+  bottom: -0.42rem;
+  left: 50%;
+  width: 0.95rem;
+  height: 0.95rem;
+  border-right: 1px solid rgb(255 255 255 / 0.1);
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(18 18 22 / 0.96);
+  transform: translateX(-50%) rotate(45deg);
+  border-bottom-right-radius: 0.2rem;
+}
+
+.mobile-nav-more-bubble__items {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+}
+
+.mobile-nav-more-bubble__item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  min-height: 2.85rem;
+  padding: 0.55rem 0.75rem;
+  border: none;
+  border-radius: 0.85rem;
+  background: transparent;
+  color: rgb(255 255 255 / 0.72);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1;
+  text-align: left;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-nav-more-bubble__item:active {
+  transform: scale(0.98);
+}
+
+.mobile-nav-more-bubble__item--active,
+.mobile-nav-more-bubble__item:hover {
+  background: rgb(255 255 255 / 0.08);
+  color: #fff;
+}
+
+.mobile-nav-more-bubble__item--active {
+  font-weight: 600;
+}
+
+.mobile-nav-more-bubble__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 0.06);
+  color: inherit;
+}
+
+.mobile-nav-more-bubble__icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.mobile-nav-more-bubble__label {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .search-overlay {
@@ -1399,7 +1943,8 @@ html.lf-browse-ambient .liquid-bg__canvas {
 html.is-tauri .glass-header,
 .glass-header.app-top-nav__left-dock,
 .glass-header.app-top-nav__toolbar,
-.glass-header.app-top-nav__nav-dock {
+.glass-header.app-top-nav__nav-dock,
+.glass-header.mobile-nav-bar {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
   background: rgb(20 20 22 / 0.94);
@@ -1480,10 +2025,115 @@ html.is-tauri .glass-header,
   overflow: visible;
 }
 
+@media (max-width: 767px) {
+  .lf-hero__scrim-mobile {
+    display: block;
+  }
+
+  .lf-hero__content-spacer {
+    display: block;
+    flex: 1 1 auto;
+    min-height: clamp(9rem, 36svh, 16rem);
+  }
+
+  .lf-hero--full {
+    height: min(78svh, 640px);
+    min-height: 400px;
+  }
+
+  .lf-hero__content-shell {
+    justify-content: flex-end;
+  }
+
+  .lf-hero__content-spacer {
+    flex: 1 1 auto;
+    min-height: clamp(9rem, 36svh, 16rem);
+  }
+
+  .lf-hero__content {
+    width: 100%;
+    flex-shrink: 0;
+  }
+
+  .lf-hero__scrim-mobile {
+    background: linear-gradient(
+      to top,
+      rgb(0 0 0 / 0.94) 0%,
+      rgb(0 0 0 / 0.62) 38%,
+      rgb(0 0 0 / 0.18) 68%,
+      transparent 100%
+    );
+  }
+
+  .lf-hero-meta__pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 9999px;
+    border: 1px solid rgb(255 255 255 / 0.14);
+    background: rgb(255 255 255 / 0.08);
+    padding: 0.28rem 0.62rem;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgb(255 255 255 / 0.84);
+    backdrop-filter: blur(8px);
+  }
+
+  .lf-hero-meta__pill--accent {
+    border-color: rgb(94 234 212 / 0.28);
+    background: rgb(94 234 212 / 0.12);
+    color: rgb(167 243 208 / 0.98);
+  }
+
+  .lf-hero-dots--inline {
+    padding-top: 0.15rem;
+  }
+
+  .lf-hero__logo {
+    max-height: clamp(5.75rem, 30vw, 9.5rem);
+    min-height: 5.25rem;
+    max-width: min(94vw, 520px);
+  }
+}
+
+@media (max-width: 380px) {
+  .lf-hero--full {
+    height: min(82svh, 680px);
+    min-height: 420px;
+  }
+
+  .lf-hero__content-spacer {
+    min-height: clamp(10rem, 40svh, 18rem);
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .lf-hero__logo {
+    max-height: 11rem;
+    min-height: 6.5rem;
+    max-width: min(88vw, 640px);
+  }
+}
+
 @media (min-width: 640px) {
   .lf-hero--full {
     height: 85vh;
     min-height: 560px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .lf-hero__logo {
+    max-height: 15.75rem;
+    min-height: 0;
+    max-width: min(100%, 840px);
+  }
+}
+
+@media (min-width: 1280px) {
+  .lf-hero__logo {
+    max-height: 16.5rem;
   }
 }
 
@@ -1744,11 +2394,53 @@ html.is-tauri .glass-header,
   pointer-events: none;
 }
 
+.lf-hero--swipeable {
+  pointer-events: auto;
+  touch-action: pan-y;
+}
+
+.lf-hero__swipe-shift {
+  transition: transform 0.28s cubic-bezier(0.33, 1, 0.68, 1);
+  will-change: transform;
+}
+
+.lf-hero--swipeable:active .lf-hero__swipe-shift {
+  transition: none;
+}
+
+.lf-hero--swiping .lf-hero__swipe-shift {
+  transition: none;
+}
+
 .lf-hero__kenburns {
   animation: lf-hero-kenburns 18s var(--ease-out-expo) forwards;
   transform: scale(1.04) translateY(1.5%);
   transform-origin: center 52%;
   will-change: transform;
+}
+
+.lf-hero__content-stage {
+  position: relative;
+  width: 100%;
+}
+
+.lf-hero__content-stage .lf-hero__content {
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lf-hero__kenburns {
+    animation: none;
+    transform: none;
+  }
+
+  .lf-hero__content-stage .lf-hero__content {
+    will-change: auto;
+  }
+
+  .lf-hero__swipe-shift {
+    transition: none;
+  }
 }
 
 @keyframes lf-hero-kenburns {
@@ -1761,9 +2453,27 @@ html.is-tauri .glass-header,
 }
 
 .lf-hero-dots {
-  display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.lf-hero-dots--inline {
+  display: flex;
+  justify-content: center;
+}
+
+.lf-hero-dots--dock {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  html:not(.lf-mobile-device) .lf-hero-dots--inline {
+    display: none;
+  }
+
+  html:not(.lf-mobile-device) .lf-hero-dots--dock {
+    display: flex;
+  }
 }
 
 .lf-hero-dot {
@@ -1857,4 +2567,1446 @@ html.is-tauri .glass-header,
   box-shadow:
     0 0 18px 2px rgb(255 255 255 / 0.25),
     0 0 6px 1px rgb(255 255 255 / 0.15);
+}
+
+/* Profile notification badges */
+.profile-notification-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding-inline: 0.2rem;
+  border-radius: 9999px;
+  border: 2px solid rgb(10 10 14 / 0.96);
+  background: var(--color-warm);
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 8px rgb(249 115 22 / 0.45);
+  pointer-events: none;
+}
+
+.profile-notification-badge--dot {
+  min-width: 0.5rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  padding: 0;
+  border-width: 1.5px;
+  box-shadow: 0 0 0 2px rgb(249 115 22 / 0.22);
+}
+
+.app-top-nav__toolbar-avatar .profile-notification-badge,
+.app-top-nav__actions .profile-notification-badge {
+  min-width: 1.125rem;
+  height: 1.125rem;
+  font-size: 0.65rem;
+}
+
+/* Manga Kindle-style page reader */
+.manga-kindle {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: #101014;
+  touch-action: pan-y pinch-zoom;
+}
+
+.manga-kindle__title {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  pointer-events: none;
+  font-size: clamp(1.5rem, 6vw, 4rem);
+  font-weight: 800;
+  line-height: 0.95;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: -0.03em;
+  color: rgb(255 255 255 / 0.04);
+  user-select: none;
+}
+
+.manga-kindle__viewport {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.manga-kindle__track-wrap {
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.manga-kindle__track {
+  display: flex;
+  height: 100%;
+  will-change: transform;
+  transition: transform 0.28s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.manga-kindle__viewport.is-dragging .manga-kindle__track,
+.manga-kindle__viewport.is-dragging .manga-kindle__track-wrap {
+  transition: none;
+}
+
+.manga-kindle__viewport.is-turning .manga-kindle__track {
+  transition: transform 0.28s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.manga-kindle__page {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #14141c;
+}
+
+.manga-kindle__page img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #f6f2ea;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+.manga-kindle__page-placeholder {
+  width: 100%;
+  height: 100%;
+  background: #14141c;
+}
+
+.manga-kindle__hint {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0.85rem;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  padding-inline: 1.25rem;
+  pointer-events: none;
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.28);
+}
+
+.manga-kindle__footer {
+  position: relative;
+  z-index: 4;
+  flex-shrink: 0;
+  min-height: 2.75rem;
+}
+
+.manga-kindle__progress {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 2px;
+  background: rgb(255 255 255 / 0.08);
+}
+
+.manga-kindle__progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff6740, #ff8f6a);
+  transition: width 0.25s ease;
+}
+
+.manga-kindle__rewind {
+  position: absolute;
+  left: 50%;
+  top: 0.65rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.85rem;
+  border: none;
+  border-radius: 9999px;
+  background: rgb(0 0 0 / 0.55);
+  color: rgb(255 255 255 / 0.82);
+  font-size: 0.75rem;
+  font-weight: 500;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+html.is-tauri .manga-kindle__rewind {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.manga-kindle__rewind:hover {
+  background: rgb(255 103 64 / 0.85);
+  color: #fff;
+}
+
+.manga-kindle__nav {
+  position: absolute;
+  top: 50%;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: none;
+  border-radius: 9999px;
+  background: rgb(0 0 0 / 0.55);
+  color: rgb(255 255 255 / 0.85);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transform: translateY(-50%);
+  transition: background 0.2s ease, opacity 0.2s ease;
+}
+
+html.is-tauri .manga-kindle__nav {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.manga-kindle__nav--prev {
+  left: 1rem;
+}
+
+.manga-kindle__nav--next {
+  right: 1rem;
+}
+
+.manga-kindle__nav:hover:not(:disabled) {
+  background: rgb(255 103 64 / 0.85);
+}
+
+.manga-kindle__nav:disabled {
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+@media (min-width: 768px) and (orientation: landscape) {
+  .manga-kindle__page img {
+    object-fit: contain;
+    max-height: 100%;
+  }
+}
+
+/* Title detail page (LordFlix movie/series layout) */
+.lf-title-detail__hero {
+  min-height: min(78vh, 820px);
+}
+
+.lf-title-detail__hero-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.lf-title-detail__hero-bg--fallback {
+  background: linear-gradient(145deg, #0f172a 0%, #1e1b4b 45%, #0a0a0e 100%);
+}
+
+.lf-title-detail__hero-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to top, #050505 8%, rgb(5 5 5 / 0.92) 28%, rgb(5 5 5 / 0.45) 62%, rgb(5 5 5 / 0.15) 100%),
+    linear-gradient(to right, rgb(5 5 5 / 0.55) 0%, transparent 48%);
+  pointer-events: none;
+}
+
+.lf-title-detail__back {
+  position: absolute;
+  left: 1rem;
+  top: calc(var(--app-nav-height, 68px) + 0.75rem);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  background: rgb(0 0 0 / 0.42);
+  color: rgb(255 255 255 / 0.9);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: background 0.2s ease;
+}
+
+html.is-tauri .lf-title-detail__back {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.lf-title-detail__back:hover {
+  background: rgb(0 0 0 / 0.62);
+}
+
+.lf-title-detail__hero-inner {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  min-height: min(78vh, 820px);
+  flex-direction: column;
+  justify-content: flex-end;
+  padding-top: calc(var(--app-nav-height, 68px) + 2rem);
+  padding-bottom: 2.5rem;
+}
+
+.lf-title-detail__hero-grid {
+  display: grid;
+  width: 100%;
+  gap: 1.75rem;
+  align-items: end;
+}
+
+@media (min-width: 1024px) {
+  .lf-title-detail__hero-grid {
+    grid-template-columns: minmax(0, 1fr) min(18rem, 32vw);
+    gap: 2.5rem;
+  }
+}
+
+.lf-title-detail__logo {
+  margin-bottom: 0.85rem;
+  max-height: clamp(4.5rem, 12vw, 7.5rem);
+  width: auto;
+  max-width: min(100%, 28rem);
+  object-fit: contain;
+  object-position: left center;
+  filter: drop-shadow(0 10px 36px rgb(0 0 0 / 0.55));
+}
+
+.lf-title-detail__title {
+  margin-bottom: 0.65rem;
+  max-width: 14ch;
+  font-family: var(--font-display);
+  font-size: clamp(2.75rem, 9vw, 5.5rem);
+  font-weight: 800;
+  line-height: 0.9;
+  letter-spacing: -0.04em;
+  color: #fff;
+  text-shadow: 0 8px 32px rgb(0 0 0 / 0.55);
+}
+
+.lf-title-detail__genres {
+  margin-bottom: 1.1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: rgb(255 255 255 / 0.78);
+}
+
+.lf-title-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.lf-title-detail__play-btn {
+  display: inline-flex;
+  min-width: 8.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 0.8rem 1.65rem;
+  border: none;
+  border-radius: 9999px;
+  background: #fff;
+  color: #000;
+  font-size: 0.95rem;
+  font-weight: 700;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.lf-title-detail__play-btn:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.92);
+}
+
+.lf-title-detail__play-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.lf-title-detail__play-btn:disabled {
+  opacity: 0.6;
+}
+
+.lf-title-detail__circle-btn {
+  display: flex;
+  width: 3rem;
+  height: 3rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 2px solid rgb(255 255 255 / 0.28);
+  background: rgb(0 0 0 / 0.38);
+  color: #fff;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+html.is-tauri .lf-title-detail__circle-btn {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.lf-title-detail__circle-btn:hover:not(:disabled) {
+  border-color: rgb(255 255 255 / 0.5);
+  background: rgb(0 0 0 / 0.52);
+}
+
+.lf-title-detail__secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.72rem 1.15rem;
+  border-radius: 9999px;
+  border: 2px solid rgb(255 255 255 / 0.24);
+  background: transparent;
+  color: rgb(255 255 255 / 0.9);
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.lf-title-detail__secondary-btn:hover:not(:disabled) {
+  border-color: rgb(255 255 255 / 0.42);
+  background: rgb(255 255 255 / 0.06);
+}
+
+.lf-title-detail__meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+  color: rgb(255 255 255 / 0.78);
+}
+
+.lf-title-detail__dot {
+  color: rgb(255 255 255 / 0.35);
+}
+
+.lf-title-detail__badge {
+  margin-left: 0.15rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.25rem;
+  background: rgb(255 255 255 / 0.14);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.92);
+}
+
+.lf-title-detail__rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: 0.15rem;
+  font-weight: 600;
+  color: rgb(255 255 255 / 0.92);
+}
+
+.lf-title-detail__director {
+  margin-bottom: 0.85rem;
+  font-size: 0.875rem;
+  color: rgb(255 255 255 / 0.68);
+}
+
+.lf-title-detail__director span {
+  color: rgb(255 255 255 / 0.88);
+  font-weight: 600;
+}
+
+.lf-title-detail__synopsis {
+  max-width: 40rem;
+}
+
+.lf-title-detail__synopsis p {
+  font-size: 0.92rem;
+  line-height: 1.65;
+  color: rgb(255 255 255 / 0.72);
+}
+
+.lf-title-detail__read-more {
+  margin-top: 0.35rem;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: rgb(255 255 255 / 0.5);
+  transition: color 0.2s ease;
+}
+
+.lf-title-detail__read-more:hover {
+  color: rgb(255 255 255 / 0.82);
+}
+
+.lf-title-detail__sidebar {
+  padding: 1rem 1.15rem;
+  border-radius: 0.85rem;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(8 8 12 / 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+html.is-tauri .lf-title-detail__sidebar {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgb(8 8 12 / 0.82);
+}
+
+.lf-title-detail__sidebar-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid rgb(255 255 255 / 0.06);
+  font-size: 0.8rem;
+}
+
+.lf-title-detail__sidebar-row:last-child {
+  border-bottom: none;
+}
+
+.lf-title-detail__sidebar-label {
+  flex-shrink: 0;
+  color: rgb(255 255 255 / 0.48);
+}
+
+.lf-title-detail__sidebar-value {
+  text-align: right;
+  color: rgb(255 255 255 / 0.88);
+}
+
+.lf-title-detail__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+  padding-top: 2rem;
+  padding-bottom: 2rem;
+}
+
+.lf-title-detail__body .lf-home-row .page-px {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.lf-title-detail__section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.lf-title-detail__section-title {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: rgb(255 255 255 / 0.95);
+}
+
+.lf-title-detail__section-sub {
+  margin-top: -0.35rem;
+  font-size: 0.84rem;
+  color: rgb(255 255 255 / 0.48);
+}
+
+.lf-title-detail__cast-scroll {
+  display: flex;
+  gap: 1.15rem;
+  overflow-x: auto;
+  padding-bottom: 0.35rem;
+  scroll-snap-type: x proximity;
+}
+
+.lf-title-detail__cast-member {
+  flex: 0 0 auto;
+  width: 5.5rem;
+  text-align: center;
+  scroll-snap-align: start;
+}
+
+.lf-title-detail__cast-avatar {
+  display: flex;
+  width: 4.5rem;
+  height: 4.5rem;
+  margin-inline: auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 0.08);
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: rgb(255 255 255 / 0.82);
+  overflow: hidden;
+}
+
+.lf-title-detail__cast-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.lf-title-detail__cast-name {
+  margin-top: 0.55rem;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  color: rgb(255 255 255 / 0.72);
+}
+
+.lf-title-detail__trailer .lf-trailer-card--detail {
+  width: 100%;
+  max-width: 42rem;
+}
+
+.lf-title-detail__seasons {
+  display: flex;
+  gap: 0.45rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.lf-title-detail__season-pill {
+  flex-shrink: 0;
+  padding: 0.5rem 0.95rem;
+  border-radius: 9999px;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  background: rgb(255 255 255 / 0.04);
+  color: rgb(255 255 255 / 0.62);
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.lf-title-detail__season-pill--active {
+  border-color: rgb(255 255 255 / 0.22);
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+}
+
+.lf-title-detail__episodes {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.lf-title-detail__episode {
+  display: flex;
+  gap: 0.85rem;
+  padding: 0.65rem;
+  border-radius: 0.85rem;
+  border: 1px solid rgb(255 255 255 / 0.06);
+  background: rgb(255 255 255 / 0.02);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.lf-title-detail__episode:hover {
+  border-color: rgb(255 255 255 / 0.12);
+  background: rgb(255 255 255 / 0.04);
+}
+
+.lf-title-detail__episode-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 9.5rem;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 0.55rem;
+  background: rgb(0 0 0 / 0.45);
+}
+
+@media (min-width: 640px) {
+  .lf-title-detail__episode-thumb {
+    width: 11.5rem;
+  }
+}
+
+.lf-title-detail__episode-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.22);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.lf-title-detail__episode:hover .lf-title-detail__episode-play {
+  opacity: 1;
+}
+
+.lf-title-detail__episode-play > div,
+.lf-title-detail__episode-play > svg {
+  display: flex;
+  width: 2.35rem;
+  height: 2.35rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 0.95);
+}
+
+.lf-title-detail__episode-progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: rgb(255 255 255 / 0.2);
+}
+
+.lf-title-detail__episode-progress > div {
+  height: 100%;
+  background: var(--color-accent, #ff6740);
+}
+
+.lf-title-detail__episode-body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.lf-title-detail__episode-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgb(255 255 255 / 0.92);
+}
+
+.lf-title-detail__episode-meta {
+  margin-top: 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.42);
+}
+
+.lf-title-detail__episode-desc {
+  margin-top: 0.35rem;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: rgb(255 255 255 / 0.58);
+}
+
+.lf-title-detail__empty {
+  padding: 1.25rem 1rem;
+  border-radius: 0.85rem;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  background: rgb(255 255 255 / 0.03);
+  text-align: center;
+  color: rgb(255 255 255 / 0.62);
+}
+
+@media (max-width: 1023px) {
+  .lf-title-detail__sidebar {
+    max-width: 24rem;
+  }
+
+  .lf-title-detail__title {
+    max-width: none;
+  }
+}
+
+/* ── Platform promo (desktop ↔ mobile cross-sell) ── */
+
+.lf-platform-promo__card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1.35rem;
+  border: 1px solid rgb(255 255 255 / 0.16);
+  background: linear-gradient(
+    145deg,
+    rgb(255 255 255 / 0.14) 0%,
+    rgb(255 255 255 / 0.05) 38%,
+    rgb(255 255 255 / 0.02) 100%
+  );
+  -webkit-backdrop-filter: blur(42px) saturate(185%);
+  backdrop-filter: blur(42px) saturate(185%);
+  box-shadow:
+    0 18px 48px rgb(0 0 0 / 0.38),
+    0 2px 0 rgb(255 255 255 / 0.06) inset,
+    0 -1px 0 rgb(255 255 255 / 0.04) inset;
+  transition:
+    border-color 0.35s ease,
+    box-shadow 0.35s ease,
+    transform 0.35s ease;
+}
+
+html.is-tauri .lf-platform-promo__card {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: linear-gradient(
+    145deg,
+    rgb(34 34 38 / 0.92) 0%,
+    rgb(18 18 22 / 0.96) 100%
+  );
+}
+
+.group:hover .lf-platform-promo__card {
+  border-color: rgb(255 255 255 / 0.24);
+  box-shadow:
+    0 24px 56px rgb(0 0 0 / 0.44),
+    0 1px 0 rgb(255 255 255 / 0.28) inset,
+    0 -1px 0 rgb(255 255 255 / 0.06) inset;
+}
+
+.lf-platform-promo__card--desktop-app {
+  border-color: rgb(94 234 212 / 0.22);
+}
+
+.group:hover .lf-platform-promo__card--desktop-app {
+  border-color: rgb(94 234 212 / 0.34);
+  box-shadow:
+    0 24px 56px rgb(0 0 0 / 0.44),
+    0 0 72px rgb(94 234 212 / 0.1),
+    0 1px 0 rgb(255 255 255 / 0.28) inset;
+}
+
+.lf-platform-promo__card--mobile-web {
+  border-color: rgb(167 139 250 / 0.22);
+}
+
+.group:hover .lf-platform-promo__card--mobile-web {
+  border-color: rgb(167 139 250 / 0.34);
+  box-shadow:
+    0 24px 56px rgb(0 0 0 / 0.44),
+    0 0 72px rgb(167 139 250 / 0.1),
+    0 1px 0 rgb(255 255 255 / 0.28) inset;
+}
+
+.lf-platform-promo__sheen {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    165deg,
+    rgb(255 255 255 / 0.34) 0%,
+    rgb(255 255 255 / 0.08) 22%,
+    transparent 48%
+  );
+  opacity: 0.55;
+}
+
+.lf-platform-promo__tint {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  opacity: 0.85;
+}
+
+.lf-platform-promo__card--desktop-app .lf-platform-promo__tint {
+  background: radial-gradient(
+    120% 90% at 0% 0%,
+    rgb(94 234 212 / 0.14) 0%,
+    transparent 58%
+  );
+}
+
+.lf-platform-promo__card--mobile-web .lf-platform-promo__tint {
+  background: radial-gradient(
+    120% 90% at 0% 0%,
+    rgb(167 139 250 / 0.16) 0%,
+    transparent 58%
+  );
+}
+
+.lf-platform-promo__rim {
+  pointer-events: none;
+  position: absolute;
+  inset: 1px;
+  border-radius: calc(1.35rem - 1px);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  box-shadow: inset 0 1px 12px rgb(255 255 255 / 0.06);
+}
+
+.lf-platform-promo__content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.25rem;
+}
+
+@media (min-width: 640px) {
+  .lf-platform-promo__content {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    padding: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .lf-platform-promo__content {
+    padding: 1.75rem;
+  }
+}
+
+.lf-platform-promo__badge {
+  display: inline-flex;
+  shrink: 0;
+  align-items: center;
+  border-radius: 9999px;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  padding: 0.28rem 0.72rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.88);
+  background: rgb(255 255 255 / 0.08);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(16px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2);
+}
+
+.lf-platform-promo__badge--desktop-app {
+  border-color: rgb(94 234 212 / 0.28);
+  color: rgb(167 243 234 / 0.95);
+  background: rgb(94 234 212 / 0.1);
+}
+
+.lf-platform-promo__badge--mobile-web {
+  border-color: rgb(167 139 250 / 0.28);
+  color: rgb(221 214 254 / 0.95);
+  background: rgb(167 139 250 / 0.1);
+}
+
+.lf-platform-promo__icon-badge {
+  display: flex;
+  height: 2.75rem;
+  width: 2.75rem;
+  shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1rem;
+  border: 1px solid rgb(255 255 255 / 0.16);
+  background: rgb(255 255 255 / 0.08);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  backdrop-filter: blur(18px) saturate(170%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    0 8px 24px rgb(0 0 0 / 0.2);
+}
+
+.lf-platform-promo__icon-badge--desktop-app {
+  border-color: rgb(94 234 212 / 0.25);
+  color: rgb(94 234 212);
+  background: rgb(94 234 212 / 0.1);
+}
+
+.lf-platform-promo__icon-badge--mobile-web {
+  border-color: rgb(167 139 250 / 0.25);
+  color: rgb(167 139 250);
+  background: rgb(167 139 250 / 0.1);
+}
+
+.lf-platform-promo__cta {
+  margin-top: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid rgb(255 255 255 / 0.2);
+  padding: 0.62rem 1.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgb(255 255 255 / 0.94);
+  background: rgb(255 255 255 / 0.1);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 10px 28px rgb(0 0 0 / 0.22);
+  transition:
+    background-color 0.25s ease,
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+@media (min-width: 640px) {
+  .lf-platform-promo__cta {
+    margin-top: 1.25rem;
+  }
+}
+
+.group:hover .lf-platform-promo__cta {
+  border-color: rgb(255 255 255 / 0.32);
+  background: rgb(255 255 255 / 0.16);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.36),
+    0 12px 32px rgb(0 0 0 / 0.28);
+}
+
+.lf-platform-promo__cta--desktop-app {
+  border-color: rgb(94 234 212 / 0.24);
+}
+
+.group:hover .lf-platform-promo__cta--desktop-app {
+  border-color: rgb(94 234 212 / 0.38);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    0 0 32px rgb(94 234 212 / 0.12);
+}
+
+.lf-platform-promo__cta--mobile-web {
+  border-color: rgb(167 139 250 / 0.24);
+}
+
+.group:hover .lf-platform-promo__cta--mobile-web {
+  border-color: rgb(167 139 250 / 0.38);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    0 0 32px rgb(167 139 250 / 0.12);
+}
+
+.lf-platform-promo__macbook-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(100%, 18rem);
+}
+
+.lf-platform-promo__device--macbook {
+  width: 100%;
+  max-width: 18rem;
+}
+
+.group:hover .lf-platform-promo__device--macbook {
+  transform: translateY(-6px);
+}
+
+@media (min-width: 640px) {
+  .lf-platform-promo__macbook-wrap {
+    width: 20rem;
+  }
+
+  .lf-platform-promo__device--macbook {
+    max-width: 20rem;
+  }
+}
+
+.lf-platform-promo__devices {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0;
+  min-height: 10.5rem;
+  width: min(100%, 24rem);
+  padding-bottom: 0.25rem;
+}
+
+.lf-platform-promo__device {
+  display: block;
+  max-width: none;
+  object-fit: contain;
+  background: transparent;
+  filter: drop-shadow(0 18px 32px rgb(0 0 0 / 0.45));
+  transition: transform 0.35s ease;
+}
+
+.group:hover .lf-platform-promo__device--phone {
+  transform: translateY(-5px) rotate(-3deg);
+}
+
+.group:hover .lf-platform-promo__device--tablet {
+  transform: translateY(-7px);
+}
+
+.lf-platform-promo__device--phone {
+  position: relative;
+  z-index: 2;
+  width: 6.25rem;
+  margin-right: -1.75rem;
+  margin-bottom: 0;
+}
+
+.lf-platform-promo__device--tablet {
+  width: 14.75rem;
+}
+
+@media (min-width: 640px) {
+  .lf-platform-promo__device--phone {
+    width: 7.25rem;
+    margin-right: -2rem;
+  }
+
+  .lf-platform-promo__device--tablet {
+    width: 17.5rem;
+  }
+
+  .lf-platform-promo__devices {
+    min-height: 12.5rem;
+    width: 26rem;
+  }
+}
+
+.lf-platform-promo__devices--page {
+  min-height: 11rem;
+  width: 100%;
+  justify-content: center;
+}
+
+@media (min-width: 768px) {
+  .lf-platform-promo__devices--page {
+    min-height: 14rem;
+    width: 22rem;
+    justify-content: flex-end;
+  }
+
+  .lf-platform-promo__devices--page .lf-platform-promo__device--phone {
+    width: 6.5rem;
+    margin-right: -1.75rem;
+  }
+
+  .lf-platform-promo__devices--page .lf-platform-promo__device--tablet {
+    width: 16rem;
+  }
+}
+
+/* Web app install guide (/web-app) */
+.lf-webapp-install {
+  position: relative;
+  min-height: 100dvh;
+  color: rgb(245 245 245);
+}
+
+.lf-webapp-install__bg {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgb(167 139 250 / 0.14), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 50%, rgb(94 234 212 / 0.06), transparent 50%),
+    rgb(8 8 12);
+}
+
+.lf-webapp-install__header {
+  position: relative;
+  z-index: 2;
+  padding-top: 1.25rem;
+  padding-bottom: 0.5rem;
+}
+
+.lf-webapp-install__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  background: rgb(255 255 255 / 0.06);
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgb(245 245 245 / 0.9);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.lf-webapp-install__back:hover {
+  border-color: rgb(255 255 255 / 0.22);
+  background: rgb(255 255 255 / 0.1);
+}
+
+.lf-webapp-install__main {
+  position: relative;
+  z-index: 1;
+  margin: 0 auto;
+  max-width: 56rem;
+  padding-bottom: 4rem;
+}
+
+.lf-webapp-install__hero {
+  padding: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .lf-webapp-install__hero {
+    padding: 2rem;
+  }
+}
+
+.lf-webapp-install__hero-grid {
+  position: relative;
+  display: grid;
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .lf-webapp-install__hero-grid {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 2rem;
+  }
+}
+
+.lf-webapp-install__title {
+  margin-top: 0.75rem;
+  font-size: clamp(1.5rem, 4vw, 2.125rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.lf-webapp-install__lead {
+  margin-top: 0.75rem;
+  max-width: 36rem;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: rgb(245 245 245 / 0.72);
+}
+
+.lf-webapp-install__hero-actions {
+  margin-top: 1.25rem;
+}
+
+.lf-webapp-install__section {
+  margin-top: 2.5rem;
+}
+
+.lf-webapp-install__section-head {
+  margin-bottom: 1.25rem;
+}
+
+.lf-webapp-install__section-title {
+  margin-top: 0.5rem;
+  font-size: clamp(1.25rem, 3vw, 1.625rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.lf-webapp-install__section-lead {
+  margin-top: 0.5rem;
+  max-width: 40rem;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: rgb(245 245 245 / 0.68);
+}
+
+.lf-webapp-install__video-wrap {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1rem;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(0 0 0 / 0.4);
+  aspect-ratio: 9 / 16;
+  max-width: 22rem;
+  margin: 0 auto;
+}
+
+@media (min-width: 640px) {
+  .lf-webapp-install__video-wrap {
+    max-width: 20rem;
+  }
+}
+
+.lf-webapp-install__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.lf-webapp-install__primer {
+  padding: 1.25rem 1.5rem;
+}
+
+.lf-webapp-install__primer-list {
+  position: relative;
+  display: grid;
+  gap: 0.75rem;
+  padding-left: 1.25rem;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: rgb(245 245 245 / 0.82);
+  list-style: decimal;
+}
+
+.lf-webapp-install__inline-link {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  color: rgb(221 214 254);
+}
+
+.lf-webapp-install__inline-link:hover {
+  color: rgb(245 245 245);
+}
+
+.lf-webapp-install__guides {
+  display: grid;
+  gap: 1.25rem;
+}
+
+@media (min-width: 900px) {
+  .lf-webapp-install__guides {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.lf-webapp-install__guide {
+  padding: 1.5rem;
+}
+
+.lf-webapp-install__guide-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.lf-webapp-install__browser {
+  font-size: 0.75rem;
+  color: rgb(245 245 245 / 0.55);
+}
+
+.lf-webapp-install__guide-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.lf-webapp-install__guide-intro {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: rgb(245 245 245 / 0.7);
+}
+
+.lf-webapp-install__steps {
+  margin-top: 1.25rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.lf-webapp-install__step {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.lf-webapp-install__step-num {
+  display: flex;
+  height: 1.75rem;
+  width: 1.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid rgb(167 139 250 / 0.28);
+  background: rgb(167 139 250 / 0.1);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgb(221 214 254);
+}
+
+.lf-webapp-install__step-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.lf-webapp-install__step-detail {
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: rgb(245 245 245 / 0.65);
+}
+
+.lf-webapp-install__warn {
+  margin-top: 1.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(251 191 36 / 0.28);
+  background: rgb(251 191 36 / 0.08);
+  padding: 0.875rem 1rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.lf-webapp-install__warn-label {
+  margin-bottom: 0.375rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgb(251 191 36);
+}
+
+.lf-webapp-install__tips {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgb(255 255 255 / 0.08);
+}
+
+.lf-webapp-install__tips-label {
+  margin-bottom: 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgb(245 245 245 / 0.5);
+}
+
+.lf-webapp-install__tips ul {
+  display: grid;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: rgb(245 245 245 / 0.72);
+  list-style: none;
+}
+
+.lf-webapp-install__tips li::before {
+  content: "→ ";
+  color: rgb(167 139 250);
+}
+
+.lf-webapp-install__beta {
+  margin-top: 2rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(251 191 36 / 0.28);
+  background: rgb(251 191 36 / 0.08);
+  padding: 1rem 1.25rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: rgb(245 245 245 / 0.78);
 }

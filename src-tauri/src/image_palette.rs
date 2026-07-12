@@ -113,6 +113,89 @@ fn validate_remote_url(url: &str) -> Result<reqwest::Url, String> {
     Ok(parsed)
 }
 
+fn is_bare_sc_image_filename(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.len() >= 40
+        && lower.ends_with(".webp")
+        && lower
+            .trim_end_matches(".webp")
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() || c == '-')
+}
+
+fn resolve_palette_fetch_url(url: &str) -> Result<String, String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err("URL vuoto.".to_string());
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("/sc-image/") {
+        return Ok(format!(
+            "https://cdn.streamingcommunityz.tech/images/{}",
+            rest.trim_start_matches('/')
+        ));
+    }
+
+    if let Some(pos) = trimmed.find("/sc-image/") {
+        let rest = &trimmed[pos + "/sc-image/".len()..];
+        return Ok(format!(
+            "https://cdn.streamingcommunityz.tech/images/{}",
+            rest.trim_start_matches('/')
+        ));
+    }
+
+    if is_bare_sc_image_filename(trimmed) {
+        return Ok(format!(
+            "https://cdn.streamingcommunityz.tech/images/{trimmed}"
+        ));
+    }
+
+    Ok(trimmed.to_string())
+}
+
+fn default_image_palette() -> ImagePalette {
+    ImagePalette {
+        hues: [275.0, 285.0, 262.0],
+        accents: [[88, 28, 135], [59, 7, 100], [49, 10, 80]],
+    }
+}
+
+async fn extract_image_palette_inner(url: &str) -> Option<ImagePalette> {
+    let resolved = resolve_palette_fetch_url(url).ok()?;
+    let parsed = validate_remote_url(&resolved).ok()?;
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(12))
+        .user_agent(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+             (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Branchefy/0.1",
+        )
+        .build()
+        .ok()?;
+
+    let referer = if resolved.to_ascii_lowercase().contains("streamingcommunity") {
+        "https://streamingcommunityz.tech/"
+    } else {
+        "https://www.themoviedb.org/"
+    };
+
+    let response = client
+        .get(parsed)
+        .header("Referer", referer)
+        .send()
+        .await
+        .ok()?;
+
+    if !response.status().is_success() {
+        return None;
+    }
+
+    let bytes = response.bytes().await.ok()?;
+    let image = image::load_from_memory(&bytes).ok()?;
+    let rgba = image.to_rgba8();
+    extract_palette_from_rgba(&rgba)
+}
+
 fn boost_accent(rgb: [u8; 3], min_lightness: f64, min_saturation: f64) -> [u8; 3] {
     let (h, s, l) = rgb_to_hsl(rgb[0], rgb[1], rgb[2]);
     hsl_to_rgb(h, s.max(min_saturation), l.max(min_lightness))
@@ -228,33 +311,9 @@ fn extract_palette_from_rgba(rgba: &image::RgbaImage) -> Option<ImagePalette> {
 
 #[tauri::command]
 pub async fn extract_image_palette_cmd(url: String) -> Result<ImagePalette, String> {
-    let parsed = validate_remote_url(&url)?;
-
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(12))
-        .build()
-        .map_err(|e| format!("Client HTTP: {e}"))?;
-
-    let response = client
-        .get(parsed)
-        .send()
+    Ok(extract_image_palette_inner(&url)
         .await
-        .map_err(|e| format!("Download immagine fallito: {e}"))?;
-
-    if !response.status().is_success() {
-        return Err(format!("Immagine non disponibile ({})", response.status()));
-    }
-
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Lettura immagine: {e}"))?;
-
-    let image = image::load_from_memory(&bytes).map_err(|e| format!("Decodifica immagine: {e}"))?;
-    let rgba = image.to_rgba8();
-    extract_palette_from_rgba(&rgba).ok_or_else(|| {
-        "Impossibile estrarre colori dominanti dall'immagine.".to_string()
-    })
+        .unwrap_or_else(default_image_palette))
 }
 
 #[cfg(test)]

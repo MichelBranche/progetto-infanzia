@@ -45,6 +45,8 @@ export interface TitleDetailModel {
   quality?: string;
   rating?: string;
   castLine?: string;
+  tmdbId?: number;
+  tmdbType?: string;
   genreLine?: string;
   directorsLine?: string;
   description?: string;
@@ -224,7 +226,7 @@ export function titleDetailFromStremio(
     views: formatViews(meta.viewCount),
     quality: meta.quality,
     rating: meta.rating,
-    castLine: meta.cast?.slice(0, 4).join(", "),
+    castLine: meta.cast?.slice(0, 14).join(", "),
     genreLine: meta.genres.join(", ") || undefined,
     directorsLine: meta.directors?.join(", "),
     description: meta.description?.trim(),
@@ -270,6 +272,8 @@ export function titleDetailFromMediaItem(
     year: playTarget?.year ? String(playTarget.year) : undefined,
     runtime: playTarget ? mediaRuntimeLabel(playTarget) : mediaRuntimeLabel(item),
     genreLine: item.genres?.join(", "),
+    tmdbId: item.tmdbId,
+    tmdbType: item.tmdbType,
     description:
       playTarget?.description?.trim() ||
       item.description?.trim() ||

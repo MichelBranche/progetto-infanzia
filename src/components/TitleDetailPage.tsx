@@ -6,6 +6,7 @@ import {
   Loader2,
   Play,
   Plus,
+  Star,
 } from "lucide-react";
 import type {
   TitleDetailEpisode,
@@ -19,7 +20,7 @@ import {
 import { EpisodeThumbnail } from "./EpisodeThumbnail";
 import { LordFlixTrailerCard } from "./LordFlixTrailerCard";
 import { SparkleActionButton } from "./SparkleActionButton";
-type DetailTab = "overview" | "details" | "trailer";
+import { fetchCastPhotos } from "../lib/castPhotos";
 
 export interface TitleDetailPageProps {
   detail: TitleDetailModel;
@@ -47,15 +48,45 @@ export interface TitleDetailPageProps {
   footer?: ReactNode;
 }
 
-function RatingBadge({ rating }: { rating: string }) {
-  return (
-    <div
-      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 border-mint/70 text-[13px] font-semibold text-white"
-      title={`Valutazione ${rating}`}
-    >
-      {rating}
-    </div>
-  );
+function parseGenreBullets(genreLine?: string): string[] {
+  if (!genreLine?.trim()) return [];
+  return genreLine
+    .split(/[,/|•]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function parseCastMembers(castLine?: string) {
+  if (!castLine?.trim()) return [];
+  return castLine
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .slice(0, 14)
+    .map((name) => ({
+      name,
+      initial: name.charAt(0).toUpperCase() || "?",
+    }));
+}
+
+function runtimeEndLabel(runtime?: string): string | null {
+  if (!runtime?.trim()) return null;
+  const hoursMin = runtime.match(/(\d+)\s*h(?:\s*(\d+)\s*m)?/i);
+  const minsOnly = runtime.match(/(\d+)\s*min/i);
+  let totalMin = 0;
+  if (hoursMin) {
+    totalMin = Number.parseInt(hoursMin[1], 10) * 60;
+    if (hoursMin[2]) totalMin += Number.parseInt(hoursMin[2], 10);
+  } else if (minsOnly) {
+    totalMin = Number.parseInt(minsOnly[1], 10);
+  } else {
+    return null;
+  }
+  const end = new Date(Date.now() + totalMin * 60_000);
+  return end.toLocaleTimeString("it-IT", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function CircleActionButton({
@@ -79,85 +110,155 @@ function CircleActionButton({
       disabled={disabled}
       title={label}
       aria-label={label}
-      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 border-white/25 bg-black/35 text-white backdrop-blur-sm transition-colors hover:border-white/45 hover:bg-black/50 disabled:opacity-50"
+      className="lf-title-detail__circle-btn"
     >
       {children}
     </SparkleActionButton>
   );
 }
 
-function DetailTabs({
-  active,
-  onChange,
-  showTrailer,
-}: {
-  active: DetailTab;
-  onChange: (tab: DetailTab) => void;
-  showTrailer: boolean;
-}) {
-  const tabs: { id: DetailTab; label: string }[] = [
-    { id: "overview", label: "Panoramica" },
-    { id: "details", label: "Dettagli" },
-  ];
-  if (showTrailer) {
-    tabs.push({ id: "trailer", label: "Trailer" });
-  }
+function TitleDetailInfoSidebar({ detail }: { detail: TitleDetailModel }) {
+  const endLabel = runtimeEndLabel(detail.runtime);
+  const rows = [
+    detail.runtime
+      ? {
+          label: "Durata",
+          value: endLabel
+            ? `${detail.runtime} · finisce alle ${endLabel}`
+            : detail.runtime,
+        }
+      : null,
+    detail.year ? { label: "Uscita", value: detail.year } : null,
+    detail.quality ? { label: "Qualità", value: detail.quality } : null,
+    detail.views ? { label: "Visualizzazioni", value: detail.views } : null,
+    detail.typeLabel ? { label: "Tipo", value: detail.typeLabel } : null,
+    detail.isSeries && detail.episodes.length > 0
+      ? {
+          label: "Episodi",
+          value: String(detail.episodes.length),
+        }
+      : null,
+  ].filter((row): row is { label: string; value: string } => row != null);
+
+  if (rows.length === 0) return null;
 
   return (
-    <nav className="flex gap-6 border-t border-white/10 sm:gap-10">
-      {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          onClick={() => onChange(tab.id)}
-          className={`relative py-3 text-[11px] font-semibold uppercase tracking-[0.18em] transition-colors sm:text-[12px] ${
-            active === tab.id
-              ? "text-white"
-              : "text-white/45 hover:text-white/70"
-          }`}
-        >
-          {tab.label}
-          {active === tab.id && (
-            <motion.span
-              layoutId="title-detail-tab"
-              className="absolute inset-x-0 bottom-0 h-[2px] bg-mint"
-            />
-          )}
-        </button>
+    <aside className="lf-title-detail__sidebar" aria-label="Informazioni titolo">
+      {rows.map((row) => (
+        <div key={row.label} className="lf-title-detail__sidebar-row">
+          <span className="lf-title-detail__sidebar-label">{row.label}</span>
+          <span className="lf-title-detail__sidebar-value">{row.value}</span>
+        </div>
       ))}
-    </nav>
+    </aside>
   );
 }
 
-function SeasonSelector({
+function TitleDetailCastRow({
+  castLine,
+  title,
+  year,
+  isSeries,
+  tmdbId,
+  tmdbType,
+}: {
+  castLine?: string;
+  title: string;
+  year?: string;
+  isSeries: boolean;
+  tmdbId?: number;
+  tmdbType?: string;
+}) {
+  const members = useMemo(() => parseCastMembers(castLine), [castLine]);
+  const [photoByName, setPhotoByName] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (members.length === 0) return;
+    let cancelled = false;
+
+    void fetchCastPhotos({
+      title,
+      year: year ? Number.parseInt(year, 10) : undefined,
+      isSeries,
+      tmdbId,
+      tmdbType,
+      castNames: members.map((member) => member.name),
+    }).then((photos) => {
+      if (cancelled) return;
+      const next: Record<string, string> = {};
+      for (const photo of photos) {
+        if (photo.photoUrl) next[photo.name] = photo.photoUrl;
+      }
+      setPhotoByName(next);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [members, title, year, isSeries, tmdbId, tmdbType]);
+
+  if (members.length === 0) return null;
+
+  return (
+    <section className="lf-title-detail__section">
+      <h2 className="lf-title-detail__section-title">Cast</h2>
+      <div className="lf-title-detail__cast-scroll scrollbar-hide">
+        {members.map((member) => {
+          const photoUrl = photoByName[member.name];
+          return (
+            <div key={member.name} className="lf-title-detail__cast-member">
+              <div className="lf-title-detail__cast-avatar" aria-hidden>
+                {photoUrl ? (
+                  <img
+                    className="lf-title-detail__cast-photo"
+                    src={photoUrl}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                  />
+                ) : (
+                  member.initial
+                )}
+              </div>
+              <p className="lf-title-detail__cast-name">{member.name}</p>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function SeasonPills({
   seasons,
   activeSeason,
   onChange,
-  className = "",
 }: {
   seasons: number[];
   activeSeason: number;
   onChange: (season: number) => void;
-  className?: string;
 }) {
   if (seasons.length <= 1) return null;
 
   return (
-    <div className={className}>
-      <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
-        Stagione
-      </label>
-      <select
-        value={activeSeason}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full max-w-xs rounded-lg border border-white/15 bg-black/40 px-3 py-2.5 text-[14px] text-white outline-none transition-colors focus:border-white/35 sm:w-auto sm:min-w-[180px]"
-      >
-        {seasons.map((season) => (
-          <option key={season} value={season} className="bg-void text-white">
+    <div className="lf-title-detail__seasons scrollbar-hide" role="tablist">
+      {seasons.map((season) => {
+        const active = season === activeSeason;
+        return (
+          <button
+            key={season}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(season)}
+            className={`lf-title-detail__season-pill${
+              active ? " lf-title-detail__season-pill--active" : ""
+            }`}
+          >
             Stagione {season}
-          </option>
-        ))}
-      </select>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -300,11 +401,10 @@ function EpisodeList({
   return (
     <div>
       {showSeasonPicker && (
-        <SeasonSelector
+        <SeasonPills
           seasons={seasons}
           activeSeason={activeSeason}
           onChange={onSeasonChange}
-          className="mb-5"
         />
       )}
 
@@ -313,83 +413,69 @@ function EpisodeList({
           <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
         </div>
       ) : seasonLoadError && filteredEpisodes.length === 0 ? (
-        <p className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-6 text-center text-[14px] text-text-secondary">
-          {seasonLoadError}
-        </p>
+        <p className="lf-title-detail__empty">{seasonLoadError}</p>
       ) : (
-      <div className="grid gap-3">
-        {filteredEpisodes.map((episode, index) => (          <motion.article
-            key={episode.id}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.03 }}
-            className="group flex gap-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 transition-colors hover:border-white/10 hover:bg-white/[0.04]"
-          >
-            <button
-              type="button"
-              disabled={loading}
-              onClick={() => onPlay(episode.id, episode.title)}
-              className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-lg bg-black/40 sm:w-48"
+        <div className="lf-title-detail__episodes">
+          {filteredEpisodes.map((episode, index) => (
+            <motion.article
+              key={episode.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.03 }}
+              className="lf-title-detail__episode"
             >
-              <EpisodeThumbnail
-                episode={episode}
-                index={index}
-                resolveEpisodeStream={resolveEpisodeStream}
-              />
-              <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition-opacity group-hover:opacity-100">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/95">
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => onPlay(episode.id, episode.title)}
+                className="lf-title-detail__episode-thumb"
+              >
+                <EpisodeThumbnail
+                  episode={episode}
+                  index={index}
+                  resolveEpisodeStream={resolveEpisodeStream}
+                />
+                <div className="lf-title-detail__episode-play">
                   {loading ? (
                     <Loader2 className="h-4 w-4 animate-spin text-void" />
                   ) : (
                     <Play className="h-4 w-4 fill-void text-void" />
                   )}
                 </div>
-              </div>
-              {(episode.progressPercent ?? 0) > 1 && (
-                <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/25">
-                  <div
-                    className="h-full bg-accent"
-                    style={{ width: `${episode.progressPercent}%` }}
-                  />
-                </div>
-              )}
-            </button>
+                {(episode.progressPercent ?? 0) > 1 && (
+                  <div className="lf-title-detail__episode-progress">
+                    <div
+                      style={{ width: `${episode.progressPercent}%` }}
+                    />
+                  </div>
+                )}
+              </button>
 
-            <div className="flex min-w-0 flex-1 flex-col justify-center">
-              <div className="flex items-start justify-between gap-3">
+              <div className="lf-title-detail__episode-body">
                 <button
                   type="button"
                   disabled={loading}
                   onClick={() => onPlay(episode.id, episode.title)}
-                  className="min-w-0 text-left"
+                  className="min-w-0 flex-1 text-left"
                 >
-                  <h3 className="truncate text-[15px] font-medium text-text-primary group-hover:text-white">
+                  <h3 className="lf-title-detail__episode-title">
                     {episode.title}
                   </h3>
-                  <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-text-muted">
+                  <p className="lf-title-detail__episode-meta">
                     {episode.code ?? `Episodio ${index + 1}`}
                     {episode.runtime ? ` · ${episode.runtime}` : ""}
                   </p>
-                  {(episode.progressPercent ?? 0) > 1 && (
-                    <div className="mt-2 h-1 w-full max-w-xs overflow-hidden rounded-full bg-white/15">
-                      <div
-                        className="h-full rounded-full bg-accent transition-[width]"
-                        style={{ width: `${episode.progressPercent}%` }}
-                      />
-                    </div>
-                  )}
                   {episode.description && (
-                    <p className="mt-1 line-clamp-2 text-[13px] text-text-secondary">
+                    <p className="lf-title-detail__episode-desc">
                       {episode.description}
                     </p>
                   )}
                 </button>
                 {renderEpisodeExtra?.(episode)}
               </div>
-            </div>
-          </motion.article>
-        ))}
-      </div>
+            </motion.article>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -414,7 +500,6 @@ export function TitleDetailPage({
   onLoadSeason,
   footer,
 }: TitleDetailPageProps) {
-  const [activeTab, setActiveTab] = useState<DetailTab>("overview");
   const [expandedPlot, setExpandedPlot] = useState(false);
   const {
     seasons,
@@ -427,14 +512,20 @@ export function TitleDetailPage({
     seasonLoadError,
   } = useSeasonSelection(detail, seasonNumbers, onLoadSeason);
 
+  const genres = useMemo(
+    () => parseGenreBullets(detail.genreLine),
+    [detail.genreLine],
+  );
+
   const primaryEpisodeId =
     primaryEpisodeInSeason?.id ??
     detail.primaryEpisodeId ??
     detail.episodes[0]?.id;
   const primaryEpisode = detail.episodes.find(
     (ep) => ep.id === primaryEpisodeId,
-  );  const plot = detail.description?.trim();
-  const plotLong = (plot?.length ?? 0) > 220;
+  );
+  const plot = detail.description?.trim();
+  const plotLong = (plot?.length ?? 0) > 180;
   const playLabel = detail.playLabel ?? "Riproduci";
   const showEpisodeList =
     detail.isSeries && detail.episodes.length > 0;
@@ -447,333 +538,227 @@ export function TitleDetailPage({
     onPlay(primaryEpisodeId, episodeTitle);
   };
 
-  const detailFields = [
-    ["Titolo", detail.name],
-    ["Tipo", detail.typeLabel],
-    ["Anno", detail.year],
-    ["Durata", detail.runtime],
-    ["Valutazione", detail.rating],
-    ["Qualità", detail.quality],
-    ["Visualizzazioni", detail.views],
-    ["Genere", detail.genreLine],
-    ["Cast", detail.castLine],
-    ["Regia", detail.directorsLine],
-    [
-      "Episodi",
-      detail.isSeries ? String(detail.episodes.length) : null,
-    ],
-  ] as const;
-
   return (
-    <div className="min-h-full bg-void pb-16">
-      <div className="relative min-h-[min(65vh,640px)] w-full overflow-hidden sm:min-h-[72vh]">
+    <div className="lf-title-detail min-h-full bg-void pb-20">
+      <section className="lf-title-detail__hero relative w-full overflow-hidden">
         {detail.heroImage ? (
           <img
             src={detail.heroImage}
             alt=""
-            className="absolute inset-0 h-full w-full object-cover"
+            className="lf-title-detail__hero-bg"
           />
         ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-950 via-slate-900 to-violet-950" />
+          <div className="lf-title-detail__hero-bg lf-title-detail__hero-bg--fallback" />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-void via-void/75 to-void/20" />
-        <div className="absolute inset-0 bg-gradient-to-r from-void/95 via-void/50 to-transparent" />
+        <div className="lf-title-detail__hero-scrim" aria-hidden />
 
         <button
           type="button"
           onClick={onBack}
-          className="absolute left-4 top-24 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/40 backdrop-blur-sm transition-colors hover:bg-black/60 sm:left-8 sm:top-28 lg:left-12"
+          className="lf-title-detail__back"
+          aria-label="Indietro"
         >
-          <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />
+          <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
         </button>
 
-        <div className="page-px relative flex min-h-[min(65vh,640px)] flex-col justify-end pb-8 pt-24 sm:min-h-[72vh] sm:pb-10 sm:pt-28">
-          <div className="max-w-3xl pb-5 pt-28 sm:pb-6">
-            {detail.logo ? (
-              <img
-                src={detail.logo}
-                alt={detail.name}
-                className="mb-4 max-h-24 w-auto max-w-[min(100%,420px)] object-contain object-left drop-shadow-[0_8px_32px_rgba(0,0,0,0.55)] sm:max-h-28"
-              />
-            ) : (
-              <>
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-mint">
-                  {detail.typeLabel}
+        <div className="lf-title-detail__hero-inner page-px">
+          <div className="lf-title-detail__hero-grid">
+            <div className="lf-title-detail__hero-main">
+              {detail.logo ? (
+                <img
+                  src={detail.logo}
+                  alt={detail.name}
+                  className="lf-title-detail__logo"
+                />
+              ) : (
+                <h1 className="lf-title-detail__title">{detail.name}</h1>
+              )}
+
+              {genres.length > 0 && (
+                <p className="lf-title-detail__genres">
+                  {genres.join(" · ")}
                 </p>
-                <h1 className="font-display mb-4 max-w-2xl text-[clamp(2rem,4.5vw,3.5rem)] font-bold leading-[0.95] tracking-[-0.03em] text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.6)]">
-                  {detail.name}
-                </h1>
-              </>
-            )}
-
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-white/75 sm:text-[14px]">
-              {detail.year && <span>{detail.year}</span>}
-              {detail.runtime && (
-                <>
-                  {detail.year && <span className="text-white/35">·</span>}
-                  <span>{detail.runtime}</span>
-                </>
               )}
-              {detail.views && (
-                <>
-                  {(detail.year || detail.runtime) && (
-                    <span className="text-white/35">·</span>
-                  )}
-                  <span>{detail.views}</span>
-                </>
-              )}
-              {detail.isSeries && detail.episodes.length > 0 && (
-                <>
-                  {(detail.year || detail.runtime || detail.views) && (
-                    <span className="text-white/35">·</span>
-                  )}
-                  <span>
-                    {showSeasonPicker
-                      ? `${seasons.length} stagion${seasons.length === 1 ? "e" : "i"}`
-                      : null}
-                    {showSeasonPicker && filteredEpisodes.length > 0 && " · "}
-                    {showSeasonPicker
-                      ? `${filteredEpisodes.length} episod${filteredEpisodes.length === 1 ? "io" : "i"}`
-                      : `${detail.episodes.length} episod${detail.episodes.length === 1 ? "io" : "i"}`}
-                  </span>
-                </>
-              )}
-              {detail.quality && (
-                <span className="ml-1 rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/90">
-                  {detail.quality}
-                </span>
-              )}
-            </div>
 
-            {showSeasonPicker && (
-              <SeasonSelector
-                seasons={seasons}
-                activeSeason={activeSeason}
-                onChange={setActiveSeason}
-                className="mt-5"
-              />
-            )}
-
-            <div className="mt-5 flex flex-wrap items-center gap-3">              <button
-                type="button"
-                disabled={loading || !primaryEpisodeId}
-                onClick={playPrimary}
-                className="inline-flex min-w-[148px] items-center justify-center gap-2.5 rounded-md bg-white px-6 py-3 text-[15px] font-semibold text-black transition-colors hover:bg-white/90 disabled:opacity-60"
-              >
-                {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4 fill-black" />
-                )}
-                {playLabel}
-              </button>
-
-              {secondaryPlayAction && (
+              <div className="lf-title-detail__actions">
                 <button
                   type="button"
-                  disabled={loading}
-                  onClick={() =>
-                    onPlay(
-                      secondaryPlayAction.episodeId,
-                      secondaryPlayAction.episodeTitle,
-                    )
-                  }
-                  className="inline-flex items-center gap-2 rounded-md border-2 border-white/25 px-5 py-3 text-[14px] font-medium text-white transition-colors hover:border-white/45 disabled:opacity-60"
+                  disabled={loading || !primaryEpisodeId}
+                  onClick={playPrimary}
+                  className="lf-title-detail__play-btn"
                 >
-                  {secondaryPlayAction.label}
+                  {loading ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Play className="h-5 w-5 fill-black" />
+                  )}
+                  {playLabel}
                 </button>
-              )}
 
-              {extraHeroActions}
-
-              {detail.rating && <RatingBadge rating={detail.rating} />}
-
-              <CircleActionButton
-                label={isInMyList ? "Rimuovi dalla mia lista" : "La mia lista"}
-                onClick={onToggleMyList}
-                disabled={!onToggleMyList || myListLoading}
-                checked={isInMyList}
-              >
-                {myListLoading ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : isInMyList ? (
-                  <Check className="h-5 w-5" strokeWidth={2.5} />
-                ) : (
-                  <Plus className="h-5 w-5" strokeWidth={2} />
-                )}
-              </CircleActionButton>
-            </div>
-
-            {plot && (
-              <div className="mt-5 max-w-2xl">
-                <p
-                  className={`text-[14px] leading-relaxed text-white/75 sm:text-[15px] ${
-                    expandedPlot ? "" : "line-clamp-3"
-                  }`}
+                <CircleActionButton
+                  label={isInMyList ? "Rimuovi dalla mia lista" : "La mia lista"}
+                  onClick={onToggleMyList}
+                  disabled={!onToggleMyList || myListLoading}
+                  checked={isInMyList}
                 >
-                  {plot}
-                </p>
-                {plotLong && (
+                  {myListLoading ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : isInMyList ? (
+                    <Check className="h-5 w-5" strokeWidth={2.5} />
+                  ) : (
+                    <Plus className="h-5 w-5" strokeWidth={2} />
+                  )}
+                </CircleActionButton>
+
+                {secondaryPlayAction && (
                   <button
                     type="button"
-                    onClick={() => setExpandedPlot((value) => !value)}
-                    className="mt-1 text-[13px] font-medium text-white/55 transition-colors hover:text-white/80"
+                    disabled={loading}
+                    onClick={() =>
+                      onPlay(
+                        secondaryPlayAction.episodeId,
+                        secondaryPlayAction.episodeTitle,
+                      )
+                    }
+                    className="lf-title-detail__secondary-btn"
                   >
-                    {expandedPlot ? "Mostra meno" : "Leggi tutto"}
+                    {secondaryPlayAction.label}
                   </button>
                 )}
-              </div>
-            )}
 
-            {(detail.castLine || detail.genreLine) && (
-              <div className="mt-4 space-y-1 text-[13px] text-white/65 sm:text-[14px]">
-                {detail.castLine && (
-                  <p>
-                    <span className="font-medium text-white/80">Cast:</span>{" "}
-                    {detail.castLine}
-                  </p>
+                {extraHeroActions}
+              </div>
+
+              <div className="lf-title-detail__meta-row">
+                {detail.year && <span>{detail.year}</span>}
+                {detail.runtime && (
+                  <>
+                    {detail.year && <span className="lf-title-detail__dot">·</span>}
+                    <span>{detail.runtime}</span>
+                  </>
                 )}
-                {detail.genreLine && (
-                  <p>
-                    <span className="font-medium text-white/80">Genere:</span>{" "}
-                    {detail.genreLine}
-                  </p>
+                {detail.views && (
+                  <>
+                    {(detail.year || detail.runtime) && (
+                      <span className="lf-title-detail__dot">·</span>
+                    )}
+                    <span>{detail.views}</span>
+                  </>
+                )}
+                {detail.quality && (
+                  <span className="lf-title-detail__badge">{detail.quality}</span>
+                )}
+                {detail.rating && (
+                  <span className="lf-title-detail__rating">
+                    <Star className="h-3.5 w-3.5 fill-white/25 text-white/90" />
+                    {detail.rating}
+                  </span>
                 )}
               </div>
-            )}
+
+              {detail.directorsLine && (
+                <p className="lf-title-detail__director">
+                  <span>Regia:</span> {detail.directorsLine}
+                </p>
+              )}
+
+              {plot && (
+                <div className="lf-title-detail__synopsis">
+                  <p className={expandedPlot ? "" : "line-clamp-2"}>{plot}</p>
+                  {plotLong && (
+                    <button
+                      type="button"
+                      onClick={() => setExpandedPlot((value) => !value)}
+                      className="lf-title-detail__read-more"
+                    >
+                      {expandedPlot ? "Mostra meno" : "Leggi tutto"}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <TitleDetailInfoSidebar detail={detail} />
           </div>
-
-          <DetailTabs
-            active={activeTab}
-            onChange={setActiveTab}
-            showTrailer={!!detail.hasPreview && !!onPlayPreview}
-          />
         </div>
-      </div>
+      </section>
 
       {error && (
         <p className="page-px mt-4 text-[13px] text-red-400/90">{error}</p>
       )}
 
-      <div className="page-px py-8 sm:py-10">
-        {activeTab === "overview" && (
-          <>
-            {detail.hasPreview && onPlayPreview && (
-              <section className="mb-10">
-                <h2 className="lf-home-row__title mb-4">Trailer</h2>
-                <div className="lf-row-scroll">
-                  <div className="lf-row-scroll__track lf-row-scroll__track--trailers scrollbar-hide">
-                    <LordFlixTrailerCard
-                      thumbnailUrl={detail.heroImage}
-                      title={`Trailer · ${detail.name}`}
-                      disabled={previewLoading}
-                      onClick={onPlayPreview}
-                    />
-                  </div>
-                </div>
-              </section>
-            )}
+      <div className="lf-title-detail__body page-px">
+        <TitleDetailCastRow
+          castLine={detail.castLine}
+          title={detail.name}
+          year={detail.year}
+          isSeries={detail.isSeries}
+          tmdbId={detail.tmdbId}
+          tmdbType={detail.tmdbType}
+        />
 
-            {showEpisodeList ? (
-              <>
-                <h2 className="mb-1 font-display text-xl font-semibold tracking-[-0.02em] text-text-primary">
-                  Episodi
-                </h2>
-                <p className="mb-6 text-[13px] text-text-muted">
-                  Scegli un episodio da guardare
-                </p>
-                <EpisodeList
-                  loading={loading}
-                  onPlay={onPlay}
-                  renderEpisodeExtra={renderEpisodeExtra}
-                  seasons={seasons}
-                  activeSeason={activeSeason}
-                  onSeasonChange={setActiveSeason}
-                  filteredEpisodes={filteredEpisodes}
-                  showSeasonPicker={showSeasonPicker}
-                  resolveEpisodeStream={resolveEpisodeStream}
-                  seasonLoading={seasonLoading}
-                  seasonLoadError={seasonLoadError}
-                />
-              </>
-            ) : showNoEpisodes ? (
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-5 py-8 text-center">
-                <h2 className="font-display text-lg font-semibold text-text-primary">
-                  Nessun episodio disponibile
-                </h2>
-                <p className="mt-2 text-[14px] text-text-secondary">
-                  Questo titolo non ha ancora episodi pubblicati su AnimeSaturn, oppure
-                  la versione selezionata non è quella corretta. Prova un&apos;altra
-                  versione dalla sezione Anime.
-                </p>
-              </div>
-            ) : (
-              <div className="max-w-3xl space-y-4 text-[14px] leading-relaxed text-text-secondary">
-                {plot ? (
-                  <p>{plot}</p>
-                ) : (
-                  <p className="text-text-muted">
-                    Nessuna descrizione disponibile per questo titolo.
-                  </p>
-                )}
-                {detail.genreLine && (
-                  <p>
-                    <span className="font-medium text-text-primary">
-                      Genere:
-                    </span>{" "}
-                    {detail.genreLine}
-                  </p>
-                )}
-                {detail.castLine && (
-                  <p>
-                    <span className="font-medium text-text-primary">Cast:</span>{" "}
-                    {detail.castLine}
-                  </p>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {activeTab === "details" && (
-          <dl className="grid max-w-3xl gap-4 sm:grid-cols-2">
-            {detailFields.map(([label, value]) =>
-              value ? (
-                <div
-                  key={label}
-                  className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
-                >
-                  <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
-                    {label}
-                  </dt>
-                  <dd className="mt-1 text-[14px] text-text-primary">{value}</dd>
-                </div>
-              ) : null,
-            )}
-          </dl>
-        )}
-
-        {activeTab === "trailer" && detail.hasPreview && onPlayPreview && (
-          <div className="max-w-3xl">
-            <p className="mb-4 text-[14px] text-text-secondary">
-              Guarda l&apos;anteprima ufficiale prima di avviare la
-              riproduzione.
-            </p>
-            <div className="lf-row-scroll">
-              <div className="lf-row-scroll__track lf-row-scroll__track--trailers scrollbar-hide">
-                <LordFlixTrailerCard
-                  thumbnailUrl={detail.heroImage}
-                  title={`Trailer · ${detail.name}`}
-                  disabled={previewLoading}
-                  onClick={onPlayPreview}
-                />
-              </div>
+        {detail.hasPreview && onPlayPreview && (
+          <section className="lf-title-detail__section">
+            <h2 className="lf-title-detail__section-title">Trailer</h2>
+            <div className="lf-title-detail__trailer">
+              <LordFlixTrailerCard
+                thumbnailUrl={detail.heroImage}
+                title={`Trailer · ${detail.name}`}
+                badge="Trailer ufficiale"
+                disabled={previewLoading}
+                onClick={onPlayPreview}
+                className="lf-trailer-card--detail"
+              />
             </div>
-          </div>
+          </section>
         )}
-      </div>
 
-      {footer}
+        {showEpisodeList ? (
+          <section className="lf-title-detail__section">
+            <h2 className="lf-title-detail__section-title">Episodi</h2>
+            {showSeasonPicker && (
+              <p className="lf-title-detail__section-sub">
+                {seasons.length} stagion{seasons.length === 1 ? "e" : "i"} ·{" "}
+                {filteredEpisodes.length} episod
+                {filteredEpisodes.length === 1 ? "io" : "i"}
+              </p>
+            )}
+            <EpisodeList
+              loading={loading}
+              onPlay={onPlay}
+              renderEpisodeExtra={renderEpisodeExtra}
+              seasons={seasons}
+              activeSeason={activeSeason}
+              onSeasonChange={setActiveSeason}
+              filteredEpisodes={filteredEpisodes}
+              showSeasonPicker={showSeasonPicker}
+              resolveEpisodeStream={resolveEpisodeStream}
+              seasonLoading={seasonLoading}
+              seasonLoadError={seasonLoadError}
+            />
+          </section>
+        ) : showNoEpisodes ? (
+          <section className="lf-title-detail__section">
+            <div className="lf-title-detail__empty">
+              <h2 className="lf-title-detail__section-title">
+                Nessun episodio disponibile
+              </h2>
+              <p className="mt-2 text-[14px] text-text-secondary">
+                Questo titolo non ha ancora episodi pubblicati, oppure la
+                versione selezionata non è quella corretta.
+              </p>
+            </div>
+          </section>
+        ) : !plot ? (
+          <section className="lf-title-detail__section">
+            <p className="lf-title-detail__empty">
+              Nessuna descrizione disponibile per questo titolo.
+            </p>
+          </section>
+        ) : null}
+
+        {footer}
+      </div>
     </div>
   );
 }

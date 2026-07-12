@@ -20,17 +20,24 @@ pub async fn init_web_state() -> Result<Arc<AppState>, String> {
     std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
 
     let db_path = std::path::Path::new(&data_dir).join("library.db");
-    let db = Arc::new(Database::open(&db_path)?);
-    let _ = db.ensure_catalog_addon();
-    let _ = crate::saturn_catalog::ensure_defaults(&db);
-    let _ = crate::loonex_catalog::ensure_defaults(&db);
-    let _ = crate::youtube_catalog::ensure_defaults(&db);
-    let _ = db.sync_empty_child_allowlists();
+    let cache_dir = std::path::Path::new(&data_dir).join("cache");
+    let torrent_cache_dir = cache_dir.join("torrents");
+
+    let db = tokio::task::spawn_blocking(move || -> Result<Arc<Database>, String> {
+        std::fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+        let db = Arc::new(Database::open(&db_path)?);
+        let _ = db.ensure_catalog_addon();
+        let _ = crate::saturn_catalog::ensure_defaults(&db);
+        let _ = crate::loonex_catalog::ensure_defaults(&db);
+        let _ = crate::youtube_catalog::ensure_defaults(&db);
+        let _ = db.sync_empty_child_allowlists();
+        Ok(db)
+    })
+    .await
+    .map_err(|e| format!("Init database: {e}"))??;
 
     let addon_proxy = Arc::new(AddonProxyRegistry::new());
-    let cache_dir = std::path::Path::new(&data_dir).join("cache");
-    std::fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
-    let torrent_engine = Arc::new(TorrentEngine::new(cache_dir.join("torrents")));
+    let torrent_engine = Arc::new(TorrentEngine::new(torrent_cache_dir));
     let watch_party = Arc::new(WatchPartyRegistry::new());
     let presence = new_presence_registry();
 
@@ -558,6 +565,108 @@ pub async fn dispatch_web_command(
             }
             let parsed: Args = parse_args(args)?;
             ok(crate::image_palette::extract_image_palette_cmd(parsed.url).await?)
+        }
+        "fetch_cast_photos_cmd" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                title: String,
+                year: Option<i32>,
+                is_series: bool,
+                tmdb_id: Option<i64>,
+                tmdb_type: Option<String>,
+                cast_names: Vec<String>,
+            }
+            let parsed: Args = parse_args(args)?;
+            let api_key = state
+                .db
+                .get_meta(crate::tmdb::META_TMDB_API_KEY)?
+                .unwrap_or_default();
+            if api_key.trim().is_empty() {
+                return ok(
+                    parsed
+                        .cast_names
+                        .iter()
+                        .map(|name| crate::tmdb::CastPhoto {
+                            name: name.clone(),
+                            photo_url: None,
+                        })
+                        .collect::<Vec<_>>(),
+                );
+            }
+            let title = parsed.title.clone();
+            let year = parsed.year;
+            let is_series = parsed.is_series;
+            let tmdb_id = parsed.tmdb_id;
+            let tmdb_type = parsed.tmdb_type.clone();
+            let cast_names = parsed.cast_names.clone();
+            let task = tokio::task::spawn_blocking(move || {
+                crate::tmdb::fetch_cast_photos(
+                    &api_key,
+                    &title,
+                    year,
+                    is_series,
+                    tmdb_id,
+                    tmdb_type.as_deref(),
+                    &cast_names,
+                )
+                .unwrap_or_else(|_| {
+                    cast_names
+                        .iter()
+                        .map(|name| crate::tmdb::CastPhoto {
+                            name: name.clone(),
+                            photo_url: None,
+                        })
+                        .collect()
+                })
+            });
+            ok(task.await.map_err(|e| format!("Errore cast: {e}"))?)
+        }
+        "get_friend_code_cmd" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                profile_id: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(state.db.get_or_create_friend_code(&parsed.profile_id)?)
+        }
+        "list_friends_cmd" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                profile_id: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(state.db.list_friends(&parsed.profile_id)?)
+        }
+        "add_friend_cmd" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                profile_id: String,
+                friend_code: String,
+                display_name: Option<String>,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(state.db.add_friend(
+                &parsed.profile_id,
+                &parsed.friend_code,
+                parsed.display_name.as_deref().unwrap_or(""),
+            )?)
+        }
+        "remove_friend_cmd" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                profile_id: String,
+                friend_code: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            state
+                .db
+                .remove_friend(&parsed.profile_id, &parsed.friend_code)?;
+            ok(())
         }
         "get_library" => ok(crate::models::Library {
             items: vec![],

@@ -6,6 +6,11 @@ import {
   subscribeFriendsPresence,
   upsertMyPresence,
 } from "../lib/cloudPresence";
+import {
+  getBootFriendsCache,
+  hasBootFriendsCache,
+  prefetchBootFriends,
+} from "../lib/bootFriends";
 import type { CloudFriend, FriendPresence } from "../types/cloud";
 
 const HEARTBEAT_MS = 30_000;
@@ -30,9 +35,16 @@ export function usePresenceHeartbeat(enabled: boolean) {
 
 export function useCloudFriendPresence(active = true) {
   const { profile: cloudProfile } = useCloudAccount();
-  const [friends, setFriends] = useState<CloudFriend[]>([]);
-  const [presence, setPresence] = useState<Record<string, FriendPresence>>({});
-  const [loading, setLoading] = useState(false);
+  const bootFriends = getBootFriendsCache();
+  const [friends, setFriends] = useState<CloudFriend[]>(
+    bootFriends?.friends ?? [],
+  );
+  const [presence, setPresence] = useState<Record<string, FriendPresence>>(
+    bootFriends?.presence ?? {},
+  );
+  const [loading, setLoading] = useState(
+    Boolean(cloudProfile) && !hasBootFriendsCache(),
+  );
 
   usePresenceHeartbeat(Boolean(cloudProfile) && active);
 
@@ -40,14 +52,29 @@ export function useCloudFriendPresence(active = true) {
     if (!cloudProfile) {
       setFriends([]);
       setPresence({});
+      setLoading(false);
       return;
     }
     setLoading(true);
     try {
+      const cached = getBootFriendsCache();
+      if (cached) {
+        setFriends(cached.friends);
+        setPresence(cached.presence);
+        return;
+      }
+
+      const payload = await prefetchBootFriends();
+      if (payload) {
+        setFriends(payload.friends);
+        setPresence(payload.presence);
+        return;
+      }
+
       const list = await listCloudFriends();
       setFriends(list);
       const ids = list.map((f) => f.userId);
-      const map = await fetchFriendsPresence(ids);
+      const map = ids.length > 0 ? await fetchFriendsPresence(ids) : {};
       setPresence(map);
     } catch {
       setFriends([]);

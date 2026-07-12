@@ -1,6 +1,12 @@
 import type { User } from "@supabase/supabase-js";
+import { cloudConfigHint } from "./cloudConfig";
 import { getSupabase } from "./supabaseClient";
 import type { CloudProfile } from "../types/cloud";
+import { emailConfirmedRedirectUrl } from "./authRoutes";
+import {
+  EmailConfirmationRequiredError,
+  mapSupabaseAuthError,
+} from "./cloudAuthErrors";
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -32,7 +38,7 @@ function mapProfile(row: {
 
 export async function ensureCloudProfile(user: User): Promise<CloudProfile> {
   const supabase = getSupabase();
-  if (!supabase) throw new Error("Cloud non configurato");
+  if (!supabase) throw new Error(cloudConfigHint());
 
   const { data: existing } = await supabase
     .from("cloud_profiles")
@@ -76,23 +82,22 @@ export async function signUpWithEmail(
   displayName?: string,
 ): Promise<CloudProfile> {
   const supabase = getSupabase();
-  if (!supabase) throw new Error("Cloud non configurato");
+  if (!supabase) throw new Error(cloudConfigHint());
 
   const { data, error } = await supabase.auth.signUp({
     email: email.trim(),
     password,
     options: {
+      emailRedirectTo: emailConfirmedRedirectUrl(),
       data: { display_name: displayName?.trim() || email.split("@")[0] },
     },
   });
 
-  if (error) throw new Error(error.message);
+  if (error) throw mapSupabaseAuthError(error);
   if (!data.user) throw new Error("Registrazione non completata");
 
   if (!data.session) {
-    throw new Error(
-      "Controlla la tua email per confermare l'account, poi accedi.",
-    );
+    throw new EmailConfirmationRequiredError(email.trim());
   }
 
   return ensureCloudProfile(data.user);
@@ -103,14 +108,14 @@ export async function signInWithEmail(
   password: string,
 ): Promise<CloudProfile> {
   const supabase = getSupabase();
-  if (!supabase) throw new Error("Cloud non configurato");
+  if (!supabase) throw new Error(cloudConfigHint());
 
   const { data, error } = await supabase.auth.signInWithPassword({
     email: email.trim(),
     password,
   });
 
-  if (error) throw new Error(error.message);
+  if (error) throw mapSupabaseAuthError(error);
   if (!data.user) throw new Error("Accesso non riuscito");
 
   return ensureCloudProfile(data.user);
@@ -151,7 +156,7 @@ export async function updateCloudDisplayName(
   displayName: string,
 ): Promise<CloudProfile> {
   const supabase = getSupabase();
-  if (!supabase) throw new Error("Cloud non configurato");
+  if (!supabase) throw new Error(cloudConfigHint());
 
   const { data: sessionData } = await supabase.auth.getSession();
   const userId = sessionData.session?.user?.id;

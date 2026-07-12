@@ -19,6 +19,7 @@ import { useNotifications } from "../context/NotificationContext";
 import { APP_DOWNLOAD_URL } from "../lib/shareApp";
 import { openExternal } from "../lib/openExternal";
 import { getFriendCode } from "../lib/watchPartyApi";
+import { isLanFeaturesEnabled } from "../lib/platform";
 import {
   SettingsButton,
   SettingsCard,
@@ -138,6 +139,12 @@ export function InviteFriendsPage({
   const [copiedInvite, setCopiedInvite] = useState(false);
 
   useEffect(() => {
+    if (!isLanFeaturesEnabled()) {
+      setLanCode("");
+      setLoadingCode(false);
+      return;
+    }
+
     let cancelled = false;
     setLoadingCode(true);
     void getFriendCode(profileId)

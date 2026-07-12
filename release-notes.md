@@ -1,29 +1,28 @@
 ## Novità
 
-- **Barra amici in top nav**: avatar stack, stato online/away/DND, chat rapida e inviti watch party
-- **Inviti watch party**: invita amici dalla barra amici, dal menu amici o dal pannello «Guarda insieme»
-- **Inviti in chat privata**: card dedicata con titolo, codice stanza e pulsante **Unisciti**
-- **Stato stanza negli inviti**: ogni invito in chat mostra se la stanza è ancora **attiva** o **chiusa** (aggiornamento live)
-- **Suoni**: notifica invito watch party e suoni su navigazione/apertura card
-- **Chat migliorata**: picker emoji, invio messaggi più affidabile, eliminazione conversazioni
-- **Popup chat**: apri una chat con un amico senza uscire da ciò che stai guardando
+- **Guida web app mobile** (`/web-app`): installazione PWA su iPhone, iPad e Android con video tutorial e mockup
+- **Card promo piattaforma** in homepage: su mobile invita all'app desktop, su desktop alla web app mobile
+- **Foto cast automatiche** su scheda titolo (TMDB + fallback Wikipedia)
+- **Proxy immagini CDN** (`/sc-image`) per poster e palette colori in browser senza errori CORS
+- **Conferma email** pagina dedicata dopo registrazione Supabase
+- **Dev browser** (`npm run dev:browser`): API locale + proxy Vite per sviluppo web senza Tauri
 
 ## Miglioramenti
 
-- Inviti watch party anche per stanze **LAN** (con IP host in chat)
-- Menu profilo e amici in portal per evitare problemi di rendering su Tauri
-- Presenza amici condivisa senza crash (fix schermo nero su Profilo)
-- Animazioni pill della navigazione ripristinate su desktop Tauri
-- Aurora liquida e colori hero mantenuti con fix mirati per WebView2
+- Web app responsive su telefono e tablet con navigazione touch-first
+- Card promo stile liquid glass con mockup fotorealistici (iPhone, iPad, MacBook)
+- Palette hero e immagini più affidabili in modalità browser
+- Backend web: invocazioni più tolleranti su errori TMDB e palette
+- Template email Supabase (conferma, reset password, cambio email)
 
 ## Correzioni
 
-- Fix crash `useWatchPartyHost` fuori dal provider quando si apre il player da watch party
-- Fix schermo nero aprendo Profilo (doppia sottoscrizione presence Supabase)
-- Fix join watch party da invito (cloud e LAN)
-- Pulizia chat watch party quando la stanza viene chiusa (migrazione Supabase)
+- Fix crash `SparkleActionButton` su scheda titolo
+- Fix CORS e 404 su immagini `cdn.streamingcommunityz.tech` in browser
+- Fix schermo nero card promo su Tauri (disabilitato `backdrop-filter` in WebView2)
+- Fix join watch party e presenza amici (commit precedenti inclusi in questa release)
 
 ## Piattaforme
 
 - **Windows**: aggiornamento automatico in-app
-- **macOS**: aggiornamento automatico in-app (installazione iniziale da `.dmg`)
+- **macOS**: installazione da `.dmg` universale (Intel + Apple Silicon)

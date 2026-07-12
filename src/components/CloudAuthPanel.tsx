@@ -9,6 +9,7 @@ import {
   LogOut,
   UserPlus,
 } from "lucide-react";
+import { EmailConfirmationRequiredError } from "../lib/cloudAuthErrors";
 import { useCloudAccount } from "../context/CloudAccountContext";
 import {
   SettingsAlert,
@@ -63,7 +64,7 @@ export function CloudAuthPanel() {
     );
   }
 
-  if (loading) {
+  if (loading && !profile) {
     return (
       <SettingsCard>
         <div className="flex items-center gap-2">
@@ -146,7 +147,13 @@ export function CloudAuthPanel() {
         setMessage("Accesso effettuato.");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (err instanceof EmailConfirmationRequiredError) {
+        setMessage(err.message);
+        setMode("login");
+        setPassword("");
+      } else {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       setBusy(false);
     }

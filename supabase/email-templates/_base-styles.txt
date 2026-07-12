@@ -1,0 +1,14 @@
+Branchefy email — palette aggiornata (più chiara)
+- Body: #1c1c26
+- Card: #262632, border rgba(255,255,255,0.14)
+- Aurora (statica): gradient viola/mint su #2d2450 → card
+- Text primary: #fafafa
+- Text secondary: #c4c4ce
+- Text muted: #9494a3
+- Accent label: #d4c4ff
+
+Animazione aurora in email: NON supportata (Gmail/Outlook bloccano CSS animation e WebGL).
+Alternativa: GIF loop hostata su branchefy.it — sconsigliata (peso, spam score).
+Usare gradient statico multistrato.
+
+CTA: table align="center" width="100%" + td align="center"

@@ -1,0 +1,90 @@
+<!--
+  Supabase → Authentication → Email Templates → Magic link
+  Subject (IT): Il tuo link di accesso Branchefy
+-->
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="supported-color-schemes" content="dark light" />
+  <title>Accesso Branchefy</title>
+</head>
+<body style="margin:0;padding:0;background-color:#1c1c26;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#1c1c26;">
+    <tr>
+      <td align="center" style="padding:40px 16px 48px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;">
+          <tr>
+            <td align="center" style="padding-bottom:28px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center">
+                <tr>
+                  <td align="center" style="width:58px;height:58px;border-radius:16px;border:1px solid rgba(255,255,255,0.16);background-color:#262632;">
+                    <span style="display:inline-block;font-family:Montserrat,'Segoe UI',Arial,sans-serif;font-size:34px;font-weight:900;font-style:italic;letter-spacing:-0.06em;color:#fafafa;line-height:58px;">B</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="border-radius:22px;border:1px solid rgba(255,255,255,0.14);background-color:#262632;overflow:hidden;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td align="center" style="height:132px;background-color:#352a62;background-image:radial-gradient(ellipse 115% 95% at 18% 0%, rgba(196,181,253,0.55) 0%, rgba(196,181,253,0) 58%), radial-gradient(ellipse 90% 80% at 82% 8%, rgba(94,234,212,0.35) 0%, rgba(94,234,212,0) 52%), radial-gradient(ellipse 100% 70% at 50% -5%, rgba(167,139,250,0.42) 0%, rgba(38,38,50,0) 68%);"></td>
+                </tr>
+              </table>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td align="center" style="padding:4px 32px 36px;text-align:center;">
+                    <p style="margin:0 0 12px;font-family:Inter,'Segoe UI',Arial,sans-serif;font-size:10px;font-weight:600;letter-spacing:0.32em;text-transform:uppercase;color:#d4c4ff;">
+                      Accesso rapido
+                    </p>
+                    <h1 style="margin:0 0 12px;font-family:Montserrat,'Segoe UI',Arial,sans-serif;font-size:26px;font-weight:700;letter-spacing:-0.03em;line-height:1.15;color:#fafafa;">
+                      Accedi a Branchefy
+                    </h1>
+                    <p style="margin:0 0 28px;font-family:Inter,'Segoe UI',Arial,sans-serif;font-size:15px;line-height:1.65;color:#c4c4ce;max-width:420px;">
+                      Clicca il pulsante per accedere senza password. Il link è valido solo per te e scade a breve.
+                    </p>
+
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" align="center" style="margin:0 0 28px;">
+                      <tr>
+                        <td align="center">
+                          <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center">
+                            <tr>
+                              <td align="center" style="border-radius:9999px;background-color:#fafafa;box-shadow:0 8px 28px rgba(255,255,255,0.12);">
+                                <a href="{{ .ConfirmationURL }}" target="_blank" style="display:inline-block;padding:15px 32px;font-family:Inter,'Segoe UI',Arial,sans-serif;font-size:14px;font-weight:600;color:#1a1a22;text-decoration:none;border-radius:9999px;">
+                                  Accedi ora
+                                </a>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <p style="margin:0;font-family:Inter,'Segoe UI',Arial,sans-serif;font-size:11px;line-height:1.55;color:#7c7c8a;word-break:break-all;max-width:440px;">
+                      Link alternativo:<br />
+                      <a href="{{ .ConfirmationURL }}" style="color:#d4c4ff;text-decoration:underline;">{{ .ConfirmationURL }}</a>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td align="center" style="padding-top:28px;">
+              <p style="margin:0;font-family:Inter,'Segoe UI',Arial,sans-serif;font-size:11px;line-height:1.5;color:#7c7c8a;">
+                Branchefy · <a href="{{ .SiteURL }}" style="color:#c4c4ce;text-decoration:none;">{{ .SiteURL }}</a>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

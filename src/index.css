@@ -144,7 +144,7 @@ body {
   --app-nav-bar-height: 68px;
   --app-nav-inset-top: max(8px, env(safe-area-inset-top, 0px));
   --app-nav-height: calc(var(--app-nav-bar-height) + var(--app-nav-inset-top));
-  --mobile-nav-height: calc(4.25rem + env(safe-area-inset-bottom, 0px));
+  --mobile-nav-height: calc(4.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 html.is-tauri {

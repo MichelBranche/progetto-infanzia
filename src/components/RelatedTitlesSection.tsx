@@ -26,10 +26,11 @@ export function RelatedTitlesSection({
   if (items.length === 0) return null;
 
   return (
-    <div className="mt-6 border-t border-white/[0.06] pt-4">
+    <section className="lf-title-detail__section">
       <MediaRow
         index="∞"
         title="Potrebbero piacerti anche"
+        titleClassName="lf-title-detail__section-title"
         items={items}
         animateEntrance
         showReflection
@@ -41,6 +42,6 @@ export function RelatedTitlesSection({
         onToggleStreamingList={onToggleStreamingList}
         onEdit={onEdit}
       />
-    </div>
+    </section>
   );
 }

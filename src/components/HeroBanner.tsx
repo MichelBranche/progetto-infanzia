@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Play, Plus, Check, Info, Star, Calendar, Heart } from "lucide-react";
 import type { MediaItem } from "../types/media";
@@ -10,7 +10,6 @@ import {
   streamingBrowseItem,
 } from "../lib/streamingBrowse";
 import { mediaItemToStreamingPreview } from "../lib/myList";
-import { useLordFlixHeroEntrance } from "../hooks/useLordFlixHeroEntrance";
 import { HERO_POSTER_MS } from "../lib/preview";
 import { prefetchStreamUrl } from "../lib/streamCache";
 import { useProfile } from "../context/ProfileContext";
@@ -31,6 +30,7 @@ import {
   resolveAmbientPaletteAsync,
 } from "../lib/imagePalette";
 import { heroUrlQualityScore, pickBestHeroUrl, pickBestLogoUrl } from "../lib/posterUrl";
+import { useMobileDevice, useCompactShell } from "../context/MobileDeviceContext";
 
 interface HeroBannerProps {
   items: MediaItem[];
@@ -79,12 +79,56 @@ function applyHeroPalette(
     if (palette) setPalette(palette);
   });
 }
-const textMotion = {
-  initial: { opacity: 1, y: 0 },
-  animate: { opacity: 1, y: 0 },
-  exit: { opacity: 1, y: 0 },
-  transition: { duration: 0 },
+const heroEaseOut = [0.33, 1, 0.68, 1] as const;
+const heroEaseIn = [0.4, 0, 1, 1] as const;
+const heroMediaEase = [0.4, 0, 0.2, 1] as const;
+
+const heroMediaMotion = {
+  initial: { opacity: 0, filter: "blur(8px)" },
+  animate: {
+    opacity: 1,
+    filter: "blur(0px)",
+    transition: { duration: 0.72, ease: heroMediaEase },
+  },
+  exit: {
+    opacity: 0,
+    filter: "blur(6px)",
+    transition: { duration: 0.55, ease: heroEaseIn },
+  },
 };
+
+const heroContentMotion = {
+  initial: {},
+  animate: {
+    transition: {
+      staggerChildren: 0.065,
+      delayChildren: 0.08,
+    },
+  },
+  exit: {
+    transition: {
+      staggerChildren: 0.045,
+      staggerDirection: -1,
+    },
+  },
+};
+
+const heroPartMotion = {
+  initial: { opacity: 0, y: 22 },
+  animate: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: heroEaseOut },
+  },
+  exit: {
+    opacity: 0,
+    y: -14,
+    transition: { duration: 0.34, ease: heroEaseIn },
+  },
+};
+
+const HERO_SWIPE_MIN_PX = 52;
+const HERO_SWIPE_RATIO = 0.14;
 
 function heroSourceBadge(media: MediaItem): string {
   if (!isStreamingMediaId(media.id)) {
@@ -110,6 +154,39 @@ function heroRatingLabel(media: MediaItem, isStreaming: boolean): string | null 
   return null;
 }
 
+function HeroSlideDots({
+  items,
+  safeIndex,
+  onSelect,
+  className = "",
+}: {
+  items: MediaItem[];
+  safeIndex: number;
+  onSelect: (index: number) => void;
+  className?: string;
+}) {
+  return (
+    <div className={`lf-hero-dots ${className}`.trim()}>
+      {items.map((item, dotIndex) => {
+        const isActive = dotIndex === safeIndex;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            aria-label={`Vai a ${item.title}`}
+            onClick={() => onSelect(dotIndex)}
+            className={`lf-hero-dot ${
+              isActive ? "lf-hero-dot--active" : "lf-hero-dot--idle"
+            }`}
+          >
+            {isActive && <span key={safeIndex} className="dot-filling" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export const HeroBanner = memo(function HeroBanner({
   items,
   scrollContainerRef,
@@ -122,13 +199,25 @@ export const HeroBanner = memo(function HeroBanner({
   onEdit,
 }: HeroBannerProps) {
   const { activeProfile } = useProfile();
+  const { isMobileDevice } = useMobileDevice();
+  const { isCompactShell } = useCompactShell();
+  const touchLayout = isCompactShell;
   const [index, setIndex] = useState(0);
   const [heroImageById, setHeroImageById] = useState<Record<string, string>>({});
   const [heroLogoUrl, setHeroLogoUrl] = useState<string | undefined>();
+  const [heroSwipeDragX, setHeroSwipeDragX] = useState(0);
+  const [isHeroSwiping, setIsHeroSwiping] = useState(false);
   const slideTimerRef = useRef<number | null>(null);
   const heroRef = useRef<HTMLDivElement>(null);
   const mediaLayerRef = useRef<HTMLDivElement>(null);
   const contentLayerRef = useRef<HTMLDivElement>(null);
+  const heroSwipeRef = useRef({
+    active: false,
+    locked: "none" as "none" | "x" | "y",
+    startX: 0,
+    startY: 0,
+    pointerId: -1,
+  });
   const { setPalette, setActive, setBackdropUrl } = useHeroAmbientControls();
 
   useHeroScrollParallax(
@@ -141,7 +230,6 @@ export const HeroBanner = memo(function HeroBanner({
 
   const safeIndex = items.length > 0 ? index % items.length : 0;
   const media = items[safeIndex];
-  useLordFlixHeroEntrance(contentLayerRef, media?.id ?? "empty");
   const isStreaming = media ? isStreamingMediaId(media.id) : false;
 
   useEffect(() => {
@@ -331,10 +419,119 @@ export const HeroBanner = memo(function HeroBanner({
     return clearSlideTimer;
   }, [media?.id, items.length, safeIndex, selectSlide]);
 
-  const goToSlide = (dotIndex: number) => {
-    clearSlideTimer();
-    selectSlide(dotIndex);
-  };
+  const goToSlide = useCallback(
+    (dotIndex: number) => {
+      clearSlideTimer();
+      selectSlide(dotIndex);
+    },
+    [selectSlide],
+  );
+
+  const stepSlide = useCallback(
+    (delta: number) => {
+      if (items.length <= 1) return;
+      clearSlideTimer();
+      const nextIndex = (safeIndex + delta + items.length) % items.length;
+      selectSlide(nextIndex);
+    },
+    [items.length, safeIndex, selectSlide],
+  );
+
+  const resetHeroSwipe = useCallback(() => {
+    heroSwipeRef.current = {
+      active: false,
+      locked: "none",
+      startX: 0,
+      startY: 0,
+      pointerId: -1,
+    };
+    setHeroSwipeDragX(0);
+    setIsHeroSwiping(false);
+  }, []);
+
+  const onHeroSwipeStart = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!touchLayout || items.length <= 1 || event.button !== 0) return;
+      heroSwipeRef.current = {
+        active: true,
+        locked: "none",
+        startX: event.clientX,
+        startY: event.clientY,
+        pointerId: event.pointerId,
+      };
+    },
+    [items.length, touchLayout],
+  );
+
+  const onHeroSwipeMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const swipe = heroSwipeRef.current;
+      if (!swipe.active || swipe.pointerId !== event.pointerId) return;
+
+      const dx = event.clientX - swipe.startX;
+      const dy = event.clientY - swipe.startY;
+
+      if (swipe.locked === "none") {
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        if (Math.abs(dx) > Math.abs(dy) * 1.15) {
+          swipe.locked = "x";
+          setIsHeroSwiping(true);
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } else {
+          swipe.active = false;
+          swipe.locked = "y";
+          return;
+        }
+      }
+
+      if (swipe.locked !== "x") return;
+
+      const width = heroRef.current?.clientWidth ?? 0;
+      const maxDrag = width * 0.28;
+      const clamped =
+        dx < 0
+          ? Math.max(dx, safeIndex >= items.length - 1 ? -maxDrag * 0.35 : -maxDrag)
+          : Math.min(dx, safeIndex <= 0 ? maxDrag * 0.35 : maxDrag);
+
+      setHeroSwipeDragX(clamped * 0.42);
+    },
+    [items.length, safeIndex],
+  );
+
+  const onHeroSwipeEnd = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const swipe = heroSwipeRef.current;
+      if (!swipe.active && swipe.locked !== "x") {
+        resetHeroSwipe();
+        return;
+      }
+
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+
+      if (swipe.locked === "x") {
+        const dx = event.clientX - swipe.startX;
+        const width = heroRef.current?.clientWidth ?? 0;
+        const threshold = Math.max(HERO_SWIPE_MIN_PX, width * HERO_SWIPE_RATIO);
+        if (dx <= -threshold) stepSlide(1);
+        else if (dx >= threshold) stepSlide(-1);
+      }
+
+      resetHeroSwipe();
+    },
+    [resetHeroSwipe, stepSlide],
+  );
+
+  const onHeroSwipeCancel = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      resetHeroSwipe();
+    },
+    [resetHeroSwipe],
+  );
 
   useEffect(() => {
     if (items.length === 0) return;
@@ -378,28 +575,46 @@ export const HeroBanner = memo(function HeroBanner({
   const mediaClassName =
     "hero-prime__media absolute inset-0 h-full w-full";
 
+  const heroSwipeEnabled = touchLayout && items.length > 1;
+  const heroDragStyle =
+    heroSwipeDragX !== 0
+      ? { transform: `translate3d(${heroSwipeDragX}px, 0, 0)` }
+      : undefined;
+
   return (
     <div
       ref={heroRef}
       className={`lf-hero pointer-events-none relative z-20 w-full shrink-0 ${
+        touchLayout ? "lf-hero--touch-layout " : ""
+      }${heroSwipeEnabled ? "lf-hero--swipeable " : ""}${
+        isHeroSwiping ? "lf-hero--swiping " : ""
+      }${
         fullPage
           ? "lf-hero--full"
           : "h-[min(72vh,720px)] min-h-[380px] max-h-[820px] overflow-hidden sm:h-[85vh] sm:min-h-[420px]"
       }`}
+      onPointerDownCapture={heroSwipeEnabled ? onHeroSwipeStart : undefined}
+      onPointerMoveCapture={heroSwipeEnabled ? onHeroSwipeMove : undefined}
+      onPointerUpCapture={heroSwipeEnabled ? onHeroSwipeEnd : undefined}
+      onPointerCancelCapture={heroSwipeEnabled ? onHeroSwipeCancel : undefined}
     >
       <div
         ref={mediaLayerRef}
         className="lf-hero__media-wrap pointer-events-none"
       >
+        <div
+          className="lf-hero__swipe-shift absolute inset-0"
+          style={heroDragStyle}
+        >
         <AnimatePresence mode="sync" initial={false}>
           <motion.div
             key={media.id}
-            className="absolute inset-0 lf-hero__kenburns"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 1.35, ease: "easeInOut" }}
+            className="absolute inset-0"
+            initial={heroMediaMotion.initial}
+            animate={heroMediaMotion.animate}
+            exit={heroMediaMotion.exit}
           >
+          <div className="lf-hero__kenburns absolute inset-0">
           {heroImageUrl ? (
           <PosterImage
             item={heroPoster}
@@ -413,44 +628,110 @@ export const HeroBanner = memo(function HeroBanner({
             }}
           />
           ) : null}
+          </div>
           </motion.div>
         </AnimatePresence>
         {/* Dentro il wrapper mascherato: la patina dissolve insieme all'immagine */}
         {fullPage && (
           <div className="lf-hero__fade lf-hero__fade--left" aria-hidden />
         )}
+        {fullPage && (
+          <div className="lf-hero__scrim-mobile pointer-events-none absolute inset-x-0 bottom-0 z-[1]" aria-hidden />
+        )}
+        </div>
       </div>
 
       {!fullPage && <div className="hero-prime__scrim" />}
 
       <div
         ref={contentLayerRef}
-        className={`page-px pointer-events-none relative z-10 flex h-full flex-col justify-end will-change-transform ${
-          fullPage ? "pb-20 lg:pb-24" : "pb-16 sm:pb-20"
+        className={`lf-hero__content-shell page-px pointer-events-none relative z-10 flex h-full min-h-full flex-col justify-end will-change-transform ${
+          fullPage && !touchLayout
+            ? "pb-20 lg:pb-24"
+            : fullPage
+              ? ""
+              : "pb-16 sm:pb-20"
         }`}
       >
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div key={media.id} {...textMotion} className="pointer-events-auto max-w-[44rem] text-center lg:text-left">
+        {touchLayout ? <div className="lf-hero__content-spacer" aria-hidden /> : null}
+        <div className="lf-hero__swipe-shift w-full" style={heroDragStyle}>
+        <div className="lf-hero__content-stage relative w-full">
+          <AnimatePresence mode="sync" initial={false}>
+            <motion.div
+              key={media.id}
+              variants={heroContentMotion}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className={`lf-hero__content pointer-events-auto w-full ${
+                touchLayout
+                  ? "mx-auto max-w-3xl text-center"
+                  : "max-w-[44rem] text-center lg:text-left"
+              }`}
+            >
             {showEpisodeTagline && (
-              <p data-hero-part className="title-clip text-[13px] leading-snug text-white/72 sm:text-[14px]">
+              <motion.p
+                variants={heroPartMotion}
+                data-hero-part
+                className="title-clip text-[12px] leading-snug text-white/72 sm:text-[14px]"
+              >
                 {episodeTitle}
-              </p>
+              </motion.p>
             )}
 
             {heroLogoUrl ? (
-              <img
+              <motion.img
+                variants={heroPartMotion}
                 data-hero-part
                 src={heroLogoUrl}
                 alt={heroTitle}
-                className="mx-auto mb-3 max-h-[10.5rem] w-auto max-w-[min(100%,720px)] object-contain object-center drop-shadow-[0_8px_32px_rgba(0,0,0,0.55)] sm:max-h-48 lg:mx-0 lg:max-h-[15.75rem] lg:max-w-[min(100%,840px)] lg:object-left xl:max-h-[16.5rem]"
+                className={`lf-hero__logo w-auto object-contain object-center drop-shadow-[0_8px_32px_rgba(0,0,0,0.55)] ${
+                  touchLayout
+                    ? "mx-auto mb-3"
+                    : "mx-auto mb-2 lg:mx-0 lg:mb-3 lg:object-left"
+                }`}
               />
             ) : (
-              <h1 data-hero-part className="title-safe mt-2 font-display text-[clamp(3.25rem,8vw,6.5rem)] font-bold leading-[0.9] tracking-[-0.03em] text-white">
+              <motion.h1
+                variants={heroPartMotion}
+                data-hero-part
+                className={`title-safe font-display font-bold tracking-[-0.03em] text-white ${
+                  touchLayout
+                    ? "mt-1 text-[clamp(2.25rem,5.5vw,4rem)] leading-[0.92]"
+                    : "mt-1 max-md:px-0.5 text-[clamp(1.75rem,7.5vw,3.25rem)] leading-[0.92] lg:mt-2 lg:text-[clamp(3.25rem,8vw,6.5rem)] lg:leading-[0.9]"
+                }`}
+              >
                 {heroTitle}
-              </h1>
+              </motion.h1>
             )}
 
-            <div data-hero-part className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-white/78 sm:text-[14px]">
+            <motion.div
+              variants={heroPartMotion}
+              data-hero-part
+              className={`lf-hero-meta mt-2 flex flex-wrap items-center justify-center gap-2 ${
+                touchLayout ? "" : "lg:hidden"
+              }`}
+            >
+              {ratingLabel && (
+                <span className="lf-hero-meta__pill">{ratingLabel}</span>
+              )}
+              {media.year && (
+                <span className="lf-hero-meta__pill">{media.year}</span>
+              )}
+              <span className="lf-hero-meta__pill">{genreLabel}</span>
+              {isStreaming && (
+                <span className="lf-hero-meta__pill lf-hero-meta__pill--accent">
+                  {heroSourceBadge(media)}
+                </span>
+              )}
+            </motion.div>
+
+            {!touchLayout && (
+            <motion.div
+              variants={heroPartMotion}
+              data-hero-part
+              className="mt-3 hidden flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-white/78 sm:text-[14px] lg:flex"
+            >
               {ratingLabel && (
                 <span className="inline-flex items-center gap-1.5">
                   <Star className="h-4 w-4 fill-white/20 text-white/90" strokeWidth={1.75} />
@@ -467,28 +748,71 @@ export const HeroBanner = memo(function HeroBanner({
                 <Heart className="h-4 w-4 text-white/80" strokeWidth={1.75} />
                 {genreLabel}
               </span>
-            </div>
+            </motion.div>
+            )}
 
             {media.description ? (
-              <p data-hero-part className="title-safe mt-3 line-clamp-2 max-w-xl text-[14px] leading-relaxed text-white/82 sm:text-[15px]">
+              <motion.p
+                variants={heroPartMotion}
+                data-hero-part
+                className={`title-safe mt-2 line-clamp-2 max-w-xl leading-relaxed text-white/82 ${
+                  touchLayout
+                    ? "mx-auto text-[15px] sm:text-[16px]"
+                    : "mx-auto text-[13px] sm:text-[15px] lg:mx-0 lg:mt-3"
+                }`}
+              >
                 {media.description}
-              </p>
+              </motion.p>
             ) : null}
 
-            <div data-hero-part className="mt-5 flex flex-wrap items-center justify-center gap-3 sm:mt-6 lg:justify-start">
+            <motion.div
+              variants={heroPartMotion}
+              data-hero-part
+              className={`lf-hero-actions mt-4 flex w-full gap-3 sm:mt-5 ${
+                touchLayout
+                  ? "lf-hero-actions--stacked flex-col items-center"
+                  : "flex-col items-stretch gap-2.5 sm:gap-3 lg:mt-6 lg:flex-row lg:flex-wrap lg:items-center lg:justify-start"
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => onPlay(media.id)}
-                className="theme-btn-primary relative inline-flex h-[52px] min-w-[140px] items-center justify-center gap-2 rounded-full px-8 text-lg font-bold tracking-wide shadow-xl shadow-black/10 transition-transform duration-200 hover:scale-105 active:scale-95"
+                className={`theme-btn-primary relative inline-flex shrink-0 items-center justify-center gap-2.5 font-bold tracking-wide shadow-xl shadow-black/10 transition-transform duration-200 hover:scale-[1.02] active:scale-[0.98] ${
+                  touchLayout
+                    ? `rounded-full px-8 text-base ${
+                        isMobileDevice
+                          ? "h-14 min-h-[56px] min-w-[11rem] text-lg"
+                          : "h-12 min-h-[48px] min-w-[10.5rem]"
+                      }`
+                    : "h-12 min-h-[48px] w-full rounded-xl px-6 text-base sm:h-[52px] sm:min-w-[140px] sm:w-auto sm:rounded-full sm:px-8 sm:text-lg sm:hover:scale-105 sm:active:scale-95"
+                }`}
               >
-                <Play className="h-5 w-5 fill-current" />
+                <Play
+                  className={
+                    touchLayout && isMobileDevice
+                      ? "h-6 w-6 fill-current"
+                      : "h-5 w-5 fill-current"
+                  }
+                />
                 {resume ? "Riprendi" : "PLAY"}
               </button>
 
               {((onToggleFavorite || onToggleStreamingList) ||
                 (onOpenDetail || onOpenSeries)) && (
-                <div className="relative z-0 flex h-[52px] items-stretch">
-                  <div className="theme-btn-secondary pointer-events-none absolute inset-0 -z-10 rounded-full border border-white/10 shadow-lg shadow-black/5 backdrop-blur-[20px] backdrop-saturate-150" />
+                <div
+                  className={`lf-hero-secondary relative z-0 shrink-0 items-stretch ${
+                    touchLayout
+                      ? `inline-flex w-auto ${
+                          isMobileDevice ? "h-12" : "h-11"
+                        }`
+                      : "flex h-12 w-full sm:h-[52px] sm:w-auto"
+                  }`}
+                >
+                  <div
+                    className={`theme-btn-secondary pointer-events-none absolute inset-0 -z-10 border border-white/10 shadow-lg shadow-black/5 backdrop-blur-[20px] backdrop-saturate-150 ${
+                      touchLayout ? "rounded-full" : "rounded-xl sm:rounded-full"
+                    }`}
+                  />
 
                   {(onToggleFavorite || onToggleStreamingList) && (
                     <SparkleActionButton
@@ -504,13 +828,27 @@ export const HeroBanner = memo(function HeroBanner({
                           onToggleFavorite(media.id);
                         }
                       }}
-                      className="group/btn flex h-full items-center justify-center rounded-l-full px-5 outline-none transition-colors active:bg-white/30"
+                      className={`group/btn flex h-full items-center justify-center outline-none transition-colors active:bg-white/30 ${
+                        touchLayout
+                          ? "w-12 rounded-l-full px-0"
+                          : "flex-1 rounded-l-xl px-4 sm:flex-none sm:rounded-l-full sm:px-5"
+                      }`}
                       aria-label={media.isFavorite ? "In lista" : "La mia lista"}
                     >
                       {media.isFavorite ? (
-                        <Check className="h-6 w-6 text-white transition-transform duration-300 group-hover/btn:scale-110" strokeWidth={2.5} />
+                        <Check
+                          className={`text-white transition-transform duration-300 group-hover/btn:scale-110 ${
+                            touchLayout ? "h-5 w-5" : "h-5 w-5 sm:h-6 sm:w-6"
+                          }`}
+                          strokeWidth={2.5}
+                        />
                       ) : (
-                        <Plus className="h-6 w-6 text-white transition-transform duration-300 group-hover/btn:scale-110" strokeWidth={2} />
+                        <Plus
+                          className={`text-white transition-transform duration-300 group-hover/btn:scale-110 ${
+                            touchLayout ? "h-5 w-5" : "h-5 w-5 sm:h-6 sm:w-6"
+                          }`}
+                          strokeWidth={2}
+                        />
                       )}
                     </SparkleActionButton>
                   )}
@@ -525,14 +863,23 @@ export const HeroBanner = memo(function HeroBanner({
                       <SparkleActionButton
                         sparkle="info"
                         onClick={handleInfo}
-                        className={`group/btn flex h-full items-center justify-center px-5 outline-none transition-colors active:bg-white/30 ${
-                          onToggleFavorite || onToggleStreamingList
-                            ? "rounded-r-full"
-                            : "rounded-full"
+                        className={`group/btn flex h-full items-center justify-center outline-none transition-colors active:bg-white/30 ${
+                          touchLayout
+                            ? "w-12 rounded-r-full px-0"
+                            : `flex-1 px-4 sm:flex-none sm:px-5 ${
+                                onToggleFavorite || onToggleStreamingList
+                                  ? "rounded-r-xl sm:rounded-r-full"
+                                  : "rounded-xl sm:rounded-full"
+                              }`
                         }`}
                         aria-label="Dettagli"
                       >
-                        <Info className="h-6 w-6 text-white transition-transform duration-300 group-hover/btn:scale-110" strokeWidth={2} />
+                        <Info
+                          className={`text-white transition-transform duration-300 group-hover/btn:scale-110 ${
+                            touchLayout ? "h-5 w-5" : "h-5 w-5 sm:h-6 sm:w-6"
+                          }`}
+                          strokeWidth={2}
+                        />
                       </SparkleActionButton>
                     </>
                   )}
@@ -543,47 +890,47 @@ export const HeroBanner = memo(function HeroBanner({
                 <button
                   type="button"
                   onClick={() => onEdit(media)}
-                  className="rounded-[6px] border border-white/30 px-4 py-2.5 text-[14px] font-medium text-white/88 transition-colors hover:border-white/50 hover:text-white"
+                  className="rounded-[6px] border border-white/30 px-4 py-2.5 text-[14px] font-medium text-white/88 transition-colors hover:border-white/50 hover:text-white max-lg:w-full"
                 >
                   Modifica
                 </button>
               )}
-            </div>
+            </motion.div>
 
-            {isStreaming && (
-              <p className="mt-3 flex items-center gap-1.5 text-[12px] text-white/55">
+            {isStreaming && !touchLayout && (
+              <motion.p
+                variants={heroPartMotion}
+                data-hero-part
+                className="mt-3 hidden items-center gap-1.5 text-[12px] text-white/55 lg:flex"
+              >
                 <Check className="h-3.5 w-3.5 text-white/70" strokeWidth={2.5} />
                 {heroSourceBadge(media)}
-              </p>
+              </motion.p>
+            )}
+
+            {items.length > 1 && touchLayout && (
+              <motion.div variants={heroPartMotion} data-hero-part>
+                <HeroSlideDots
+                  items={items}
+                  safeIndex={safeIndex}
+                  onSelect={goToSlide}
+                  className="lf-hero-dots--inline mt-5"
+                />
+              </motion.div>
             )}
           </motion.div>
         </AnimatePresence>
+        </div>
+        </div>
       </div>
 
-      {items.length > 1 && (
-        <div className="lf-hero-dots pointer-events-auto absolute right-6 bottom-24 z-30 flex items-center gap-2 sm:right-12 sm:bottom-28 lg:right-16 lg:bottom-32">
-          {items.map((item, dotIndex) => {
-            const isActive = dotIndex === safeIndex;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                aria-label={`Vai a ${item.title}`}
-                onClick={() => goToSlide(dotIndex)}
-                className={`lf-hero-dot ${
-                  isActive ? "lf-hero-dot--active" : "lf-hero-dot--idle"
-                }`}
-              >
-                {isActive && (
-                  <span
-                    key={safeIndex}
-                    className="dot-filling"
-                  />
-                )}
-              </button>
-            );
-          })}
-        </div>
+      {items.length > 1 && !touchLayout && (
+        <HeroSlideDots
+          items={items}
+          safeIndex={safeIndex}
+          onSelect={goToSlide}
+          className="lf-hero-dots--dock pointer-events-auto absolute right-6 bottom-24 z-30 sm:right-12 sm:bottom-28 lg:right-16 lg:bottom-32"
+        />
       )}
     </div>
   );

@@ -99,8 +99,12 @@ export function FriendsPage({
     setMetaLoading(true);
     setError(null);
     try {
-      const code = await getFriendCode(profileId);
-      setMyCode(code);
+      if (isLanFeaturesEnabled()) {
+        const code = await getFriendCode(profileId);
+        setMyCode(code);
+      } else {
+        setMyCode("");
+      }
 
       if (cloudProfile) {
         const pending = await listPendingFriendRequests();

@@ -1677,6 +1677,49 @@ fn enrich_metadata_cmd(
 }
 
 #[tauri::command]
+fn fetch_cast_photos_cmd(
+    state: State<'_, AppState>,
+    title: String,
+    year: Option<i32>,
+    is_series: bool,
+    tmdb_id: Option<i64>,
+    tmdb_type: Option<String>,
+    cast_names: Vec<String>,
+) -> Result<Vec<tmdb::CastPhoto>, String> {
+    let api_key = state
+        .db
+        .get_meta(tmdb::META_TMDB_API_KEY)?
+        .unwrap_or_default();
+    if api_key.trim().is_empty() {
+        return Ok(cast_names
+            .iter()
+            .map(|name| tmdb::CastPhoto {
+                name: name.clone(),
+                photo_url: None,
+            })
+            .collect());
+    }
+    Ok(tmdb::fetch_cast_photos(
+        &api_key,
+        &title,
+        year,
+        is_series,
+        tmdb_id,
+        tmdb_type.as_deref(),
+        &cast_names,
+    )
+    .unwrap_or_else(|_| {
+        cast_names
+            .iter()
+            .map(|name| tmdb::CastPhoto {
+                name: name.clone(),
+                photo_url: None,
+            })
+            .collect()
+    }))
+}
+
+#[tauri::command]
 fn get_media(
     state: State<'_, AppState>,
     profile_id: String,
@@ -2189,6 +2232,7 @@ pub fn run() {
             scan_library_cmd,
             set_media_root_cmd,
             enrich_metadata_cmd,
+            fetch_cast_photos_cmd,
             can_play_media_cmd,
             get_profile_limits_cmd,
             update_profile_limits_cmd,

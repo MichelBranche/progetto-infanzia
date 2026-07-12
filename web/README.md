@@ -17,24 +17,23 @@ Browser (Vercel)          API Rust (Fly/Railway/Docker)
 
 ## Sviluppo locale
 
-Terminale 1 — API Rust:
+**Consigliato (root del repo):** stesso `src/` della desktop.
 
 ```bash
-cd web
-npm run dev:api
-```
-
-Terminale 2 — frontend:
-
-```bash
-cd web
+# dalla root progetto-infanzia
 cp .env.example .env
-# compila VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY
-npm install
-npm run dev
+npm run dev:browser   # → http://localhost:5173
 ```
 
-Apri http://localhost:5173. Le chiamate `runtimeInvoke` vanno a `http://127.0.0.1:8787/api/invoke` tramite proxy Vite.
+In alternativa, solo dal folder `web/`:
+
+```bash
+cd web
+npm run dev:api    # terminale 1 — API Rust :8787
+npm run dev        # terminale 2 — Vite :5173 (legge ../src)
+```
+
+Il build **non copia più** `src/` in `web/app-src`: Vite compila direttamente dalla root del repo.
 
 ## Deploy Vercel
 
@@ -99,3 +98,37 @@ Il file `railway.toml` in root forza già questo build.
 | Cast / DLNA | No | Sì |
 | Watch party LAN | No | Sì |
 | Aggiornamenti automatici | No | Sì |
+
+## Supabase Auth — registrazione email
+
+Se la registrazione risponde **«email rate limit exceeded»**, il progetto Supabase ha esaurito il limite del **servizio email integrato** (circa **2 email/ora** per tutto il progetto).
+
+### Soluzione rapida (consigliata per beta)
+
+1. Supabase Dashboard → **Authentication** → **Providers** → **Email**
+2. Disattiva **Confirm email**
+3. Salva
+
+Gli utenti possono registrarsi subito senza email di conferma.
+
+### Soluzione produzione
+
+1. Configura **SMTP personalizzato** (es. [Resend](https://resend.com/docs/send-with-supabase-smtp)):
+   - Host: `smtp.resend.com`
+   - Porta: `465` (SSL) o `587` (TLS)
+   - User: `resend`
+   - Password: API key Resend (`re_...`)
+2. **Authentication** → **Rate Limits** → aumenta **Email sent** (es. 30–100/ora)
+
+Dopo la configurazione SMTP, il limite email diventa modificabile dal dashboard.
+
+### Landing conferma email
+
+Dopo la registrazione, il link nell'email apre una pagina dedicata (non l'app intera):
+
+- URL: `https://branchefy.it/auth/email-confirmed`
+- Aggiungi in **Authentication → URL Configuration → Redirect URLs**:
+  - `https://branchefy.it/auth/email-confirmed`
+  - `http://localhost:5173/auth/email-confirmed` (sviluppo locale)
+
+La pagina conferma l'account e invita l'utente a chiudere la scheda e accedere dall'app.

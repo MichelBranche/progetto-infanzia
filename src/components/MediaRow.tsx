@@ -13,6 +13,7 @@ import { useStaggerInView } from "../hooks/useStaggerInView";
 interface MediaRowProps {
   index?: string;
   title: string;
+  titleClassName?: string;
   titleLogo?: string;
   subtitle?: string;
   items: BrowseItem[];
@@ -33,6 +34,7 @@ interface MediaRowProps {
 
 export function MediaRow({
   title,
+  titleClassName,
   titleLogo,
   items,
   animateEntrance = false,
@@ -78,7 +80,9 @@ export function MediaRow({
               className="h-10 w-auto max-w-[min(100%,320px)] object-contain object-left sm:h-12"
             />
           ) : (
-            <h2 className="lf-home-row__title title-safe">{title}</h2>
+            <h2 className={`${titleClassName ?? "lf-home-row__title"} title-safe`}>
+              {title}
+            </h2>
           )}
 
           {actionLabel && onActionClick && (

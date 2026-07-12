@@ -56,6 +56,36 @@ export function ProfileStat({
   );
 }
 
+export function ProfileNotificationBadge({
+  count,
+  variant = "count",
+  className = "",
+}: {
+  count: number;
+  variant?: "count" | "dot";
+  className?: string;
+}) {
+  if (count <= 0) return null;
+
+  if (variant === "dot") {
+    return (
+      <span
+        className={`profile-notification-badge profile-notification-badge--dot ${className}`.trim()}
+        aria-hidden
+      />
+    );
+  }
+
+  return (
+    <span
+      className={`profile-notification-badge ${className}`.trim()}
+      aria-label={`${count} notifiche`}
+    >
+      {count > 9 ? "9+" : count}
+    </span>
+  );
+}
+
 export function ProfileTabBar<T extends string>({
   tabs,
   active,
@@ -90,9 +120,10 @@ export function ProfileTabBar<T extends string>({
               {Icon && <Icon className="h-4 w-4 shrink-0" strokeWidth={1.85} />}
               {label}
               {count != null && count > 0 && (
-                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-semibold text-white">
-                  {count > 9 ? "9+" : count}
-                </span>
+                <ProfileNotificationBadge
+                  count={count}
+                  className="absolute -right-0.5 -top-0.5"
+                />
               )}
             </button>
           );
@@ -186,7 +217,7 @@ export function FriendListRow({
 }) {
   const initial = name.trim().charAt(0).toUpperCase() || "?";
 
-  const content = (
+  const main = (
     <>
       <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/[0.06] font-display text-[14px] font-semibold text-text-primary">
         {avatarUrl ? (
@@ -211,27 +242,30 @@ export function FriendListRow({
           <p className="mt-0.5 truncate text-[12px] text-text-muted">{subtitle}</p>
         )}
       </div>
-      {trailing}
     </>
   );
 
+  const rowShell = "flex w-full items-center gap-2 border-b border-white/[0.05] py-3 last:border-0";
+
   if (onPress) {
     return (
-      <li className="border-b border-white/[0.05] last:border-0">
+      <li className={rowShell}>
         <button
           type="button"
           onClick={onPress}
-          className="flex w-full items-center gap-3 py-3 text-left transition-colors hover:bg-white/[0.03]"
+          className="flex min-w-0 flex-1 items-center gap-3 text-left transition-colors hover:bg-white/[0.03]"
         >
-          {content}
+          {main}
         </button>
+        {trailing ? <div className="shrink-0">{trailing}</div> : null}
       </li>
     );
   }
 
   return (
-    <li className="flex items-center gap-3 border-b border-white/[0.05] py-3 last:border-0">
-      {content}
+    <li className={`${rowShell} gap-3`}>
+      {main}
+      {trailing}
     </li>
   );
 }

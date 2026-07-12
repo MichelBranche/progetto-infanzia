@@ -60,6 +60,9 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         if (!current) return current;
         return data.find((p) => p.id === current.id) ?? current;
       });
+    } catch (err) {
+      console.warn("[profiles] caricamento fallito:", err);
+      setProfiles([]);
     } finally {
       setLoading(false);
     }

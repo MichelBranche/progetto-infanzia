@@ -1,6 +1,6 @@
 use crate::db::Database;
 use reqwest::blocking::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
@@ -362,4 +362,150 @@ fn parse_nfo_plot(path: &Path) -> Option<String> {
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CastPhoto {
+    pub name: String,
+    pub photo_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreditsResponse {
+    cast: Vec<CreditsCastMember>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreditsCastMember {
+    name: String,
+    profile_path: Option<String>,
+}
+
+fn normalize_actor_name(name: &str) -> String {
+    name.to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn actor_names_match(a: &str, b: &str) -> bool {
+    let na = normalize_actor_name(a);
+    let nb = normalize_actor_name(b);
+    na == nb || na.contains(&nb) || nb.contains(&na)
+}
+
+fn profile_image_url(profile_path: &str) -> String {
+    format!("https://image.tmdb.org/t/p/w185{profile_path}")
+}
+
+fn search_movie_id(api_key: &str, title: &str, year: Option<i32>) -> Result<Option<i64>, String> {
+    let client = client()?;
+    let mut url = format!(
+        "https://api.themoviedb.org/3/search/movie?api_key={api_key}&query={}&language=it-IT",
+        urlencoding::encode(title)
+    );
+    if let Some(y) = year {
+        url.push_str(&format!("&year={y}"));
+    }
+
+    let resp: SearchMovieResponse = client
+        .get(&url)
+        .send()
+        .map_err(|e| e.to_string())?
+        .json()
+        .map_err(|e| e.to_string())?;
+
+    Ok(resp
+        .results
+        .into_iter()
+        .find(|r| titles_match(title, &r.title))
+        .map(|r| r.id))
+}
+
+fn search_tv_id(api_key: &str, title: &str) -> Result<Option<i64>, String> {
+    let client = client()?;
+    let url = format!(
+        "https://api.themoviedb.org/3/search/tv?api_key={api_key}&query={}&language=it-IT",
+        urlencoding::encode(title)
+    );
+
+    let resp: SearchTvResponse = client
+        .get(&url)
+        .send()
+        .map_err(|e| e.to_string())?
+        .json()
+        .map_err(|e| e.to_string())?;
+
+    Ok(resp
+        .results
+        .into_iter()
+        .find(|r| titles_match(title, &r.name))
+        .map(|r| r.id))
+}
+
+fn fetch_credits_cast(
+    api_key: &str,
+    tmdb_id: i64,
+    is_tv: bool,
+) -> Result<Vec<CreditsCastMember>, String> {
+    let kind = if is_tv { "tv" } else { "movie" };
+    let url = format!(
+        "https://api.themoviedb.org/3/{kind}/{tmdb_id}/credits?api_key={api_key}&language=it-IT"
+    );
+    let resp: CreditsResponse = client()?
+        .get(&url)
+        .send()
+        .map_err(|e| e.to_string())?
+        .json()
+        .map_err(|e| e.to_string())?;
+    Ok(resp.cast)
+}
+
+fn photo_for_name(cast: &[CreditsCastMember], name: &str) -> Option<String> {
+    cast.iter()
+        .find(|member| actor_names_match(name, &member.name))
+        .and_then(|member| member.profile_path.as_deref())
+        .map(profile_image_url)
+}
+
+pub fn fetch_cast_photos(
+    api_key: &str,
+    title: &str,
+    year: Option<i32>,
+    is_series: bool,
+    tmdb_id: Option<i64>,
+    tmdb_type: Option<&str>,
+    cast_names: &[String],
+) -> Result<Vec<CastPhoto>, String> {
+    if cast_names.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let is_tv = match tmdb_type {
+        Some(t) if t == "tv" => true,
+        Some(t) if t == "movie" => false,
+        _ => is_series,
+    };
+    let resolved_id = if let Some(id) = tmdb_id {
+        Some(id)
+    } else if is_tv {
+        search_tv_id(api_key, title).ok().flatten()
+    } else {
+        search_movie_id(api_key, title, year).ok().flatten()
+    };
+
+    let cast = if let Some(id) = resolved_id {
+        fetch_credits_cast(api_key, id, is_tv).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    Ok(cast_names
+        .iter()
+        .map(|name| CastPhoto {
+            name: name.clone(),
+            photo_url: photo_for_name(&cast, name),
+        })
+        .collect())
 }

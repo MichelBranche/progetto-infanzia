@@ -3,11 +3,12 @@ import { Film, Home, MoreHorizontal, Search, Tv } from "lucide-react";
 import { getNavSections, type NavItem } from "../data/nav";
 import { useAddons } from "../context/AddonsContext";
 import type { Profile } from "../types/profile";
-import { useGlassNavIndicator } from "../hooks/useGlassNavIndicator";
+import { useMobileNavIndicator } from "../hooks/useMobileNavIndicator";
+import { useCompactShell } from "../context/MobileDeviceContext";
 import {
-  AppTopNavMoreMenu,
-  animateAppTopNavMoreMenuClose,
-} from "./AppTopNavMoreMenu";
+  AppMobileNavMoreMenu,
+  animateAppMobileNavMoreMenuClose,
+} from "./AppMobileNavMoreMenu";
 
 const MOBILE_PRIMARY = [
   { id: "home", label: "Home", icon: Home },
@@ -16,6 +17,8 @@ const MOBILE_PRIMARY = [
   { id: "more", label: "Altro", icon: MoreHorizontal },
   { id: "search", label: "Cerca", icon: Search },
 ] as const;
+
+const MOBILE_MORE_CATEGORY_IDS = ["cartoni", "anime", "manga"] as const;
 
 interface AppMobileNavBarProps {
   activeId: string;
@@ -34,22 +37,15 @@ export function AppMobileNavBar({
   onOpenSearch,
   hidden = false,
 }: AppMobileNavBarProps) {
+  const { isCompactShell } = useCompactShell();
   const navRef = useRef<HTMLElement>(null);
   const morePanelRef = useRef<HTMLDivElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
   const dockRef = useRef<HTMLDivElement>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const { hasStreaming } = useAddons();
 
   const sections = getNavSections(profile, hasStreaming, devMode);
-  const primaryNav = useMemo(() => {
-    const map = new Map<string, NavItem>();
-    for (const section of sections) {
-      for (const item of section.items) map.set(item.id, item);
-    }
-    return MOBILE_PRIMARY.map((entry) => map.get(entry.id)).filter(
-      (item): item is NavItem => item != null,
-    );
-  }, [sections]);
 
   const moreNav = useMemo(() => {
     const primary = new Set<string>(MOBILE_PRIMARY.map((item) => item.id));
@@ -64,8 +60,17 @@ export function AppMobileNavBar({
     return out;
   }, [sections]);
 
+  const mobileMoreCategories = useMemo(
+    () =>
+      MOBILE_MORE_CATEGORY_IDS.flatMap((id) => {
+        const item = moreNav.find((entry) => entry.id === id);
+        return item ? [item] : [];
+      }),
+    [moreNav],
+  );
+
   const closeMoreMenu = useCallback(() => {
-    animateAppTopNavMoreMenuClose(morePanelRef, () => setMoreOpen(false));
+    animateAppMobileNavMoreMenuClose(morePanelRef, () => setMoreOpen(false));
   }, []);
 
   useEffect(() => {
@@ -106,82 +111,93 @@ export function AppMobileNavBar({
     return "";
   }, [activeId, moreIds, moreOpen]);
 
-  const { register, indicator } = useGlassNavIndicator(
-    navRef,
-    indicatorKey,
-    [activeId, hidden, moreOpen],
-  );
+  const { register, indicator } = useMobileNavIndicator(navRef, indicatorKey, [
+    activeId,
+    hidden,
+    moreOpen,
+  ]);
 
-  if (hidden) return null;
+  if (hidden || !isCompactShell) return null;
 
   return (
     <div
       ref={dockRef}
-      className="mobile-nav-dock pointer-events-none fixed inset-x-0 bottom-0 z-50 md:hidden"
+      className="mobile-nav-dock pointer-events-none fixed inset-x-0 bottom-0 z-50"
     >
-      {moreOpen && (
-        <AppTopNavMoreMenu
+      {moreOpen && mobileMoreCategories.length > 0 && (
+        <AppMobileNavMoreMenu
           panelRef={morePanelRef}
+          anchorRef={moreButtonRef}
           activeId={activeId}
-          primaryNav={primaryNav}
           moreNav={moreNav}
-          includePrimary={false}
-          className="mobile-profile-menu left-1/2 -translate-x-1/2"
+          onClose={closeMoreMenu}
           onNavigate={(id) => {
             onNavigate(id);
             closeMoreMenu();
           }}
-          onSelect={closeMoreMenu}
         />
       )}
 
       <nav
         ref={navRef}
         aria-label="Navigazione mobile"
-        className="mobile-nav-bar glass-header mobile-nav-layout pointer-events-auto mx-auto flex items-center gap-0.5 p-1.5"
+        className="mobile-nav-bar glass-header pointer-events-auto"
       >
         <div
-          className="lf-nav-slider pill-glow"
+          className="mobile-nav-slider"
           style={{
-            transform: `translate3d(${indicator.x}px, 0, 0)`,
+            transform: `translate3d(${indicator.x}px, ${indicator.y}px, 0)`,
             width: indicator.width,
+            height: indicator.height,
             opacity: indicator.opacity,
           }}
           aria-hidden
         />
 
-        {MOBILE_PRIMARY.map((item) => {
-          const Icon = item.icon;
-          const itemId = item.id;
-          const active =
-            itemId === "more"
-              ? moreIds.has(activeId) || moreOpen
-              : itemId === "search"
-                ? activeId === "search"
-                : activeId === itemId && !moreOpen;
+        <div className="mobile-nav-items">
+          {MOBILE_PRIMARY.map((item) => {
+            const Icon = item.icon;
+            const itemId = item.id;
+            const active =
+              itemId === "more"
+                ? moreIds.has(activeId) || moreOpen
+                : itemId === "search"
+                  ? activeId === "search"
+                  : activeId === itemId && !moreOpen;
 
-          return (
-            <button
-              key={itemId}
-              ref={(el) => register(itemId, el)}
-              type="button"
-              aria-current={active ? "page" : undefined}
-              onClick={() => {
-                if (itemId === "search") onOpenSearch();
-                else if (itemId === "more") {
-                  if (moreOpen) closeMoreMenu();
-                  else setMoreOpen(true);
-                } else onNavigate(itemId);
-              }}
-              className={`lf-nav-link lf-nav-link--sliding flex flex-col items-center gap-0.5 px-3 py-1.5 text-[10px] ${
-                active ? "lf-nav-link--sliding-active" : ""
-              }`}
-            >
-              <Icon className="h-[18px] w-[18px]" strokeWidth={active ? 2.25 : 1.85} />
-              <span className="leading-none">{item.label}</span>
-            </button>
-          );
-        })}
+            return (
+              <button
+                key={itemId}
+                ref={(el) => {
+                  register(itemId, el);
+                  if (itemId === "more" && el instanceof HTMLButtonElement) {
+                    moreButtonRef.current = el;
+                  }
+                }}
+                type="button"
+                aria-current={active ? "page" : undefined}
+                aria-label={item.label}
+                aria-expanded={itemId === "more" ? moreOpen : undefined}
+                aria-haspopup={itemId === "more" ? "menu" : undefined}
+                onClick={() => {
+                  if (itemId === "search") onOpenSearch();
+                  else if (itemId === "more") {
+                    if (moreOpen) closeMoreMenu();
+                    else if (mobileMoreCategories.length > 0) setMoreOpen(true);
+                  } else onNavigate(itemId);
+                }}
+                className={`mobile-nav-item${active ? " mobile-nav-item--active" : ""}`}
+              >
+                <Icon
+                  className="mobile-nav-item__icon"
+                  strokeWidth={active ? 2.35 : 1.9}
+                  aria-hidden
+                />
+                <span className="mobile-nav-item__label">{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </nav>
     </div>
   );

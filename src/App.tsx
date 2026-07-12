@@ -3,6 +3,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useStreamingSearch } from "./lib/useStreamingSearch";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { prefetchBootCatalog } from "./lib/bootCatalog";
+import { prefetchBootFriends } from "./lib/bootFriends";
+import { useDevBackendGate, withBootTimeout } from "./lib/devBackendGate";
+import { DevBackendOfflineScreen } from "./components/DevBackendOfflineScreen";
 import { ProfileSelectScreen } from "./components/ProfileSelectScreen";
 import { AppTopNav } from "./components/AppTopNav";
 import { AppMobileNavBar } from "./components/AppMobileNavBar";
@@ -16,6 +19,7 @@ import { SectionBrowsePage } from "./components/SectionBrowsePage";
 import { CartoniBrowsePage } from "./components/CartoniBrowsePage";
 import { RowSkeleton } from "./components/RowSkeleton";
 import { MangaPromoBanner } from "./components/MangaPromoBanner";
+import { PlatformPromoBanner } from "./components/PlatformPromoBanner";
 import { ProfilePage, type ProfileTab } from "./components/ProfilePage";
 import { AppUpdaterProvider } from "./context/AppUpdaterContext";
 import { ProfilePinModal } from "./components/ProfilePinModal";
@@ -28,7 +32,9 @@ import { CloudFriendAlertsProvider, useCloudFriendAlertsContext } from "./contex
 import { ChatMessageAlertsProvider } from "./context/ChatMessageAlertsContext";
 import { ChatPopupProvider } from "./context/ChatPopupContext";
 import { FriendsMenuProvider } from "./context/FriendsMenuContext";
+import { MobileDeviceProvider, useCompactShell } from "./context/MobileDeviceContext";
 import { IS_TAURI_SHELL } from "./lib/tauriShell";
+import { homePlatformPromoVariant } from "./lib/platformPromo";
 import { ProfileProvider, useProfile } from "./context/ProfileContext";
 import {
   AppAccessProvider,
@@ -36,6 +42,10 @@ import {
 } from "./context/AppAccessContext";
 import { tryGrandfatherExistingInstall } from "./lib/appAccess";
 import { AppAccessBootstrap, AppAccessScreen } from "./components/AppAccessScreen";
+import { EmailConfirmedPage } from "./components/EmailConfirmedPage";
+import { WebAppInstallPage } from "./components/WebAppInstallPage";
+import { isEmailConfirmedPath } from "./lib/authRoutes";
+import { isWebAppInstallPath } from "./lib/webAppRoutes";
 import { GuestUsageBanner } from "./components/GuestUsageBanner";
 import { PreviewAudioProvider } from "./context/PreviewAudioContext";
 import {
@@ -167,18 +177,7 @@ const APP_FRAME_CLASS =
   "relative flex h-full min-h-0 flex-col lordflix-shell lordflix-app-frame";
 
 function AppFrame({ children }: { children: ReactNode }) {
-  if (IS_TAURI_SHELL) {
-    return <div className={APP_FRAME_CLASS}>{children}</div>;
-  }
-  return (
-    <motion.div
-      className={APP_FRAME_CLASS}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-    >
-      {children}
-    </motion.div>
-  );
+  return <div className={APP_FRAME_CLASS}>{children}</div>;
 }
 
 function RouteFrame({
@@ -255,6 +254,8 @@ function TauriKeepAliveSlot({
 }
 
 function AppContent() {
+  const { isCompactShell } = useCompactShell();
+  const platformPromoVariant = homePlatformPromoVariant(isCompactShell);
   const { activeProfile, clearProfile, isParent } = useProfile();
   const { profile: cloudProfile, user, signOut } = useCloudAccount();
   const { isGuest, guestLimitReached, logoutAccess } = useAppAccess();
@@ -1119,6 +1120,7 @@ function AppContent() {
         onNavigate={handleNav}
         badgeCounts={sidebarBadges}
         alertDots={sidebarAlertDots}
+        profileFriendAlertCount={pendingFriendRequests}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onOpenSearch={handleOpenSearch}
@@ -1163,7 +1165,7 @@ function AppContent() {
 
         <main
           ref={mainScrollRef}
-          className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden max-md:pb-[var(--mobile-nav-height)] ${
+          className={`lf-main-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden max-md:pb-[var(--mobile-nav-height)] ${
             activeNav === "home" && !seriesKey ? "lf-home-scroll" : ""
           } ${
             (activeNav === "film" || activeNav === "serie") && !seriesKey
@@ -1345,6 +1347,7 @@ function AppContent() {
                         />
                       </div>
                     )}
+                    <PlatformPromoBanner variant={platformPromoVariant} />
                     {top10Row && (
                       <div className="lf-home-top10-slot relative">
                         <SuspenseRoute>
@@ -1542,6 +1545,8 @@ function AppContent() {
 function AppGate() {
   const [bootPhase, setBootPhase] = useState<"intro" | "preparing" | "done">("intro");
   const [catalogReady, setCatalogReady] = useState(false);
+  const [friendsReady, setFriendsReady] = useState(false);
+  const { profile: cloudProfile } = useCloudAccount();
   const {
     activeProfile,
     pendingProfile,
@@ -1552,10 +1557,29 @@ function AppGate() {
     loading: profilesLoading,
   } = useProfile();
   const { setupComplete, loading: accessLoading, syncFromStorage } = useAppAccess();
+  const { backendOnline, checking, checkBackend } = useDevBackendGate();
 
   useEffect(() => {
-    void prefetchBootCatalog().finally(() => setCatalogReady(true));
+    void checkBackend();
+  }, [checkBackend]);
+
+  useEffect(() => {
+    void withBootTimeout(prefetchBootCatalog()).finally(() => setCatalogReady(true));
   }, []);
+
+  useEffect(() => {
+    if (!cloudProfile) {
+      setFriendsReady(true);
+      return;
+    }
+    let cancelled = false;
+    void prefetchBootFriends().finally(() => {
+      if (!cancelled) setFriendsReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudProfile]);
 
   useEffect(() => {
     if (!profilesLoading && profiles.length > 0) {
@@ -1579,20 +1603,30 @@ function AppGate() {
     !pendingProfile &&
     !showAccess;
 
+  if (bootDone && backendOnline === false) {
+    return (
+      <>
+        <AppAccessBootstrap />
+        <DevBackendOfflineScreen
+          checking={checking}
+          onRetry={() => void checkBackend()}
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <AppAccessBootstrap />
-      <AnimatePresence>
-        {!bootDone && (
-          <LoadingScreen
-            key="loader"
-            preparing={bootPhase === "preparing"}
-            ready={catalogReady}
-            onIntroComplete={() => setBootPhase("preparing")}
-            onComplete={() => setBootPhase("done")}
-          />
-        )}
-      </AnimatePresence>
+      {!bootDone ? (
+        <LoadingScreen
+          key="loader"
+          preparing={bootPhase === "preparing"}
+          ready={catalogReady && friendsReady}
+          onIntroComplete={() => setBootPhase("preparing")}
+          onComplete={() => setBootPhase("done")}
+        />
+      ) : null}
 
       {showAccess && <AppAccessScreen />}
 
@@ -1632,15 +1666,31 @@ function AppGate() {
 }
 
 function App() {
+  if (
+    typeof window !== "undefined" &&
+    isEmailConfirmedPath(window.location.pathname)
+  ) {
+    return <EmailConfirmedPage />;
+  }
+
+  if (
+    typeof window !== "undefined" &&
+    isWebAppInstallPath(window.location.pathname)
+  ) {
+    return <WebAppInstallPage />;
+  }
+
   return (
     <CloudAccountProvider>
       <AppAccessProvider>
         <NotificationProvider>
-          <ProfileProvider>
-            <PreviewAudioProvider>
-              <AppGate />
-            </PreviewAudioProvider>
-          </ProfileProvider>
+          <MobileDeviceProvider>
+            <ProfileProvider>
+              <PreviewAudioProvider>
+                <AppGate />
+              </PreviewAudioProvider>
+            </ProfileProvider>
+          </MobileDeviceProvider>
         </NotificationProvider>
       </AppAccessProvider>
     </CloudAccountProvider>

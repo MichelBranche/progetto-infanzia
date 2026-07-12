@@ -117,6 +117,7 @@ where
         .route("/series-poster/{id}", get(series_poster_handler))
         .route("/saturn-poster/{*path}", get(saturn_poster_handler))
         .route("/loonex-poster/{*path}", get(loonex_poster_handler))
+        .route("/sc-image/{*path}", get(sc_image_handler))
         .route(
             "/remote/{id}",
             get(remote_handler).head(remote_head_handler),
@@ -410,6 +411,28 @@ fn referer_for_image_url(url: &str) -> &'static str {
     } else {
         "https://loonex.eu/cartoni/"
     }
+}
+
+async fn sc_image_handler(
+    State(state): State<Arc<StreamState>>,
+    Path(path): Path<String>,
+) -> Result<Response<Body>, StatusCode> {
+    let decoded = urlencoding::decode(&path).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let rel = decoded
+        .replace('\\', "/")
+        .trim_start_matches('/')
+        .trim_start_matches("images/")
+        .to_string();
+    if rel.is_empty() || rel.contains("..") {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let cdn = crate::sc_catalog::cdn_url(state.db.as_ref());
+    let upstream = format!(
+        "{}/images/{}",
+        cdn.trim_end_matches('/'),
+        rel.trim_start_matches('/')
+    );
+    serve_remote_image(&upstream).await
 }
 
 async fn saturn_poster_handler(

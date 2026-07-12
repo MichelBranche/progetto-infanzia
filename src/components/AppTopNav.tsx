@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import {
+  ChevronDown,
   CircleUser,
   Home,
   MoreHorizontal,
@@ -15,6 +16,7 @@ import { getNavSections, type NavItem } from "../data/nav";
 import { useAddons } from "../context/AddonsContext";
 import type { Profile } from "../types/profile";
 import { ProfileAvatar } from "./ProfileAvatar";
+import { ProfileNotificationBadge } from "./profile/ProfileUi";
 import { AppTopNavMoreMenu, animateAppTopNavMoreMenuClose } from "./AppTopNavMoreMenu";
 import { AppTopNavProfileMenuPanel } from "./AppTopNavProfileMenu";
 import { AppTopNavFriendsBar } from "./AppTopNavFriendsBar";
@@ -23,9 +25,9 @@ import { useFriendsMenu } from "../context/FriendsMenuContext";
 import {
   animateNavLinkHover,
   animateToolbarIconHover,
-  useAppTopNavEntrance,
 } from "../hooks/useAppTopNavMotion";
 import { useGlassNavIndicator } from "../hooks/useGlassNavIndicator";
+import { useMobileDevice, useCompactShell } from "../context/MobileDeviceContext";
 
 gsap.registerPlugin(useGSAP);
 
@@ -43,6 +45,7 @@ interface AppTopNavProps {
   onNavigate: (id: string) => void;
   badgeCounts?: Record<string, number>;
   alertDots?: readonly string[];
+  profileFriendAlertCount?: number;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onOpenSearch: () => void;
@@ -166,6 +169,7 @@ export function AppTopNav({
   onNavigate,
   badgeCounts,
   alertDots,
+  profileFriendAlertCount = 0,
   searchQuery,
   onSearchChange,
   onOpenSearch,
@@ -195,30 +199,17 @@ export function AppTopNav({
     open: friendsMenuOpen,
     closeMenu: closeFriendsMenu,
     registerAnchor,
-    openMenu: openFriendsMenu,
+    toggleMenu: toggleFriendsMenu,
     friends,
     onlineCount,
   } = useFriendsMenu();
+  const { isMobileDevice } = useMobileDevice();
+  const { isCompactShell } = useCompactShell();
+  const showDesktopChrome = !isCompactShell;
 
   useEffect(() => {
     registerAnchor(friendsDockRef.current);
   }, [registerAnchor]);
-
-  const [desktopNav, setDesktopNav] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      window.matchMedia("(min-width: 768px)").matches,
-  );
-
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 768px)");
-    const onChange = () => setDesktopNav(mq.matches);
-    onChange();
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-
-  useAppTopNavEntrance(innerRef);
 
   const sections = getNavSections(profile, hasStreaming, devMode);
   const navById = useMemo(() => {
@@ -262,7 +253,7 @@ export function AppTopNav({
       moreNav.length,
       moreOpen,
       searchActive,
-      desktopNav,
+      showDesktopChrome,
     ]);
 
   const toolbarActiveId = useMemo(() => {
@@ -277,7 +268,7 @@ export function AppTopNav({
       toolbarActiveId,
       profileMenuOpen,
       activeId,
-      desktopNav,
+      showDesktopChrome,
     ]);
 
   const closeMoreMenu = useCallback(() => {
@@ -435,14 +426,18 @@ export function AppTopNav({
     <>
       <header
         className={`app-top-nav fixed inset-x-0 z-50 ${
-          searchActive ? "z-[60]" : ""
-        }`}
+          isCompactShell ? "app-top-nav--compact " : ""
+        }${searchActive ? "z-[60]" : ""}`}
       >
       <div
         ref={innerRef}
-        className="app-top-nav__inner flex h-full w-full min-w-0 items-center justify-between gap-2 px-4 sm:gap-3 sm:px-6 lg:px-12"
+        className={`app-top-nav__inner flex h-full w-full min-w-0 items-center justify-between gap-2 ${
+          isCompactShell
+            ? "px-4"
+            : "px-4 sm:gap-3 sm:px-6 lg:px-12"
+        }`}
       >
-        <div className="flex min-w-0 shrink-0 items-center gap-3 sm:gap-4">
+        <div className={`flex min-w-0 shrink-0 items-center ${isCompactShell ? "gap-2.5" : "gap-3 sm:gap-4"}`}>
           <button
             type="button"
             onClick={() => onNavigate("home")}
@@ -456,7 +451,7 @@ export function AppTopNav({
 
           {!searchActive && (
             <>
-              <div className="app-top-nav__friends-zone relative hidden shrink-0 md:block">
+              <div className={`app-top-nav__friends-zone relative shrink-0 ${showDesktopChrome ? "block" : "hidden"}`}>
                 <div
                   ref={friendsDockRef}
                   className="glass-header app-top-nav__left-dock flex items-center gap-1 p-1.5"
@@ -472,24 +467,30 @@ export function AppTopNav({
                 </div>
               </div>
 
-              <div className="app-top-nav__friends-zone relative shrink-0 md:hidden">
+              <div className={`app-top-nav__friends-zone relative shrink-0 ${showDesktopChrome ? "hidden" : "block"}`}>
                 <button
                   type="button"
-                  onClick={(event) => openFriendsMenu(event.currentTarget)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleFriendsMenu(event.currentTarget);
+                  }}
                   aria-expanded={friendsMenuOpen}
+                  aria-haspopup="dialog"
                   aria-label={
                     friends.length > 0
                       ? `Amici, ${onlineCount} online`
                       : "Apri menu amici"
                   }
-                  className={`glass-header app-top-nav__friends-mobile-btn flex h-10 items-center gap-2 rounded-full px-2.5 transition-colors ${
-                    friendsMenuOpen ? "bg-white/[0.1]" : ""
-                  }`}
+                  className={`glass-header app-top-nav__friends-mobile-btn flex items-center gap-1.5 rounded-full transition-colors ${
+                    isMobileDevice
+                      ? "h-11 px-2.5"
+                      : "h-10 px-2"
+                  } ${friendsMenuOpen ? "bg-white/[0.1]" : ""}`}
                 >
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.08]">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.08]">
                     <Users className="h-4 w-4 text-white/85" strokeWidth={1.85} />
                   </span>
-                  {friends.length > 0 && (
+                  {friends.length > 0 ? (
                     <span className="min-w-0 text-left leading-tight">
                       <span className="block text-[11px] font-medium text-white/90">
                         {onlineCount} online
@@ -498,7 +499,18 @@ export function AppTopNav({
                         {friends.length} amici
                       </span>
                     </span>
+                  ) : (
+                    <span className="text-[11px] font-medium text-white/80">
+                      Amici
+                    </span>
                   )}
+                  <ChevronDown
+                    className={`app-top-nav__friends-mobile-chevron h-4 w-4 shrink-0 text-white/65 transition-transform duration-300 ${
+                      friendsMenuOpen ? "rotate-180" : ""
+                    }`}
+                    strokeWidth={2.25}
+                    aria-hidden
+                  />
                 </button>
               </div>
             </>
@@ -530,7 +542,7 @@ export function AppTopNav({
           </div>
         ) : (
           <>
-            <div className="ml-auto hidden items-center gap-2 md:flex">
+            <div className={`ml-auto items-center gap-2 ${showDesktopChrome ? "flex" : "hidden"}`}>
               <div className="relative min-w-0">
                 <nav
                   ref={desktopNavRef}
@@ -602,7 +614,7 @@ export function AppTopNav({
                   </div>
                 </nav>
 
-                {moreOpen && desktopNav && (
+                {moreOpen && showDesktopChrome && (
                   <AppTopNavMoreMenu
                     panelRef={altroMorePanelRef}
                     activeId={activeId}
@@ -669,7 +681,7 @@ export function AppTopNav({
                     aria-expanded={profileMenuOpen}
                     slidingActive={profileMenuOpen}
                     registerRef={(el) => registerToolbarItem("toolbar-avatar", el)}
-                    className={`app-top-nav__toolbar-avatar shrink-0 ${
+                    className={`app-top-nav__toolbar-avatar relative shrink-0 ${
                       profileMenuOpen
                         ? ""
                         : "ring-2 ring-white/25 hover:ring-white/45"
@@ -680,15 +692,21 @@ export function AppTopNav({
                       size="sm"
                       className="pointer-events-none !h-full !w-full !rounded-full"
                     />
+                    <ProfileNotificationBadge
+                      count={profileFriendAlertCount}
+                      className="absolute -right-0.5 -top-0.5 z-[1]"
+                    />
                   </NavToolbarButton>
                 </div>
               </div>
             </div>
 
-            <div className="app-top-nav__actions pointer-events-auto ml-auto flex shrink-0 items-center gap-0.5 md:hidden">
+            <div className={`app-top-nav__actions pointer-events-auto ml-auto flex shrink-0 items-center gap-1 ${showDesktopChrome ? "hidden" : "flex"}`}>
               <NavToolbarButton
                 onClick={onOpenSearch}
-                className="app-top-nav__icon flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+                className={`app-top-nav__icon flex shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 ${
+                  isMobileDevice ? "h-11 w-11" : "h-10 w-10"
+                }`}
                 aria-label="Cerca"
               >
                 <Search className="h-[19px] w-[19px]" strokeWidth={1.85} />
@@ -697,9 +715,15 @@ export function AppTopNav({
               <NavToolbarButton
                 onClick={(event) => toggleProfileMenu(event.currentTarget)}
                 aria-expanded={profileMenuOpen}
-                className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full p-0 ring-2 ring-white/30 transition-[opacity,ring-color] hover:ring-white/50"
+                className={`relative flex shrink-0 items-center justify-center rounded-full p-0 ring-2 ring-white/30 transition-[opacity,ring-color] hover:ring-white/50 ${
+                  isMobileDevice ? "h-11 w-11" : "h-10 w-10"
+                }`}
               >
                 <ProfileAvatar profile={profile} size="sm" />
+                <ProfileNotificationBadge
+                  count={profileFriendAlertCount}
+                  className="absolute -right-0.5 -top-0.5 z-[1]"
+                />
               </NavToolbarButton>
             </div>
           </>

@@ -5,9 +5,11 @@ import {
   useEffect,
   useRef,
   useState,
+  type PointerEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion, useDragControls, type PanInfo } from "framer-motion";
 import { useCloudAccount } from "./CloudAccountContext";
 import { useMyPresenceStatus } from "../hooks/useMyPresenceStatus";
 import {
@@ -15,6 +17,7 @@ import {
   type AppTopNavFriendEntry,
 } from "../hooks/useAppTopNavFriendsList";
 import { AppTopNavFriendsMenuPanel } from "../components/AppTopNavFriendsMenu";
+import { useCompactShell } from "./MobileDeviceContext";
 import type { WatchPartySession } from "../types/watchParty";
 import type { UserPresenceStatus } from "../lib/userPresenceStatus";
 
@@ -42,6 +45,11 @@ interface FriendsMenuProviderProps {
   children: ReactNode;
 }
 
+function useFriendsMenuLayout() {
+  const { isCompactShell } = useCompactShell();
+  return isCompactShell;
+}
+
 export function FriendsMenuProvider({
   profileId,
   profileName,
@@ -50,12 +58,14 @@ export function FriendsMenuProvider({
   children,
 }: FriendsMenuProviderProps) {
   const { profile: cloudProfile } = useCloudAccount();
+  const isMobile = useFriendsMenuLayout();
   const [open, setOpen] = useState(false);
   const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(
     null,
   );
   const anchorRef = useRef<HTMLElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const sheetDragControls = useDragControls();
 
   const { friends, onlineCount, refreshing, refreshAll } =
     useAppTopNavFriendsList(profileId, profileName, true, cloudProfile);
@@ -78,10 +88,12 @@ export function FriendsMenuProvider({
   const openMenu = useCallback(
     (anchor?: HTMLElement | null) => {
       if (anchor) anchorRef.current = anchor;
-      updatePanelPos(anchor);
+      if (!isMobile) {
+        updatePanelPos(anchor);
+      }
       setOpen(true);
     },
-    [updatePanelPos],
+    [isMobile, updatePanelPos],
   );
 
   const toggleMenu = useCallback(
@@ -100,7 +112,7 @@ export function FriendsMenuProvider({
   }, []);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || isMobile) return;
 
     const onResize = () => updatePanelPos();
     window.addEventListener("resize", onResize);
@@ -121,7 +133,7 @@ export function FriendsMenuProvider({
       window.removeEventListener("resize", onResize);
       document.removeEventListener("click", onClick, true);
     };
-  }, [closeMenu, open, updatePanelPos]);
+  }, [closeMenu, isMobile, open, updatePanelPos]);
 
   useEffect(() => {
     if (!open) return;
@@ -131,6 +143,48 @@ export function FriendsMenuProvider({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [closeMenu, open]);
+
+  useEffect(() => {
+    if (!open || !isMobile) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open, isMobile]);
+
+  const handleSheetDragEnd = useCallback(
+    (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+      if (info.offset.y > 110 || info.velocity.y > 650) {
+        closeMenu();
+      }
+    },
+    [closeMenu],
+  );
+
+  const startSheetDrag = useCallback(
+    (event: PointerEvent<HTMLElement>) => {
+      sheetDragControls.start(event);
+    },
+    [sheetDragControls],
+  );
+
+  const panelProps = {
+    friends,
+    onlineCount,
+    refreshing,
+    status,
+    setStatus,
+    refreshAll,
+    cloudProfile,
+    onClose: closeMenu,
+    onNavigate: (id: string) => {
+      closeMenu();
+      onNavigate(id);
+    },
+    onJoinWatchParty,
+    onSheetDragStart: startSheetDrag,
+  };
 
   const value: FriendsMenuContextValue = {
     open,
@@ -149,36 +203,59 @@ export function FriendsMenuProvider({
   return (
     <FriendsMenuContext.Provider value={value}>
       {children}
-      {open &&
-        panelPos &&
-        createPortal(
-          <div
-            ref={panelRef}
-            className="app-top-nav__friends-panel fixed z-[200]"
-            style={{
-              top: panelPos.top,
-              left: panelPos.left,
-              width: Math.min(window.innerWidth * 0.92, 340),
-            }}
-          >
-            <AppTopNavFriendsMenuPanel
-              friends={friends}
-              onlineCount={onlineCount}
-              refreshing={refreshing}
-              status={status}
-              setStatus={setStatus}
-              refreshAll={refreshAll}
-              cloudProfile={cloudProfile}
-              onClose={closeMenu}
-              onNavigate={(id) => {
-                closeMenu();
-                onNavigate(id);
+      {createPortal(
+        <>
+          <AnimatePresence>
+            {open && isMobile && (
+              <motion.div
+                key="friends-sheet-backdrop"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.22 }}
+                className="friends-menu-sheet__backdrop fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm"
+                onClick={closeMenu}
+              >
+                <motion.div
+                  ref={panelRef}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Menu amici"
+                  drag="y"
+                  dragControls={sheetDragControls}
+                  dragListener={false}
+                  dragConstraints={{ top: 0 }}
+                  dragElastic={{ top: 0, bottom: 0.55 }}
+                  onDragEnd={handleSheetDragEnd}
+                  initial={{ y: "100%" }}
+                  animate={{ y: 0 }}
+                  exit={{ y: "100%" }}
+                  transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
+                  onClick={(event) => event.stopPropagation()}
+                  className="friends-menu-sheet__panel w-full"
+                >
+                  <AppTopNavFriendsMenuPanel variant="sheet" {...panelProps} />
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {open && !isMobile && panelPos && (
+            <div
+              ref={panelRef}
+              className="app-top-nav__friends-panel fixed z-[200] hidden md:block"
+              style={{
+                top: panelPos.top,
+                left: panelPos.left,
+                width: Math.min(window.innerWidth * 0.92, 340),
               }}
-              onJoinWatchParty={onJoinWatchParty}
-            />
-          </div>,
-          document.body,
-        )}
+            >
+              <AppTopNavFriendsMenuPanel variant="dropdown" {...panelProps} />
+            </div>
+          )}
+        </>,
+        document.body,
+      )}
     </FriendsMenuContext.Provider>
   );
 }

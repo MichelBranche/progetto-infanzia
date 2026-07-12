@@ -355,7 +355,7 @@ export function MangaReaderPage({
         </button>
         <span className="text-[11px] text-text-muted">
           {mode === "book"
-            ? "Clicca la pagina o usa le frecce per sfogliare"
+            ? "Trascina o tocca i lati per sfogliare"
             : "Scorri per leggere"}
         </span>
         <button

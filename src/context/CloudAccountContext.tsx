@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -40,45 +41,94 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(configured);
   const [profile, setProfile] = useState<CloudProfile | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const syncInFlightRef = useRef<Promise<unknown> | null>(null);
 
-  const refresh = useCallback(async () => {
-    if (!configured) {
-      setProfile(null);
-      setUser(null);
-      setLoading(false);
+  const runCloudSync = useCallback(async (cloudProfile: CloudProfile) => {
+    if (syncInFlightRef.current) {
+      await syncInFlightRef.current.catch(() => {});
       return;
     }
-    setLoading(true);
+
+    const syncPromise = (async () => {
+      const { syncCloudAccountWithApp } = await import("../lib/cloudProfileSync");
+      await syncCloudAccountWithApp(cloudProfile);
+    })().catch((err) => {
+      console.warn("[cloudProfileSync] sync failed:", err);
+    });
+
+    syncInFlightRef.current = syncPromise;
     try {
-      const supabase = getSupabase();
-      const { data } = await supabase!.auth.getSession();
-      setUser(data.session?.user ?? null);
-      const p = await getCurrentCloudProfile();
-      setProfile(p);
-      if (p) {
-        const { syncCloudAccountWithApp } = await import("../lib/cloudProfileSync");
-        await syncCloudAccountWithApp(p).catch((err) => {
-          console.warn("[cloudProfileSync] sync failed:", err);
-        });
-      }
+      await syncPromise;
     } finally {
-      setLoading(false);
+      if (syncInFlightRef.current === syncPromise) {
+        syncInFlightRef.current = null;
+      }
     }
+  }, []);
+
+  const reloadProfileOnly = useCallback(async () => {
+    if (!configured) return;
+    const supabase = getSupabase();
+    if (!supabase) return;
+
+    const { data } = await supabase.auth.getSession();
+    setUser(data.session?.user ?? null);
+    const p = await getCurrentCloudProfile();
+    setProfile(p);
   }, [configured]);
 
+  const refresh = useCallback(
+    async (options?: { showLoading?: boolean; sync?: boolean }) => {
+      const showLoading = options?.showLoading ?? false;
+      const shouldSync = options?.sync ?? true;
+
+      if (!configured) {
+        setProfile(null);
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
+      if (showLoading) setLoading(true);
+      try {
+        const supabase = getSupabase();
+        const { data } = await supabase!.auth.getSession();
+        setUser(data.session?.user ?? null);
+        const p = await getCurrentCloudProfile();
+        setProfile(p);
+        if (p && shouldSync) {
+          await runCloudSync(p);
+        }
+      } finally {
+        if (showLoading) setLoading(false);
+      }
+    },
+    [configured, runCloudSync],
+  );
+
   useEffect(() => {
-    void refresh();
+    void refresh({ showLoading: true });
     if (!configured) return;
 
     const supabase = getSupabase();
     if (!supabase) return;
 
-    const { data: sub } = supabase.auth.onAuthStateChange(() => {
-      void refresh();
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
+      if (event === "SIGNED_IN") {
+        void refresh({ showLoading: true });
+        return;
+      }
+      void reloadProfileOnly();
     });
 
     const onCloudProfileChanged = () => {
-      void refresh();
+      void reloadProfileOnly();
     };
     window.addEventListener("branchefy:cloud-profile-changed", onCloudProfileChanged);
 
@@ -86,7 +136,7 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
       sub.subscription.unsubscribe();
       window.removeEventListener("branchefy:cloud-profile-changed", onCloudProfileChanged);
     };
-  }, [configured, refresh]);
+  }, [configured, refresh, reloadProfileOnly]);
 
   const signUp = useCallback(
     async (email: string, password: string, displayName?: string) => {

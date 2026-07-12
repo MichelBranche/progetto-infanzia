@@ -1,5 +1,33 @@
+import { isWebShell } from "./runtimeInvoke";
+
 const TMDB_SIZE_RE = /\/t\/p\/w\d+\//i;
 const LOW_RES_WIDTH_RE = /[?&](?:w|width)=\d{1,3}(?:&|$)/i;
+const SC_CDN_IMAGE_RE =
+  /^https?:\/\/cdn\.streamingcommunity[^/]+\/images\/(.+)$/i;
+const SC_BARE_IMAGE_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i;
+
+/** Same-origin proxy per immagini SC in dev/web (evita CORS nel browser). */
+export function proxifyCdnImageUrl(
+  url: string | undefined,
+): string | undefined {
+  if (!url?.trim() || !isWebShell()) return url;
+
+  const trimmed = url.trim();
+  if (trimmed.startsWith("/sc-image/")) return trimmed;
+
+  const match = trimmed.match(SC_CDN_IMAGE_RE);
+  if (match) {
+    const rel = match[1].replace(/^\/+/, "");
+    return `/sc-image/${rel}`;
+  }
+
+  if (SC_BARE_IMAGE_RE.test(trimmed)) {
+    return `/sc-image/${trimmed}`;
+  }
+
+  return trimmed;
+}
 
 /** Prefer the highest-resolution variant known for a poster/cover URL. */
 export function maximizePosterUrl(url: string | undefined): string | undefined {
@@ -8,10 +36,12 @@ export function maximizePosterUrl(url: string | undefined): string | undefined {
   const normalized = url.trim();
 
   if (normalized.includes("image.tmdb.org")) {
-    return normalized.replace(TMDB_SIZE_RE, "/t/p/original/");
+    return proxifyCdnImageUrl(
+      normalized.replace(TMDB_SIZE_RE, "/t/p/original/"),
+    );
   }
 
-  return stripSizeLimitingQuery(normalized);
+  return proxifyCdnImageUrl(stripSizeLimitingQuery(normalized));
 }
 
 /** Logo/title art: full-res, no thumb/mobile variants. */

@@ -1,16 +1,18 @@
-import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import { BranchefyIntro } from "./BranchefyIntro";
 import { BootLiquidBackground } from "./LiquidBackground";
 import { readIntroSoundPref } from "../lib/settingsApi";
-import { isWebShell } from "../lib/runtimeInvoke";
-import { onWebAudioUnlock, playAudioElement } from "../lib/webAudio";
+import {
+  onWebAudioUnlock,
+  playAudioElement,
+  unlockAppAudio,
+} from "../lib/webAudio";
 
 const INTRO_SOUND_DELAY_MS = 500;
 const INTRO_HOLD_MS = 3500;
 const INTRO_TAIL_MS = 700;
 const FADE_OUT_MS = 700;
-const PREPARE_MIN_MS = 500;
 const INTRO_SOUND_SRC = "/audio/netflix-intro.mp3";
 
 const PREPARE_LABELS = [
@@ -33,10 +35,12 @@ export function LoadingScreen({
   onComplete,
 }: LoadingScreenProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const introRootRef = useRef<HTMLDivElement | null>(null);
+  const introPlayedRef = useRef(false);
+  const introCompleteRef = useRef(false);
+  const bootCompleteRef = useRef(false);
   const [introExiting, setIntroExiting] = useState(false);
-  const [prepareExiting, setPrepareExiting] = useState(false);
   const [labelIdx, setLabelIdx] = useState(0);
-  const prepareShownAt = useRef(0);
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -49,28 +53,53 @@ export function LoadingScreen({
     const audio = new Audio(INTRO_SOUND_SRC);
     audio.preload = "auto";
     audio.volume = 0.92;
+    audio.setAttribute("playsinline", "");
+    audio.load();
     audioRef.current = audio;
 
-    const playIntro = () => {
-      if (!readIntroSoundPref()) return;
-      audio.currentTime = 0;
-      playAudioElement(audio);
+    const playIntro = async () => {
+      if (introPlayedRef.current || !readIntroSoundPref()) return;
+      const started = await playAudioElement(audio);
+      if (started || !audio.paused) {
+        introPlayedRef.current = true;
+      }
     };
 
-    let playTimer: number | undefined;
-    let cancelUnlock: (() => void) | undefined;
+    const scheduleIntro = (delayMs = INTRO_SOUND_DELAY_MS) =>
+      window.setTimeout(() => void playIntro(), delayMs);
 
-    if (isWebShell()) {
-      cancelUnlock = onWebAudioUnlock(() => {
-        window.setTimeout(playIntro, INTRO_SOUND_DELAY_MS);
-      });
-    } else {
-      playTimer = window.setTimeout(playIntro, INTRO_SOUND_DELAY_MS);
-    }
+    let playTimer = scheduleIntro(0);
+
+    const onAudioReady = () => {
+      if (!introPlayedRef.current) void playIntro();
+    };
+    audio.addEventListener("canplaythrough", onAudioReady);
+    audio.addEventListener("loadeddata", onAudioReady);
+
+    const cancelUnlock = onWebAudioUnlock(() => {
+      if (!introPlayedRef.current) {
+        window.clearTimeout(playTimer);
+        playTimer = scheduleIntro(0);
+      }
+    });
+
+    const onIntroGesture = () => {
+      unlockAppAudio();
+      if (!introPlayedRef.current) {
+        window.clearTimeout(playTimer);
+        void playIntro();
+      }
+    };
+
+    const introRoot = introRootRef.current;
+    introRoot?.addEventListener("pointerdown", onIntroGesture, { once: true });
 
     return () => {
-      if (playTimer !== undefined) window.clearTimeout(playTimer);
-      cancelUnlock?.();
+      window.clearTimeout(playTimer);
+      cancelUnlock();
+      audio.removeEventListener("canplaythrough", onAudioReady);
+      audio.removeEventListener("loadeddata", onAudioReady);
+      introRoot?.removeEventListener("pointerdown", onIntroGesture);
       audio.pause();
       audioRef.current = null;
     };
@@ -103,29 +132,38 @@ export function LoadingScreen({
       }, stepMs);
     }
 
-    const doneTimer = window.setTimeout(onIntroComplete, FADE_OUT_MS);
+    const doneTimer = window.setTimeout(() => {
+      if (introCompleteRef.current) return;
+      introCompleteRef.current = true;
+      onIntroComplete();
+    }, FADE_OUT_MS);
+
     return () => window.clearTimeout(doneTimer);
   }, [introExiting, onIntroComplete]);
 
-  useEffect(() => {
-    if (!preparing) return;
-    prepareShownAt.current = Date.now();
-  }, [preparing]);
+  useLayoutEffect(() => {
+    if (!preparing || !ready || bootCompleteRef.current) return;
+    bootCompleteRef.current = true;
+    onComplete();
+  }, [preparing, ready, onComplete]);
 
   useEffect(() => {
-    if (!preparing || !ready || prepareExiting) return;
-
-    const elapsed = Date.now() - prepareShownAt.current;
-    const wait = Math.max(0, PREPARE_MIN_MS - elapsed);
-    const timer = window.setTimeout(() => setPrepareExiting(true), wait);
-    return () => window.clearTimeout(timer);
-  }, [preparing, ready, prepareExiting]);
-
-  useEffect(() => {
-    if (!prepareExiting) return;
-    const timer = window.setTimeout(onComplete, FADE_OUT_MS);
-    return () => window.clearTimeout(timer);
-  }, [prepareExiting, onComplete]);
+    const resume = () => {
+      if (!introExiting && !preparing) {
+        setIntroExiting(true);
+      }
+      if (preparing && ready && !bootCompleteRef.current) {
+        bootCompleteRef.current = true;
+        onComplete();
+      }
+    };
+    window.addEventListener("focus", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      window.removeEventListener("focus", resume);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [introExiting, preparing, ready, onComplete]);
 
   useEffect(() => {
     if (!preparing || ready) return;
@@ -139,45 +177,33 @@ export function LoadingScreen({
   const showPrepare = preparing;
 
   return (
-    <motion.div
+    <div
       className={`fixed inset-0 z-[100] ${showPrepare ? "bg-[#05000d]" : ""}`}
-      initial={{ opacity: 1 }}
-      animate={{ opacity: prepareExiting ? 0 : 1 }}
-      transition={{ duration: FADE_OUT_MS / 1000, ease: "easeInOut" }}
     >
-      <AnimatePresence mode="wait">
-        {showIntro && (
-          <motion.div
-            key="intro"
-            className="absolute inset-0"
-            initial={{ opacity: 1 }}
-            animate={{ opacity: introExiting ? 0 : 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: FADE_OUT_MS / 1000, ease: "easeInOut" }}
-          >
-            <BranchefyIntro />
-          </motion.div>
-        )}
+      {showIntro && (
+        <motion.div
+          ref={introRootRef}
+          className="absolute inset-0"
+          initial={{ opacity: 1 }}
+          animate={{ opacity: introExiting ? 0 : 1 }}
+          transition={{ duration: FADE_OUT_MS / 1000, ease: "easeInOut" }}
+        >
+          <BranchefyIntro />
+        </motion.div>
+      )}
 
-        {showPrepare && (
-          <motion.div
-            key="prepare"
-            className="absolute inset-0 overflow-hidden"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.45, ease: "easeOut" }}
-          >
-            <BootLiquidBackground />
-            <div className="relative z-10 flex h-full flex-col items-center justify-center px-6">
-              <span className="chromatic-logo chromatic-logo--skew">B</span>
-              <div className="mt-7 h-9 w-9 animate-spin rounded-full border-2 border-white/10 border-t-white/85" />
-              <p className="mt-6 text-center text-[11px] font-medium uppercase tracking-[0.28em] text-white/55">
-                {PREPARE_LABELS[labelIdx]}
-              </p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
+      {showPrepare && (
+        <div className="absolute inset-0 overflow-hidden">
+          <BootLiquidBackground />
+          <div className="relative z-10 flex h-full flex-col items-center justify-center px-6">
+            <span className="chromatic-logo chromatic-logo--skew">B</span>
+            <div className="mt-7 h-9 w-9 animate-spin rounded-full border-2 border-white/10 border-t-white/85" />
+            <p className="mt-6 text-center text-[11px] font-medium uppercase tracking-[0.28em] text-white/55">
+              {PREPARE_LABELS[labelIdx]}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
