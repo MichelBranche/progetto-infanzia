@@ -18,6 +18,13 @@ export default defineConfig({
   envDir: repoRoot,
   publicDir: path.join(repoRoot, "public"),
   plugins: [react(), tailwindcss()],
+  resolve: {
+    modules: [
+      path.join(webDir, "node_modules"),
+      path.join(repoRoot, "node_modules"),
+      "node_modules",
+    ],
+  },
   define: {
     "import.meta.env.VITE_BRANCHEFY_WEB": JSON.stringify("1"),
   },

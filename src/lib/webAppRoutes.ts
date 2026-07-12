@@ -15,8 +15,12 @@ export function webAppInstallPageUrl(): string {
   return `${APP_WEB_URL.replace(/\/$/, "")}${WEB_APP_INSTALL_PATH}`;
 }
 
-export function webAppInstallVideoEmbedUrl(): string {
-  return `https://www.youtube.com/embed/${WEB_APP_INSTALL_VIDEO_ID}?rel=0&modestbranding=1`;
+export function webAppInstallVideoWatchUrl(): string {
+  return `https://www.youtube.com/watch?v=${WEB_APP_INSTALL_VIDEO_ID}`;
+}
+
+export function webAppInstallVideoThumbnailUrl(): string {
+  return `https://i.ytimg.com/vi/${WEB_APP_INSTALL_VIDEO_ID}/hqdefault.jpg`;
 }
 
 export interface WebAppInstallStep {

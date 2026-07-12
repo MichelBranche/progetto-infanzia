@@ -4,10 +4,10 @@ import { APP_WEB_URL } from "../lib/platformPromo";
 import { openExternal } from "../lib/openExternal";
 import {
   WEB_APP_PLATFORM_GUIDES,
-  webAppInstallVideoEmbedUrl,
   type WebAppInstallStep,
 } from "../lib/webAppRoutes";
 import { MobilePromoMockups } from "./MobilePromoMockups";
+import { YouTubeShortLink } from "./YouTubeShortLink";
 
 function GuideSteps({ steps }: { steps: WebAppInstallStep[] }) {
   return (
@@ -103,21 +103,15 @@ export function WebAppInstallPage() {
               Guarda come aggiungere Branchefy alla Home
             </h2>
             <p className="lf-webapp-install__section-lead">
-              Tutorial rapido in formato Shorts: i passaggi principali per
-              installare la web app sul telefono.
+              Tutorial rapido su YouTube: tocca l&apos;anteprima per aprire il
+              video nell&apos;app o nel browser YouTube.
             </p>
           </div>
 
-          <div className="lf-webapp-install__video-wrap">
-            <iframe
-              className="lf-webapp-install__video"
-              src={webAppInstallVideoEmbedUrl()}
-              title="Guida installazione web app Branchefy su mobile"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-              loading="lazy"
-            />
-          </div>
+          <YouTubeShortLink
+            title="Guida installazione web app Branchefy su mobile"
+            className="lf-webapp-install__video-player"
+          />
         </section>
 
         <section className="lf-webapp-install__section">
