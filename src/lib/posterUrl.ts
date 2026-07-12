@@ -6,6 +6,48 @@ const SC_CDN_IMAGE_RE =
   /^https?:\/\/cdn\.streamingcommunity[^/]+\/images\/(.+)$/i;
 const SC_BARE_IMAGE_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i;
+const LOCALHOST_ASSET_RE = /^https?:\/\/127\.0\.0\.1:\d+/i;
+const BACKEND_ASSET_PATH_RE =
+  /^\/(sc-image|poster|series-poster|saturn-poster|loonex-poster)\//;
+
+function webAssetOrigin(): string {
+  if (typeof window === "undefined") return "";
+  return window.location.origin.replace(/\/$/, "");
+}
+
+/** Riscrive URL asset localhost o API esterna verso l'origine web (proxy Vercel/dev). */
+export function normalizeWebAssetUrl(
+  url: string | undefined,
+): string | undefined {
+  if (!url?.trim() || !isWebShell()) return url;
+
+  const trimmed = url.trim();
+  const origin = webAssetOrigin();
+  if (!origin) return trimmed;
+
+  if (LOCALHOST_ASSET_RE.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      return `${origin}${parsed.pathname}${parsed.search}`;
+    } catch {
+      return trimmed.replace(LOCALHOST_ASSET_RE, origin);
+    }
+  }
+
+  const configuredApi = import.meta.env.VITE_BRANCHEFY_API_URL?.trim().replace(
+    /\/$/,
+    "",
+  );
+  if (configuredApi && trimmed.startsWith(`${configuredApi}/`)) {
+    return trimmed.replace(configuredApi, origin);
+  }
+
+  if (BACKEND_ASSET_PATH_RE.test(trimmed)) {
+    return `${origin}${trimmed}`;
+  }
+
+  return trimmed;
+}
 
 /** Same-origin proxy per immagini SC in dev/web (evita CORS nel browser). */
 export function proxifyCdnImageUrl(
@@ -14,19 +56,19 @@ export function proxifyCdnImageUrl(
   if (!url?.trim() || !isWebShell()) return url;
 
   const trimmed = url.trim();
-  if (trimmed.startsWith("/sc-image/")) return trimmed;
+  if (trimmed.startsWith("/sc-image/")) return normalizeWebAssetUrl(trimmed);
 
   const match = trimmed.match(SC_CDN_IMAGE_RE);
   if (match) {
     const rel = match[1].replace(/^\/+/, "");
-    return `/sc-image/${rel}`;
+    return normalizeWebAssetUrl(`/sc-image/${rel}`);
   }
 
   if (SC_BARE_IMAGE_RE.test(trimmed)) {
-    return `/sc-image/${trimmed}`;
+    return normalizeWebAssetUrl(`/sc-image/${trimmed}`);
   }
 
-  return trimmed;
+  return normalizeWebAssetUrl(trimmed);
 }
 
 /** Prefer the highest-resolution variant known for a poster/cover URL. */
