@@ -6,7 +6,27 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/((?!api/).*)",
+      "source": "/sc-image/:path*",
+      "destination": "/api/sc-image/:path*"
+    },
+    {
+      "source": "/poster/:id",
+      "destination": "/api/poster/:id"
+    },
+    {
+      "source": "/series-poster/:id",
+      "destination": "/api/series-poster/:id"
+    },
+    {
+      "source": "/saturn-poster/:path*",
+      "destination": "/api/saturn-poster/:path*"
+    },
+    {
+      "source": "/loonex-poster/:path*",
+      "destination": "/api/loonex-poster/:path*"
+    },
+    {
+      "source": "/((?!api/|assets/|audio/|hub/|favicon|apple-touch|.*\\..*).*)",
       "destination": "/index.html"
     }
   ]
