@@ -2,6 +2,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { isTauri } from "@tauri-apps/api/core";
+import { isEssentialUpdate } from "./updateNotes";
 
 const DISMISS_KEY = "branchefy-updater-dismissed";
 
@@ -31,12 +32,17 @@ function readDismissedVersion(): string | null {
   }
 }
 
-export function dismissUpdateVersion(version: string): void {
+export function dismissUpdateVersion(version: string, body?: string | null): void {
+  if (isEssentialUpdate(body)) return;
   try {
     localStorage.setItem(DISMISS_KEY, version);
   } catch {
     /* ignore */
   }
+}
+
+export function isMandatoryUpdate(update: Update): boolean {
+  return isEssentialUpdate(update.body);
 }
 
 export async function fetchAppVersion(): Promise<string> {
@@ -48,7 +54,12 @@ export async function checkForAppUpdate(): Promise<Update | null> {
   if (!isUpdaterSupported()) return null;
   const update = await check();
   if (!update) return null;
-  if (readDismissedVersion() === update.version) return null;
+  if (
+    readDismissedVersion() === update.version &&
+    !isEssentialUpdate(update.body)
+  ) {
+    return null;
+  }
   return update;
 }
 

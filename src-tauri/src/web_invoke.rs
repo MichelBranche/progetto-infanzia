@@ -31,6 +31,8 @@ pub async fn init_web_state() -> Result<Arc<AppState>, String> {
         let _ = crate::loonex_catalog::ensure_defaults(&db);
         let _ = crate::youtube_catalog::ensure_defaults(&db);
         let _ = db.sync_empty_child_allowlists();
+        let db_bootstrap = db.clone();
+        crate::vix_embed::bootstrap(db_bootstrap.as_ref());
         Ok(db)
     })
     .await
@@ -232,6 +234,7 @@ pub async fn dispatch_web_command(
                 .map(str::to_string)
                 .unwrap_or_else(|| crate::sc_catalog::lang(state.db.as_ref()));
             let proxy = state.addon_proxy.clone();
+            let db = Arc::clone(&state.db);
             let task = tokio::task::spawn_blocking(move || {
                 crate::sc_playback::resolve_playback(
                     &app,
@@ -240,6 +243,7 @@ pub async fn dispatch_web_command(
                     &parsed.slug,
                     parsed.episode_id,
                     proxy.as_ref(),
+                    db.as_ref(),
                 )
             });
             ok(task.await.map_err(|e| format!("Errore stream: {e}"))??)
@@ -255,8 +259,16 @@ pub async fn dispatch_web_command(
             let app = crate::sc_catalog::app_url(state.db.as_ref());
             let locale = crate::sc_catalog::lang(state.db.as_ref());
             let proxy = state.addon_proxy.clone();
+            let db = Arc::clone(&state.db);
             let task = tokio::task::spawn_blocking(move || {
-                crate::sc_playback::resolve_preview(&app, &locale, parsed.title_id, &parsed.slug, proxy.as_ref())
+                crate::sc_playback::resolve_preview(
+                    &app,
+                    &locale,
+                    parsed.title_id,
+                    &parsed.slug,
+                    proxy.as_ref(),
+                    db.as_ref(),
+                )
             });
             ok(task.await.map_err(|e| format!("Errore preview: {e}"))??)
         }
@@ -557,6 +569,27 @@ pub async fn dispatch_web_command(
             }
             let parsed: Args = parse_args(args)?;
             ok(crate::mangadex::mangadex_fetch_cmd(parsed.path, parsed.query).await?)
+        }
+        "welib_popular_cmd" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                interval: Option<String>,
+                offset: Option<u32>,
+                limit: Option<u32>,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(crate::welib::welib_popular_cmd(parsed.interval, parsed.offset, parsed.limit).await?)
+        }
+        "welib_search_cmd" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                query: String,
+                page: Option<u32>,
+            }
+            let parsed: Args = parse_args(args)?;
+            ok(crate::welib::welib_search_cmd(parsed.query, parsed.page).await?)
         }
         "extract_image_palette_cmd" => {
             #[derive(Deserialize)]

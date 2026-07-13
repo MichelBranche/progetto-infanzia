@@ -2809,6 +2809,39 @@ html.is-tauri .manga-kindle__nav {
   }
 }
 
+.manga-kindle--ltr .manga-kindle__nav--prev {
+  left: 1rem;
+  right: auto;
+}
+
+.manga-kindle--ltr .manga-kindle__nav--next {
+  right: 1rem;
+  left: auto;
+}
+
+.manga-kindle__hint--ltr {
+  flex-direction: row-reverse;
+}
+
+.manga-kindle__viewport--epub {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f4f1ea;
+}
+
+.manga-kindle__epub-host {
+  width: min(100%, 900px);
+  height: 100%;
+  margin: 0 auto;
+}
+
+.manga-kindle__epub-host iframe {
+  border: 0;
+  background: #fff;
+}
+
 /* Title detail page (LordFlix movie/series layout) */
 .lf-title-detail__hero {
   min-height: min(78vh, 820px);

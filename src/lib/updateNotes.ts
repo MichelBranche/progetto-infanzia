@@ -100,3 +100,10 @@ export function parseUpdateNotes(body?: string | null): UpdateNotesSection[] {
 export function countUpdateNotesItems(sections: UpdateNotesSection[]): number {
   return sections.reduce((sum, section) => sum + section.items.length, 0);
 }
+
+export function isEssentialUpdate(body?: string | null): boolean {
+  if (!body?.trim()) return false;
+  return /importante\s+essenziale|aggiornamento\s+importante|essenziale|critico|critical/i.test(
+    body,
+  );
+}

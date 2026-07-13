@@ -1651,6 +1651,7 @@ mod tests {
             60329,
             "michael-jackson-anatomia-di-una-caduta",
             &[None, Some(347043), Some(347046), Some(347044)],
+            &crate::db::Database::open(std::path::Path::new(":memory:")).expect("db"),
         );
         for (ep, result) in embeds {
             match result {

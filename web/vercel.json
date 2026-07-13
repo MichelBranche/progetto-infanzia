@@ -26,6 +26,18 @@
       "destination": "https://progetto-infanzia-production.up.railway.app/loonex-poster/:path*"
     },
     {
+      "source": "/welib-book/:md5",
+      "destination": "https://progetto-infanzia-production.up.railway.app/welib-book/:md5"
+    },
+    {
+      "source": "/welib-audio/:md5",
+      "destination": "https://progetto-infanzia-production.up.railway.app/welib-audio/:md5"
+    },
+    {
+      "source": "/welib-cover/:path*",
+      "destination": "https://progetto-infanzia-production.up.railway.app/welib-cover/:path*"
+    },
+    {
       "source": "/((?!api/|assets/|audio/|hub/|favicon|apple-touch|.*\\..*).*)",
       "destination": "/index.html"
     }

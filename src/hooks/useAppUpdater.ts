@@ -6,6 +6,7 @@ import {
   dismissUpdateVersion,
   downloadAndInstallUpdate,
   fetchAppVersion,
+  isMandatoryUpdate,
   isUpdaterSupported,
   relaunchApp,
   type UpdaterPhase,
@@ -91,7 +92,8 @@ export function useAppUpdater({ autoCheck = true }: UseAppUpdaterOptions = {}) {
   }, [pendingUpdate]);
 
   const dismiss = useCallback(() => {
-    if (pendingUpdate) dismissUpdateVersion(pendingUpdate.version);
+    if (pendingUpdate && isMandatoryUpdate(pendingUpdate)) return;
+    if (pendingUpdate) dismissUpdateVersion(pendingUpdate.version, pendingUpdate.body);
     setPendingUpdate(null);
     setShowPrompt(false);
     setPhase("idle");

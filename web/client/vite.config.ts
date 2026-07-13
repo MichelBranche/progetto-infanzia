@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { devServerProxy } from "../../vite.dev-proxy";
+import { branchefyVersionJson } from "../../tools/vite-version-json.mjs";
 
 const clientDir = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(clientDir, "..");
@@ -17,7 +18,7 @@ export default defineConfig({
   root: repoRoot,
   envDir: repoRoot,
   publicDir: path.join(repoRoot, "public"),
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), branchefyVersionJson(repoRoot)],
   resolve: {
     modules: [
       path.join(webDir, "node_modules"),

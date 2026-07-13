@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import {
+  AlertTriangle,
   ArrowRight,
   Bug,
   Download,
@@ -14,6 +15,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import type { UpdaterPhase, UpdaterProgress } from "../lib/appUpdater";
 import {
   countUpdateNotesItems,
+  isEssentialUpdate,
   parseUpdateNotes,
   updateNotesSectionKind,
   updateNotesSectionLabel,
@@ -91,6 +93,7 @@ export function UpdatePrompt({
   onDismiss,
 }: UpdatePromptProps) {
   const busy = phase === "downloading" || phase === "installing";
+  const essential = isEssentialUpdate(update?.body);
   const noteSections = parseUpdateNotes(update?.body);
   const noteCount = countUpdateNotesItems(noteSections);
   const percent =
@@ -115,7 +118,7 @@ export function UpdatePrompt({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[100] flex items-end justify-center bg-black/65 p-4 backdrop-blur-md sm:items-center sm:p-6"
-          onClick={!busy ? onDismiss : undefined}
+          onClick={!busy && !essential ? onDismiss : undefined}
         >
           <motion.div
             role="dialog"
@@ -126,12 +129,20 @@ export function UpdatePrompt({
             exit={{ opacity: 0, y: 20, scale: 0.98 }}
             transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0a0a0c] shadow-[0_32px_80px_rgba(0,0,0,0.65)]"
+            className={`relative w-full max-w-lg overflow-hidden rounded-2xl border bg-[#0a0a0c] shadow-[0_32px_80px_rgba(0,0,0,0.65)] ${
+              essential ? "border-warm/30 bg-[#120a0a]" : "border-white/[0.08]"
+            }`}
           >
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-accent/20 via-accent/5 to-transparent" />
+            <div
+              className={`pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b to-transparent ${
+                essential
+                  ? "from-warm/25 via-warm/5"
+                  : "from-accent/20 via-accent/5"
+              }`}
+            />
             <div className="noise-overlay pointer-events-none absolute inset-0 opacity-[0.08]" />
 
-            {!busy && (
+            {!busy && !essential && (
               <button
                 type="button"
                 onClick={onDismiss}
@@ -144,12 +155,28 @@ export function UpdatePrompt({
 
             <div className="relative px-6 pb-5 pt-6 sm:px-7 sm:pt-7">
               <div className="flex items-start gap-4 pr-8">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-accent/25 bg-accent/10 shadow-[0_0_32px_rgba(94,234,212,0.12)]">
-                  <Rocket className="h-5 w-5 text-accent" />
+                <div
+                  className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border shadow-[0_0_32px_rgba(94,234,212,0.12)] ${
+                    essential
+                      ? "border-warm/30 bg-warm/10 text-warm"
+                      : "border-accent/25 bg-accent/10"
+                  }`}
+                >
+                  {essential ? (
+                    <AlertTriangle className="h-5 w-5 text-warm" />
+                  ) : (
+                    <Rocket className="h-5 w-5 text-accent" />
+                  )}
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-accent">
-                    Aggiornamento
+                  <p
+                    className={`text-[10px] font-semibold uppercase tracking-[0.32em] ${
+                      essential ? "text-warm" : "text-accent"
+                    }`}
+                  >
+                    {essential
+                      ? "Aggiornamento importante essenziale"
+                      : "Aggiornamento"}
                   </p>
                   <h2
                     id="update-prompt-title"
@@ -157,6 +184,12 @@ export function UpdatePrompt({
                   >
                     Branchefy {update.version}
                   </h2>
+                  {essential && (
+                    <p className="mt-2 text-[13px] leading-relaxed text-text-secondary">
+                      Questo aggiornamento è necessario per continuare a guardare
+                      film e serie in streaming.
+                    </p>
+                  )}
                   <p
                     id="update-prompt-desc"
                     className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-text-muted"
@@ -274,20 +307,30 @@ export function UpdatePrompt({
 
               {!busy && (
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
-                  <button
-                    type="button"
-                    onClick={onDismiss}
-                    className="rounded-full border border-white/10 px-5 py-2.5 text-[12px] font-medium text-text-secondary transition-colors hover:border-white/20 hover:bg-white/[0.04] hover:text-text-primary"
-                  >
-                    Più tardi
-                  </button>
+                  {!essential && (
+                    <button
+                      type="button"
+                      onClick={onDismiss}
+                      className="rounded-full border border-white/10 px-5 py-2.5 text-[12px] font-medium text-text-secondary transition-colors hover:border-white/20 hover:bg-white/[0.04] hover:text-text-primary"
+                    >
+                      Più tardi
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={onInstall}
-                    className="inline-flex items-center justify-center gap-2 rounded-full bg-text-primary px-5 py-2.5 text-[12px] font-semibold text-void transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                    className={`inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-[12px] font-semibold transition-transform hover:scale-[1.02] active:scale-[0.98] ${
+                      essential
+                        ? "bg-warm text-void"
+                        : "bg-text-primary text-void"
+                    }`}
                   >
                     <Download className="h-4 w-4" />
-                    {error ? "Riprova installazione" : "Installa e riavvia"}
+                    {error
+                      ? "Riprova installazione"
+                      : essential
+                        ? "Aggiorna ora"
+                        : "Installa e riavvia"}
                   </button>
                 </div>
               )}

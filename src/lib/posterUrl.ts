@@ -8,7 +8,7 @@ const SC_BARE_IMAGE_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i;
 const LOCALHOST_ASSET_RE = /^https?:\/\/127\.0\.0\.1:\d+/i;
 const BACKEND_ASSET_PATH_RE =
-  /^\/(sc-image|poster|series-poster|saturn-poster|loonex-poster)\//;
+  /^\/(sc-image|poster|series-poster|saturn-poster|loonex-poster|welib-book|welib-audio|welib-cover)\//;
 
 function webAssetOrigin(): string {
   if (typeof window === "undefined") return "";

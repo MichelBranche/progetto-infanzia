@@ -1,11 +1,16 @@
 use crate::addon_proxy::AddonProxyRegistry;
+use crate::db::Database;
 use crate::html_text::decode_html_entities;
 use crate::sc_catalog;
 use crate::stremio::{PlayableStream, StremioMeta, StremioMetaPreview, StremioVideo};
+use crate::vix_embed;
 use reqwest::blocking::Client;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::time::Duration;
+
+/// vixcloud.co non risolve più in DNS; SC continua a restituire quel host negli embed.
+/// Il dominio attivo viene scoperto automaticamente da `vix_embed` all'avvio e in playback.
 
 pub fn fetch_title_meta(
     app: &str,
@@ -94,6 +99,7 @@ pub fn resolve_playback(
     slug: &str,
     episode_id: Option<i64>,
     proxy: &AddonProxyRegistry,
+    db: &Database,
 ) -> Result<PlayableStream, String> {
     let mut session = ScSession::open(app, locale)?;
     let watch_path = watch_path(locale, title_id, slug, episode_id);
@@ -113,12 +119,16 @@ pub fn resolve_playback(
     let embed_url = embed_url_with_episode(embed_url, effective_episode);
 
     let iframe_html = session.get_html(&embed_url, Some(&referer))?;
-    let vix_embed =
-        extract_iframe_src(&iframe_html).ok_or_else(|| "Embed vixcloud non trovato".to_string())?;
-    let vix_html = session.get_html(&vix_embed, Some(app))?;
+    let vix_embed = extract_iframe_src(&iframe_html)
+        .or_else(|| vix_embed::extract_embed_url_from_html(&iframe_html))
+        .ok_or_else(|| {
+            "Riproduzione temporaneamente non disponibile. Riprova tra qualche istante.".to_string()
+        })?;
+    let vix_html = session.get_vix_embed_html(&vix_embed, Some(app), db, Some(&iframe_html))?;
     Ok(stream_from_playlist(
-        build_playlist_url(&vix_embed, &vix_html, locale)?,
+        build_playlist_url(&vix_embed, &vix_html, locale, db)?,
         proxy,
+        db,
     ))
 }
 
@@ -129,6 +139,7 @@ pub fn debug_embed_urls(
     title_id: i64,
     slug: &str,
     episode_ids: &[Option<i64>],
+    db: &Database,
 ) -> Vec<(Option<i64>, Result<String, String>)> {
     episode_ids
         .iter()
@@ -146,6 +157,7 @@ pub fn debug_embed_urls(
                     .ok_or_else(|| "embedUrl mancante".to_string())?;
                 let iframe_html = session.get_html(&embed, Some(&referer))?;
                 extract_iframe_src(&iframe_html)
+                    .map(|url| vix_embed::rewrite_embed_url(&url, db))
                     .ok_or_else(|| "vix embed mancante".to_string())
             })();
             (*ep, result)
@@ -159,6 +171,7 @@ pub fn resolve_preview(
     title_id: i64,
     slug: &str,
     proxy: &AddonProxyRegistry,
+    db: &Database,
 ) -> Result<Option<PlayableStream>, String> {
     let mut session = ScSession::open(app, locale)?;
     let path = title_path(locale, title_id, slug, None);
@@ -174,9 +187,9 @@ pub fn resolve_preview(
         return Ok(None);
     };
 
-    let vix_html = session.get_html(&embed_url, Some(app))?;
-    let playlist_url = build_playlist_url(&embed_url, &vix_html, locale)?;
-    Ok(Some(stream_from_playlist(playlist_url, proxy)))
+    let vix_html = session.get_vix_embed_html(&embed_url, Some(app), db, None)?;
+    let playlist_url = build_playlist_url(&embed_url, &vix_html, locale, db)?;
+    Ok(Some(stream_from_playlist(playlist_url, proxy, db)))
 }
 
 pub fn search_titles(
@@ -208,8 +221,12 @@ pub fn search_titles(
         .unwrap_or_default())
 }
 
-fn stream_from_playlist(playlist_url: String, proxy: &AddonProxyRegistry) -> PlayableStream {
-    let headers = vixcloud_headers();
+fn stream_from_playlist(
+    playlist_url: String,
+    proxy: &AddonProxyRegistry,
+    db: &Database,
+) -> PlayableStream {
+    let headers = vix_embed::request_headers(db);
     let proxy_id = proxy.register(playlist_url, headers, true);
     PlayableStream {
         url: proxy.playback_url(&proxy_id),
@@ -224,19 +241,6 @@ fn stream_from_playlist(playlist_url: String, proxy: &AddonProxyRegistry) -> Pla
         file_idx: None,
         sources: Vec::new(),
     }
-}
-
-fn vixcloud_headers() -> HashMap<String, String> {
-    let mut headers = HashMap::new();
-    headers.insert("Referer".to_string(), "https://vixcloud.co/".to_string());
-    headers.insert("Origin".to_string(), "https://vixcloud.co".to_string());
-    headers.insert(
-        "User-Agent".to_string(),
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
-         (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Branchefy/0.1"
-            .to_string(),
-    );
-    headers
 }
 
 fn is_low_res_hero_filename(filename: &str) -> bool {
@@ -681,6 +685,29 @@ impl ScSession {
             .map_err(|e| e.to_string())
     }
 
+    fn get_vix_embed_html(
+        &self,
+        embed_url: &str,
+        referer: Option<&str>,
+        db: &Database,
+        html_hints: Option<&str>,
+    ) -> Result<String, String> {
+        let referer_url = referer.map(|r| {
+            if r.starts_with("http") {
+                r.to_string()
+            } else {
+                format!("{}{}", self.app_base, r)
+            }
+        });
+        vix_embed::fetch_embed_html(
+            &self.client,
+            embed_url,
+            referer_url.as_deref(),
+            db,
+            html_hints,
+        )
+    }
+
     fn inertia_page(&mut self, path: &str, referer: Option<&str>) -> Result<Value, String> {
         if self.inertia_version.is_none() {
             let html = self.get_html(path, referer)?;
@@ -855,13 +882,20 @@ fn extract_js_string(html: &str, key: &str) -> Option<String> {
     None
 }
 
-fn build_playlist_url(vix_embed: &str, vix_html: &str, locale: &str) -> Result<String, String> {
+fn build_playlist_url(
+    vix_embed: &str,
+    vix_html: &str,
+    locale: &str,
+    db: &Database,
+) -> Result<String, String> {
     let block_start = vix_html
         .find("window.masterPlaylist")
         .ok_or_else(|| "Playlist HLS non trovata".to_string())?;
     let block = &vix_html[block_start..block_start.saturating_add(2500)];
-    let master_url =
-        extract_js_string(block, "url").ok_or_else(|| "URL playlist non trovata".to_string())?;
+    let master_url = vix_embed::rewrite_playlist_url(
+        &extract_js_string(block, "url").ok_or_else(|| "URL playlist non trovata".to_string())?,
+        db,
+    );
     let token = extract_js_string(block, "token").unwrap_or_default();
     let expires = extract_js_string(block, "expires").unwrap_or_default();
     let can_fhd = vix_html.contains("canPlayFHD = true") || vix_embed.contains("canPlayFHD=1");
@@ -1053,6 +1087,8 @@ mod tests {
     #[test]
     fn resolve_movie_playback_live() {
         let proxy = AddonProxyRegistry::new();
+        let db = crate::db::Database::open(std::path::Path::new(":memory:")).expect("db");
+        crate::vix_embed::bootstrap(&db);
         let stream = resolve_playback(
             "https://streamingcommunityz.tech",
             "it",
@@ -1060,6 +1096,7 @@ mod tests {
             "messaggi-per-isabelle",
             None,
             &proxy,
+            &db,
         )
         .expect("SC playback resolve");
         assert!(stream.is_hls);

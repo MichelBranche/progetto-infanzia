@@ -17,6 +17,7 @@ export type NavIcon =
   | "Users"
   | "Anime"
   | "Manga"
+  | "Library"
   | "User"
   | "Terminal"
   | "MessageSquare"
@@ -40,6 +41,7 @@ const primaryItems: NavItem[] = [
   { id: "home", label: "Home", icon: "Home" },
   { id: "anime", label: "Anime", icon: "Anime" },
   { id: "manga", label: "Manga", icon: "Manga" },
+  { id: "libri", label: "Libri", icon: "Library" },
   { id: "profile", label: "Profilo", icon: "User" },
   ...(STREMIO_ADDONS_ENABLED
     ? [{ id: "streaming", label: "In streaming", icon: "Wifi" as const }]
@@ -189,6 +191,10 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
     manga: {
       title: "Manga",
       subtitle: "Tabloid MangaDex · Novità, popolari e lettura online",
+    },
+    libri: {
+      title: "Libri",
+      subtitle: "Catalogo WeLib · Lettura e audiolibri online",
     },
     cartoni: { title: "Cartoni", subtitle: "Catalogo Loonex e YouTube" },
     serie: { title: "Serie TV", subtitle: "Scopri nuove serie da guardare" },

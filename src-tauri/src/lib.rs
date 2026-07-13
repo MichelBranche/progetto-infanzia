@@ -18,12 +18,14 @@ mod profile_avatar;
 mod loonex_catalog;
 mod loonex_playback;
 mod mangadex;
+mod welib;
 mod youtube_catalog;
 mod youtube_playback;
 mod saturn_catalog;
 mod saturn_playback;
 mod sc_catalog;
 mod sc_playback;
+mod vix_embed;
 mod scanner;
 mod settings;
 mod stream;
@@ -1149,7 +1151,15 @@ async fn resolve_sc_stream_cmd(
     let proxy = state.addon_proxy.clone();
     tokio::task::spawn_blocking(move || {
         let app = sc_catalog::resolve_app_url(db.as_ref())?;
-        sc_playback::resolve_playback(&app, &locale, title_id, &slug, episode_id, &proxy)
+        sc_playback::resolve_playback(
+            &app,
+            &locale,
+            title_id,
+            &slug,
+            episode_id,
+            &proxy,
+            db.as_ref(),
+        )
     })
     .await
     .map_err(|e| format!("Errore riproduzione: {e}"))?
@@ -1343,7 +1353,7 @@ async fn resolve_sc_preview_cmd(
     let proxy = state.addon_proxy.clone();
     tokio::task::spawn_blocking(move || {
         let app = sc_catalog::resolve_app_url(db.as_ref())?;
-        sc_playback::resolve_preview(&app, &locale, title_id, &slug, &proxy)
+        sc_playback::resolve_preview(&app, &locale, title_id, &slug, &proxy, db.as_ref())
     })
     .await
     .map_err(|e| format!("Errore anteprima: {e}"))?
@@ -2155,6 +2165,10 @@ fn init_app(handle: &AppHandle) -> Result<AppState, String> {
     let _ = loonex_catalog::ensure_defaults(&db);
     let _ = youtube_catalog::ensure_defaults(&db);
     let _ = db.sync_empty_child_allowlists();
+    let db_bootstrap = db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::vix_embed::bootstrap(db_bootstrap.as_ref());
+    });
     let media_root = parking_lot::RwLock::new(std::path::PathBuf::new());
 
     let addon_proxy = Arc::new(AddonProxyRegistry::new());
@@ -2312,6 +2326,8 @@ pub fn run() {
             cast_position_cmd,
             get_lan_host_cmd,
             mangadex::mangadex_fetch_cmd,
+            welib::welib_popular_cmd,
+            welib::welib_search_cmd,
             image_palette::extract_image_palette_cmd,
         ])
         .run(tauri::generate_context!())

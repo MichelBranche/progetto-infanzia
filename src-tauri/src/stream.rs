@@ -20,6 +20,7 @@ use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio_util::io::ReaderStream;
 use tower_http::cors::{Any, CorsLayer};
+use serde::Deserialize;
 
 pub struct StreamState {
     pub db: Arc<Database>,
@@ -118,6 +119,15 @@ where
         .route("/saturn-poster/{*path}", get(saturn_poster_handler))
         .route("/loonex-poster/{*path}", get(loonex_poster_handler))
         .route("/sc-image/{*path}", get(sc_image_handler))
+        .route(
+            "/welib-book/{md5}",
+            get(welib_book_handler).head(welib_book_head_handler),
+        )
+        .route(
+            "/welib-audio/{md5}",
+            get(welib_audio_handler).head(welib_audio_head_handler),
+        )
+        .route("/welib-cover/{*path}", get(welib_cover_handler))
         .route(
             "/remote/{id}",
             get(remote_handler).head(remote_head_handler),
@@ -408,9 +418,129 @@ fn referer_for_image_url(url: &str) -> &'static str {
         "https://www.animesaturn.ac/"
     } else if lower.contains("streamingcommunity") {
         "https://streamingcommunityz.tech/"
+    } else if lower.contains("x-cdn-x.com") || lower.contains("welib.org") {
+        "https://welib.org/"
     } else {
         "https://loonex.eu/cartoni/"
     }
+}
+
+async fn welib_book_head_handler(
+    Path(md5): Path<String>,
+    Query(query): Query<WelibBookQuery>,
+) -> Result<Response<Body>, StatusCode> {
+    welib_book_response(&md5, query.format.as_deref(), true).await
+}
+
+async fn welib_book_handler(
+    Path(md5): Path<String>,
+    Query(query): Query<WelibBookQuery>,
+) -> Result<Response<Body>, StatusCode> {
+    welib_book_response(&md5, query.format.as_deref(), false).await
+}
+
+#[derive(Debug, Deserialize)]
+struct WelibBookQuery {
+    format: Option<String>,
+}
+
+async fn welib_book_response(
+    md5: &str,
+    format_hint: Option<&str>,
+    head_only: bool,
+) -> Result<Response<Body>, StatusCode> {
+    crate::welib::validate_md5(md5).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let (bytes, mime) = crate::welib::fetch_book_file(md5, format_hint)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let mut builder = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, mime)
+        .header(header::CONTENT_DISPOSITION, "inline")
+        .header(header::CACHE_CONTROL, "private, max-age=300");
+
+    if head_only {
+        builder = builder.header(header::CONTENT_LENGTH, bytes.len());
+        return builder
+            .body(Body::empty())
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    builder
+        .body(Body::from(bytes))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn welib_cover_handler(
+    Path(path): Path<String>,
+) -> Result<Response<Body>, StatusCode> {
+    let decoded = urlencoding::decode(&path).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let cover_url = decoded.into_owned();
+    let lower = cover_url.to_ascii_lowercase();
+    if !lower.starts_with("https://img.x-cdn-x.com/") {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let bytes = crate::welib::fetch_cover_bytes(&cover_url)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let mime = if bytes.starts_with(b"\x89PNG") {
+        "image/png"
+    } else if bytes.starts_with(b"\xff\xd8") {
+        "image/jpeg"
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "image/webp"
+    } else {
+        "image/jpeg"
+    };
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, mime)
+        .header(header::CACHE_CONTROL, "public, max-age=86400")
+        .body(Body::from(bytes))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn welib_audio_head_handler(
+    Path(md5): Path<String>,
+) -> Result<Response<Body>, StatusCode> {
+    welib_audio_response(&md5, true).await
+}
+
+async fn welib_audio_handler(
+    Path(md5): Path<String>,
+) -> Result<Response<Body>, StatusCode> {
+    welib_audio_response(&md5, false).await
+}
+
+async fn welib_audio_response(md5: &str, head_only: bool) -> Result<Response<Body>, StatusCode> {
+    crate::welib::validate_md5(md5).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let path = format!("/audiobooks/{md5}.mp3");
+    let (bytes, _) = crate::welib::fetch_bytes(&path)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let mut builder = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "audio/mpeg")
+        .header(header::CONTENT_DISPOSITION, "inline")
+        .header(header::CACHE_CONTROL, "private, max-age=300");
+
+    if head_only {
+        builder = builder.header(header::CONTENT_LENGTH, bytes.len());
+        return builder
+            .body(Body::empty())
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    builder
+        .body(Body::from(bytes))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 async fn sc_image_handler(

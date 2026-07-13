@@ -19,6 +19,8 @@ interface MangaBookReaderProps {
   title: string;
   initialPage?: number;
   onPageChange?: (page: number) => void;
+  /** Manga = RTL (tap sinistra = avanti). Libri = LTR. */
+  readingDirection?: "ltr" | "rtl";
 }
 
 const KindlePage = memo(function KindlePage({
@@ -52,7 +54,9 @@ export function MangaBookReader({
   title,
   initialPage = 0,
   onPageChange,
+  readingDirection = "rtl",
 }: MangaBookReaderProps) {
+  const isLtr = readingDirection === "ltr";
   const { isMobileDevice } = useMobileDevice();
   const viewportRef = useRef<HTMLDivElement>(null);
   const onPageChangeRef = useRef(onPageChange);
@@ -209,34 +213,50 @@ export function MangaBookReader({
       const rect = viewportRef.current?.getBoundingClientRect();
       if (!rect) return;
       const ratio = (event.clientX - rect.left) / rect.width;
-      if (ratio <= 0.34) turnNext();
-      else if (ratio >= 0.66) turnPrev();
+      if (isLtr) {
+        if (ratio <= 0.34) turnPrev();
+        else if (ratio >= 0.66) turnNext();
+      } else {
+        if (ratio <= 0.34) turnNext();
+        else if (ratio >= 0.66) turnPrev();
+      }
     },
-    [isTurning, turnNext, turnPrev],
+    [isLtr, isTurning, turnNext, turnPrev],
   );
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "ArrowLeft" || event.key === " ") {
-        event.preventDefault();
-        turnNext();
-      } else if (event.key === "ArrowRight") {
-        event.preventDefault();
-        turnPrev();
-      } else if (event.key === "Home") {
+      if (isLtr) {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          turnPrev();
+        } else if (event.key === "ArrowRight" || event.key === " ") {
+          event.preventDefault();
+          turnNext();
+        }
+      } else {
+        if (event.key === "ArrowLeft" || event.key === " ") {
+          event.preventDefault();
+          turnNext();
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          turnPrev();
+        }
+      }
+      if (event.key === "Home") {
         event.preventDefault();
         rewindToStart();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rewindToStart, turnNext, turnPrev]);
+  }, [isLtr, rewindToStart, turnNext, turnPrev]);
 
   const progress =
     pages.length > 0 ? ((currentPage + 1) / pages.length) * 100 : 0;
 
   return (
-    <div className="manga-kindle">
+    <div className={`manga-kindle${isLtr ? " manga-kindle--ltr" : ""}`}>
       <div className="manga-kindle__title" aria-hidden>
         {title}
       </div>
@@ -273,9 +293,9 @@ export function MangaBookReader({
         </div>
 
         {isMobileDevice && (
-          <div className="manga-kindle__hint" aria-hidden>
-            <span>Avanti</span>
-            <span>Indietro</span>
+          <div className={`manga-kindle__hint${isLtr ? " manga-kindle__hint--ltr" : ""}`} aria-hidden>
+            <span>{isLtr ? "Indietro" : "Avanti"}</span>
+            <span>{isLtr ? "Avanti" : "Indietro"}</span>
           </div>
         )}
       </div>

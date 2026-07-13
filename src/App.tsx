@@ -22,6 +22,7 @@ import { MangaPromoBanner } from "./components/MangaPromoBanner";
 import { PlatformPromoBanner } from "./components/PlatformPromoBanner";
 import { ProfilePage, type ProfileTab } from "./components/ProfilePage";
 import { AppUpdaterProvider } from "./context/AppUpdaterContext";
+import { WebEssentialUpdateBanner } from "./components/WebEssentialUpdateBanner";
 import { ProfilePinModal } from "./components/ProfilePinModal";
 import { LibraryProvider, useLibrary } from "./context/LibraryContext";
 import { AddonsProvider, useAddons } from "./context/AddonsContext";
@@ -93,6 +94,7 @@ import { joinCloudWatchParty } from "./lib/cloudWatchParty";
 import { ensureWatchPartyChat } from "./lib/cloudChat";
 import type { WatchPartySession } from "./types/watchParty";
 import type { MangaBrowseItem } from "./types/mangadex";
+import type { WelibBook } from "./types/welib";
 import { FRIEND_REQUESTS_EVENT } from "./lib/friendRequestsNavigation";
 import {
   consumePendingWatchPartyInvite,
@@ -147,6 +149,15 @@ const MangaDetailPage = lazy(() =>
 );
 const MangaReaderPage = lazy(() =>
   import("./components/MangaReaderPage").then((m) => ({ default: m.MangaReaderPage })),
+);
+const BooksPage = lazy(() =>
+  import("./components/BooksPage").then((m) => ({ default: m.BooksPage })),
+);
+const BookDetailPage = lazy(() =>
+  import("./components/BookDetailPage").then((m) => ({ default: m.BookDetailPage })),
+);
+const BookReaderPage = lazy(() =>
+  import("./components/BookReaderPage").then((m) => ({ default: m.BookReaderPage })),
 );
 const SearchOverlay = lazy(() =>
   import("./components/SearchOverlay").then((m) => ({ default: m.SearchOverlay })),
@@ -327,6 +338,11 @@ function AppContent() {
     mangaTitle: string;
     initialPage?: number;
   } | null>(null);
+  const [bookDetail, setBookDetail] = useState<WelibBook | null>(null);
+  const [bookReader, setBookReader] = useState<{
+    book: WelibBook;
+    kind: "read" | "listen";
+  } | null>(null);
   const [heroItems, setHeroItems] = useState<MediaItem[]>([]);
   const prevActiveNavRef = useRef(activeNav);
   const cartoniCatalogRefreshRef = useRef(false);
@@ -430,6 +446,8 @@ function AppContent() {
       setSeriesKey(null);
       setMangaDetail(null);
       setMangaReader(null);
+      setBookDetail(null);
+      setBookReader(null);
       setSearchOpen(false);
       setSearchQuery("");
       setProfileTab("friends");
@@ -516,6 +534,8 @@ function AppContent() {
       setSeriesKey(null);
       setMangaDetail(null);
       setMangaReader(null);
+      setBookDetail(null);
+      setBookReader(null);
       setSearchOpen(false);
       setSearchQuery("");
       setActiveNav("invite");
@@ -526,6 +546,8 @@ function AppContent() {
     setSeriesKey(null);
     setMangaDetail(null);
     setMangaReader(null);
+    setBookDetail(null);
+    setBookReader(null);
     if (id === "mylist") {
       setProfileTab("list");
       setSearchOpen(false);
@@ -569,6 +591,19 @@ function AppContent() {
   const handleOpenManga = useCallback((item: MangaBrowseItem) => {
     setMangaReader(null);
     setMangaDetail(item);
+  }, []);
+
+  const handleOpenBook = useCallback((item: WelibBook) => {
+    setBookReader(null);
+    setBookDetail(item);
+  }, []);
+
+  const handleReadBook = useCallback((item: WelibBook) => {
+    setBookReader({ book: item, kind: "read" });
+  }, []);
+
+  const handleListenBook = useCallback((item: WelibBook) => {
+    setBookReader({ book: item, kind: "listen" });
   }, []);
 
   const handleReadMangaChapter = useCallback(
@@ -1220,6 +1255,23 @@ function AppContent() {
                   </SuspenseRoute>
                 )}
 
+                {!seriesKey && activeNav === "libri" && !bookDetail && (
+                  <SuspenseRoute>
+                    <BooksPage onOpenBook={handleOpenBook} />
+                  </SuspenseRoute>
+                )}
+
+                {!seriesKey && activeNav === "libri" && bookDetail && !bookReader && (
+                  <SuspenseRoute>
+                    <BookDetailPage
+                      book={bookDetail}
+                      onBack={() => setBookDetail(null)}
+                      onRead={handleReadBook}
+                      onListen={handleListenBook}
+                    />
+                  </SuspenseRoute>
+                )}
+
                 {!seriesKey && activeNav === "streaming" && STREMIO_ADDONS_ENABLED && (
                   <SuspenseRoute>
                     <StreamingPage
@@ -1490,6 +1542,7 @@ function AppContent() {
                   activeNav !== "home" &&
                   activeNav !== "anime" &&
                   activeNav !== "manga" &&
+                  activeNav !== "libri" &&
                   activeNav !== "cartoni" &&
                   activeNav !== "profile" &&
                   activeNav !== "add" &&
@@ -1534,6 +1587,16 @@ function AppContent() {
             allowAdult={isParent}
             onBack={() => setMangaReader(null)}
             onChapterChange={handleMangaReaderChapterChange}
+          />
+        </SuspenseRoute>
+      )}
+
+      {bookReader && (
+        <SuspenseRoute>
+          <BookReaderPage
+            book={bookReader.book}
+            kind={bookReader.kind}
+            onBack={() => setBookReader(null)}
           />
         </SuspenseRoute>
       )}
@@ -1649,6 +1712,7 @@ function AppGate() {
         <LibraryProvider profileId={activeProfile.id}>
           <AddonsProvider profileId={activeProfile.id}>
             <AppUpdaterProvider>
+              {isWebShell() && <WebEssentialUpdateBanner />}
               <CloudFriendAlertsProvider>
                 <ChatMessageAlertsProvider>
                   <ChatPopupProvider>
