@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, useCallback, useEffect } from "react";
 import { Film, Home, MoreHorizontal, Search, Tv } from "lucide-react";
 import { getNavSections, type NavItem } from "../data/nav";
 import { useAddons } from "../context/AddonsContext";
+import { useAppAccess } from "../context/AppAccessContext";
 import type { Profile } from "../types/profile";
 import { useMobileNavIndicator } from "../hooks/useMobileNavIndicator";
 import { useCompactShell } from "../context/MobileDeviceContext";
@@ -44,8 +45,9 @@ export function AppMobileNavBar({
   const dockRef = useRef<HTMLDivElement>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const { hasStreaming } = useAddons();
+  const { isGuest } = useAppAccess();
 
-  const sections = getNavSections(profile, hasStreaming, devMode);
+  const sections = getNavSections(profile, hasStreaming, devMode, isGuest);
 
   const moreNav = useMemo(() => {
     const primary = new Set<string>(MOBILE_PRIMARY.map((item) => item.id));

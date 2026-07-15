@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { getNavSections, type NavItem } from "../data/nav";
 import { useAddons } from "../context/AddonsContext";
+import { useAppAccess } from "../context/AppAccessContext";
 import type { Profile } from "../types/profile";
 import { roleLabel } from "../types/profile";
 import { ProfileAvatar } from "./ProfileAvatar";
@@ -186,7 +187,8 @@ export function Sidebar({
   alertDots,
 }: SidebarProps) {
   const { hasStreaming } = useAddons();
-  const sections = getNavSections(profile, hasStreaming, devMode);
+  const { isGuest } = useAppAccess();
+  const sections = getNavSections(profile, hasStreaming, devMode, isGuest);
   const [pinned, setPinned] = useState(() => {
     try {
       return localStorage.getItem(SIDEBAR_PIN_KEY) === "true";

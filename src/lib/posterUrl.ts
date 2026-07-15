@@ -1,3 +1,9 @@
+import {
+  adaptHeroUrlForTier,
+  adaptPosterUrlForTier,
+  posterTierFallbacks,
+  type PosterQualityTier,
+} from "./posterQuality";
 import { isWebShell } from "./runtimeInvoke";
 
 const TMDB_SIZE_RE = /\/t\/p\/w\d+\//i;
@@ -6,6 +12,9 @@ const SC_CDN_IMAGE_RE =
   /^https?:\/\/cdn\.streamingcommunity[^/]+\/images\/(.+)$/i;
 const SC_BARE_IMAGE_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i;
+const SATURN_CDN_IMAGE_RE = /^https?:\/\/img\.saturncdn\.net\/(.+)$/i;
+const LOONEX_SITE_IMAGE_RE =
+  /^https?:\/\/(?:www\.)?loonex\.eu\/cartoni\/(.+)$/i;
 const LOCALHOST_ASSET_RE = /^https?:\/\/127\.0\.0\.1:\d+/i;
 const BACKEND_ASSET_PATH_RE =
   /^\/(sc-image|poster|series-poster|saturn-poster|loonex-poster|welib-book|welib-audio|welib-cover)\//;
@@ -53,9 +62,12 @@ export function normalizeWebAssetUrl(
 export function proxifyCdnImageUrl(
   url: string | undefined,
 ): string | undefined {
-  if (!url?.trim() || !isWebShell()) return url;
+  if (!url?.trim()) return url;
 
   const trimmed = url.trim();
+
+  if (!isWebShell()) return trimmed;
+
   if (trimmed.startsWith("/sc-image/")) return normalizeWebAssetUrl(trimmed);
 
   const match = trimmed.match(SC_CDN_IMAGE_RE);
@@ -68,7 +80,70 @@ export function proxifyCdnImageUrl(
     return normalizeWebAssetUrl(`/sc-image/${trimmed}`);
   }
 
+  const saturn = trimmed.match(SATURN_CDN_IMAGE_RE);
+  if (saturn) {
+    return normalizeWebAssetUrl(`/saturn-poster/${saturn[1].replace(/^\/+/, "")}`);
+  }
+
+  const loonex = trimmed.match(LOONEX_SITE_IMAGE_RE);
+  if (loonex) {
+    return normalizeWebAssetUrl(`/loonex-poster/${loonex[1].replace(/^\/+/, "")}`);
+  }
+
+  if (trimmed.includes("/saturn-poster/") || trimmed.includes("/loonex-poster/")) {
+    return normalizeWebAssetUrl(trimmed);
+  }
+
   return normalizeWebAssetUrl(trimmed);
+}
+
+export function adaptPosterUrl(
+  url: string | undefined,
+  tier: PosterQualityTier = "high",
+): string | undefined {
+  return proxifyCdnImageUrl(adaptPosterUrlForTier(url, tier));
+}
+
+export function adaptHeroUrl(
+  url: string | undefined,
+  tier: PosterQualityTier = "high",
+): string | undefined {
+  return proxifyCdnImageUrl(adaptHeroUrlForTier(url, tier));
+}
+
+/** URL alternativi da provare se il poster principale non carica (hotlink, CDN, ecc.). */
+export function posterUrlFallbacks(
+  url: string | undefined,
+  tier: PosterQualityTier = "high",
+): string[] {
+  if (!url?.trim()) return [];
+
+  const out: string[] = [];
+  const push = (candidate?: string) => {
+    if (!candidate || out.includes(candidate)) return;
+    out.push(candidate);
+  };
+
+  for (const candidate of posterTierFallbacks(url.trim(), tier)) {
+    push(proxifyCdnImageUrl(candidate) ?? adaptPosterUrl(candidate, tier));
+  }
+
+  const trimmed = url.trim();
+  const saturn = trimmed.match(SATURN_CDN_IMAGE_RE);
+  if (saturn) {
+    push(normalizeWebAssetUrl(`/saturn-poster/${saturn[1].replace(/^\/+/, "")}`));
+  }
+
+  if (LOCALHOST_ASSET_RE.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      push(normalizeWebAssetUrl(`${parsed.pathname}${parsed.search}`));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return out;
 }
 
 /** Prefer the highest-resolution variant known for a poster/cover URL. */

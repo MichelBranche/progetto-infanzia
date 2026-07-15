@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { getNavSections, type NavItem } from "../data/nav";
 import { useAddons } from "../context/AddonsContext";
+import { useAppAccess } from "../context/AppAccessContext";
 import type { Profile } from "../types/profile";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { ProfileNotificationBadge } from "./profile/ProfileUi";
@@ -183,6 +184,7 @@ export function AppTopNav({
   const toolbarRef = useRef<HTMLDivElement>(null);
   const altroButtonRef = useRef<HTMLButtonElement>(null);
   const { hasStreaming } = useAddons();
+  const { isGuest } = useAppAccess();
   const inputRef = useRef<HTMLInputElement>(null);
   const friendsDockRef = useRef<HTMLDivElement>(null);
   const profileMenuPanelRef = useRef<HTMLDivElement>(null);
@@ -211,7 +213,7 @@ export function AppTopNav({
     registerAnchor(friendsDockRef.current);
   }, [registerAnchor]);
 
-  const sections = getNavSections(profile, hasStreaming, devMode);
+  const sections = getNavSections(profile, hasStreaming, devMode, isGuest);
   const navById = useMemo(() => {
     const map = new Map<string, NavItem>();
     for (const section of sections) {

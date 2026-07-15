@@ -10,6 +10,8 @@ import type { StreamingRow } from "./useStreamingCatalogs";
 import { decodeHtmlEntities } from "./htmlText";
 import {
   continueToPreview,
+  dedupeStreamingPreviews,
+  enrichContinuePreview,
   streamingBrowseItem,
   streamingPreviewDedupeKey,
 } from "./streamingBrowse";
@@ -464,12 +466,13 @@ export function mergeCollectionBrowseItems(
 export function mergeContinueBrowseItems(
   localItems: MediaItem[],
   continueItems: StreamingContinueItem[],
+  catalog: StremioMetaPreview[] = [],
 ): BrowseItem[] {
   const progressMap = buildStreamingProgressMap(continueItems);
   const streaming = continueItems
     .filter((item) => item.positionSecs > 5)
     .map((item) =>
-      streamingBrowseItem(enrichStreamingPreview(continueToPreview(item))),
+      streamingBrowseItem(enrichContinuePreview(item, catalog)),
     );
   const local = toBrowseItems(localItems);
   const merged = dedupeContinueBrowseItems([...streaming, ...local]);
@@ -498,10 +501,12 @@ export function buildContinueBrowseItems(
   collections: MediaCollection[],
   continueItems: StreamingContinueItem[],
   allLocalItems: MediaItem[] = [],
+  catalog: StremioMetaPreview[] = [],
 ): BrowseItem[] {
   return mergeContinueBrowseItems(
     getLocalContinueItems(collections, allLocalItems),
     continueItems,
+    catalog,
   );
 }
 
@@ -632,8 +637,17 @@ export function buildUnifiedHomeRows(
   };
 
   const rows: UnifiedHomeRow[] = [];
+  const posterCatalog = dedupeStreamingPreviews([
+    ...catalogIndex,
+    ...streamingRows.flatMap((row) => row.items),
+  ]);
   const continueRowItems = includeContinue
-    ? buildContinueBrowseItems(collections, continueItems, allLocalItems)
+    ? buildContinueBrowseItems(
+        collections,
+        continueItems,
+        allLocalItems,
+        posterCatalog,
+      )
     : [];
 
   if (includeContinue && continueRowItems.length > 0) {

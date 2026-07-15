@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { StremioMetaPreview } from "../types/stremio";
-import { maximizePosterUrl } from "../lib/posterUrl";
+import { usePosterQuality } from "../context/PosterQualityContext";
+import { adaptPosterUrl } from "../lib/posterUrl";
 import type { BrowseItem } from "../lib/browse";
 import { streamingBrowseItem } from "../lib/streamingBrowse";
 import { CARD_HOVER_DELAY_MS, CARD_PREVIEW_SEC } from "../lib/preview";
@@ -43,6 +44,7 @@ function Top10Poster({
   previewAudio: boolean;
   togglePreviewAudio: () => void;
 }) {
+  const { tier } = usePosterQuality();
   const streamTarget = previewToStreamingTarget(preview);
   const canPreview = supportsStreamingPreviewForItem(preview);
   const previewActive = useDelayedCardPreview(isHovered, canPreview);
@@ -69,7 +71,7 @@ function Top10Poster({
     )}
     {preview.poster ? (
       <img
-        src={maximizePosterUrl(preview.poster)}
+        src={adaptPosterUrl(preview.poster, tier)}
         alt=""
         loading="eager"
         decoding="async"

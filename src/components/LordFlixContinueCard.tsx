@@ -13,6 +13,7 @@ import { PosterImage } from "./PosterImage";
 
 export interface LordFlixContinueCardProps {
   browse: BrowseItem;
+  priorityPoster?: boolean;
   onPlay?: (id: string) => void;
   onPlayStreaming?: (preview: StremioMetaPreview) => void;
   onOpenDetail?: (browse: BrowseItem) => void;
@@ -94,6 +95,7 @@ function resolveRemainingLabel(
 
 export const LordFlixContinueCard = memo(function LordFlixContinueCard({
   browse,
+  priorityPoster = false,
   onPlay,
   onPlayStreaming,
   onOpenDetail,
@@ -139,6 +141,7 @@ export const LordFlixContinueCard = memo(function LordFlixContinueCard({
         <PosterImage
           item={media}
           variant="continue"
+          priority={priorityPoster}
           className="lf-continue-card__img"
         />
         {progress > 2 && (

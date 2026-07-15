@@ -119,6 +119,53 @@ function paletteFromHues(hues: [number, number, number]): AmbientPalette {
   };
 }
 
+export function paletteFromHuesPublic(hues: [number, number, number]): AmbientPalette {
+  return paletteFromHues(hues);
+}
+
+export function parseHexColor(hex: string): RgbAccent | null {
+  const normalized = hex.trim().replace(/^#/, "");
+  if (!/^[0-9a-f]{3}$|^[0-9a-f]{6}$/i.test(normalized)) return null;
+  const full =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((char) => char + char)
+          .join("")
+      : normalized;
+  return [
+    parseInt(full.slice(0, 2), 16),
+    parseInt(full.slice(2, 4), 16),
+    parseInt(full.slice(4, 6), 16),
+  ];
+}
+
+export function normalizeHexColor(hex: string, fallback = "#7c3aed"): string {
+  const rgb = parseHexColor(hex);
+  if (!rgb) return fallback;
+  return `#${rgb.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+}
+
+export function paletteFromHex(hex: string): AmbientPalette {
+  const rgb = parseHexColor(hex);
+  if (!rgb) return DEFAULT_AMBIENT_PALETTE;
+  const [hue] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+  const primary = hue;
+  const secondary = (hue + 24) % 360;
+  const tertiary = (hue - 18 + 360) % 360;
+  return paletteFromHues([primary, secondary, tertiary]);
+}
+
+export function gradientPreviewFromHex(hex: string): string {
+  const rgb = parseHexColor(hex);
+  if (!rgb) return "linear-gradient(135deg, #7c3aed, #5b21b6, #312e81)";
+  const [hue, saturation, lightness] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+  const c1 = accentCss(hslToRgb(hue, Math.min(92, saturation + 8), Math.min(58, lightness + 6)));
+  const c2 = accentCss(hslToRgb((hue + 22) % 360, saturation, Math.max(32, lightness - 8)));
+  const c3 = accentCss(hslToRgb((hue - 16 + 360) % 360, Math.max(42, saturation - 6), Math.max(24, lightness - 18)));
+  return `linear-gradient(135deg, ${c1}, ${c2}, ${c3})`;
+}
+
 export function paletteFromGradient(gradient?: string): AmbientPalette | null {
   if (!gradient) return null;
 

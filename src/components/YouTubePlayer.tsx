@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, SkipForward } from "lucide-react";
+import { useGuestPlaybackMeter } from "../hooks/useGuestPlaybackMeter";
 
 const AUTOPLAY_COUNTDOWN_SECS = 5;
 
@@ -107,8 +108,11 @@ export function YouTubePlayer({
   autoplayNextRef.current = autoplayNext;
 
   const [ready, setReady] = useState(false);
+  const [ytPlaying, setYtPlaying] = useState(false);
   const [showUpNext, setShowUpNext] = useState(false);
   const [autoplaySeconds, setAutoplaySeconds] = useState<number | null>(null);
+
+  useGuestPlaybackMeter(ytPlaying);
 
   const playNext = useCallback(() => {
     if (!nextEpisode || !onPlayNext || advancingRef.current) return;
@@ -161,6 +165,8 @@ export function YouTubePlayer({
             if (!cancelled) setReady(true);
           },
           onStateChange: (event) => {
+            const playing = event.data === YT.PlayerState.PLAYING;
+            setYtPlaying(playing);
             if (event.data !== YT.PlayerState.ENDED) return;
             if (
               !autoplayNextRef.current ||

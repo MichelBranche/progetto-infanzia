@@ -1644,6 +1644,10 @@ impl Database {
             .get_meta(crate::settings::META_INTRO_SOUND)?
             .map(|v| v != "false")
             .unwrap_or(true);
+        let home_card_sounds_enabled = self
+            .get_meta(crate::settings::META_HOME_CARD_SOUNDS)?
+            .map(|v| v != "false")
+            .unwrap_or(true);
         let subscribed_services = self
             .get_meta(crate::settings::META_SUBSCRIBED_SERVICES)?
             .map(|raw| parse_streaming_services(Some(raw)))
@@ -1668,6 +1672,7 @@ impl Database {
 
         Ok(crate::settings::AppSettings {
             intro_sound_enabled,
+            home_card_sounds_enabled,
             subscribed_services,
             media_root: media_root.to_string_lossy().to_string(),
             last_scan,
@@ -1686,6 +1691,12 @@ impl Database {
         if let Some(enabled) = input.intro_sound_enabled {
             self.set_meta(
                 crate::settings::META_INTRO_SOUND,
+                if enabled { "true" } else { "false" },
+            )?;
+        }
+        if let Some(enabled) = input.home_card_sounds_enabled {
+            self.set_meta(
+                crate::settings::META_HOME_CARD_SOUNDS,
                 if enabled { "true" } else { "false" },
             )?;
         }

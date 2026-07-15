@@ -38,12 +38,13 @@ import { useNotifications } from "../context/NotificationContext";
 import { achievementUnlockNotifications } from "../lib/achievementNotifications";
 import { useCloudAccount } from "../context/CloudAccountContext";
 import { useAppAccess } from "../context/AppAccessContext";
-import { GUEST_DAILY_LIMIT_SECONDS } from "../lib/guestUsage";
+import { useGuestPlaybackMeter } from "../hooks/useGuestPlaybackMeter";
 import type { CastDevice, MediaItem } from "../types/media";
 import { formatDuration, mediaTypeLabel } from "../types/media";
 import { PosterImage } from "./PosterImage";
 import { CastDialog } from "./CastDialog";
 import { PlayerScrubBar } from "./PlayerScrubBar";
+import { PlayerChromeButton } from "./PlayerChromeButton";
 import {
   PlayerActionFeedback,
   type PlayerActionKind,
@@ -201,10 +202,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const notifyPartySeekRef = useRef<(position: number, nextPlaying?: boolean) => void>(
     () => {},
   );
-  const guestPlaybackRef = useRef<number | null>(null);
   const actionPulseIdRef = useRef(0);
   const actionPulseTimerRef = useRef<number | null>(null);
-  const { isGuest, guestLimitReached, recordGuestPlayback } = useAppAccess();
+  const { isGuest, guestAccessBlocked } = useAppAccess();
 
   const [playing, setPlaying] = useState(() => {
     if (watchPartySessionProp?.role === "guest") {
@@ -398,10 +398,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const resetHideTimer = useCallback(() => {
     setShowControls(true);
     clearTimeout(hideTimer.current);
-    if (!showEpisodes && !showQualityMenu && !showSubtitleMenu) {
+    if (!showEpisodes && !showQualityMenu && !showSubtitleMenu && !showAudioMenu) {
       hideTimer.current = setTimeout(() => setShowControls(false), 3500);
     }
-  }, [showEpisodes, showQualityMenu, showSubtitleMenu]);
+  }, [showEpisodes, showQualityMenu, showSubtitleMenu, showAudioMenu]);
 
   const flashAction = useCallback((kind: PlayerActionKind, delta?: number) => {
     if (actionPulseTimerRef.current != null) {
@@ -471,8 +471,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     setShowUpNext(false);
     setAutoplaySeconds(null);
     setLoading(true);
-    setGuestBlocked(isGuest && guestLimitReached);
-    setPlaying(!(isGuest && guestLimitReached));
+    setGuestBlocked(isGuest && guestAccessBlocked);
+    setPlaying(!(isGuest && guestAccessBlocked));
     setCastDevice(null);
     setQualityOptions([]);
     setSelectedQuality(-1);
@@ -481,7 +481,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     setShowQualityMenu(false);
     setShowSubtitleMenu(false);
     setActiveCueText(null);
-  }, [media.id, effectiveStreamUrl, effectiveIsHls, isGuest, guestLimitReached]);
+  }, [media.id, effectiveStreamUrl, effectiveIsHls, isGuest, guestAccessBlocked]);
 
   useEffect(() => {
     if (!profileId) return;
@@ -531,37 +531,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setGuestBlocked(false);
       return;
     }
-    if (guestLimitReached) {
+    if (guestAccessBlocked) {
       setGuestBlocked(true);
       setPlaying(false);
       videoRef.current?.pause();
     }
-  }, [isGuest, guestLimitReached]);
+  }, [isGuest, guestAccessBlocked]);
 
-  useEffect(() => {
-    if (!isGuest || !playing || guestBlocked) {
-      guestPlaybackRef.current = null;
-      return;
-    }
-
-    guestPlaybackRef.current = Date.now();
-    const interval = window.setInterval(() => {
-      const started = guestPlaybackRef.current;
-      if (!started) return;
-      const now = Date.now();
-      const delta = Math.floor((now - started) / 1000);
-      if (delta <= 0) return;
-      guestPlaybackRef.current = now;
-      const used = recordGuestPlayback(delta);
-      if (used >= GUEST_DAILY_LIMIT_SECONDS) {
-        setGuestBlocked(true);
-        setPlaying(false);
-        videoRef.current?.pause();
-      }
-    }, 5000);
-
-    return () => window.clearInterval(interval);
-  }, [isGuest, playing, guestBlocked, recordGuestPlayback]);
+  useGuestPlaybackMeter(isGuest && playing && !guestBlocked);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -1294,6 +1271,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const bufferPct = duration > 0 ? (buffered / duration) * 100 : 0;
+  const chromeInteractive =
+    showControls ||
+    showEpisodes ||
+    showQualityMenu ||
+    showSubtitleMenu ||
+    showAudioMenu;
 
   return (
     <div
@@ -1325,6 +1308,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       <PlayerActionFeedback pulse={actionPulse} />
 
+      <div className="pointer-events-none absolute inset-0 z-[34]">
+        <div className="pointer-events-auto px-4 pb-2 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pt-5">
+          <PlayerChromeButton
+            size="lg"
+            onClick={() => void handleBack()}
+            aria-label="Esci dal player"
+            title="Indietro"
+            className="border-white/20 bg-black/55"
+          >
+            <ArrowLeft className="h-5 w-5 sm:h-[1.35rem] sm:w-[1.35rem]" strokeWidth={2} />
+          </PlayerChromeButton>
+        </div>
+      </div>
+
       {loading && !castDevice && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="h-12 w-12 animate-spin rounded-full border-2 border-white/20 border-t-white" />
@@ -1338,8 +1335,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               Limite giornaliero raggiunto
             </p>
             <p className="mt-3 text-[14px] leading-relaxed text-white/75">
-              Come ospite puoi guardare fino a 2 ore al giorno. Registrati dalle
-              Impostazioni per accesso illimitato.
+              Come ospite puoi guardare fino a 1 ora. Crea un account per
+              continuare senza limiti.
             </p>
             <button
               type="button"
@@ -1411,18 +1408,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       </AnimatePresence>
 
       <motion.div
-        className="pointer-events-none absolute inset-0 flex flex-col justify-between"
-        animate={{ opacity: showControls || showEpisodes || showQualityMenu || showSubtitleMenu ? 1 : 0 }}
+        className="pointer-events-none absolute inset-0 z-[30] flex flex-col justify-between"
+        animate={{ opacity: chromeInteractive ? 1 : 0 }}
         transition={{ duration: 0.2 }}
       >
-        <div className="pointer-events-auto bg-gradient-to-b from-black/80 to-transparent px-4 py-4 sm:px-6 sm:py-5">
+        <div
+          className={`bg-gradient-to-b from-black/80 to-transparent px-4 py-4 pl-16 sm:px-6 sm:py-5 sm:pl-[4.75rem] ${
+            chromeInteractive ? "pointer-events-auto" : "pointer-events-none"
+          }`}
+        >
           <div className="flex items-center gap-2 sm:gap-4">
-            <button
-              onClick={() => void handleBack()}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/40 backdrop-blur-sm transition-colors hover:bg-black/60"
-            >
-              <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />
-            </button>
             <div className="min-w-0 flex-1">
               <h1 className="truncate font-display text-base font-semibold text-white sm:text-lg">
                 {episodeDisplayTitle(media)}
@@ -1439,50 +1434,63 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               </p>
             </div>
             {hasEpisodes && (
-              <button
+              <PlayerChromeButton
+                variant="pill"
                 onClick={() => {
                   setShowEpisodes(true);
                   setShowControls(true);
                 }}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white/90 backdrop-blur-sm hover:bg-black/60 sm:h-auto sm:w-auto sm:gap-2 sm:rounded sm:px-3 sm:py-2"
                 aria-label="Episodi"
+                className="hidden sm:inline-flex"
               >
                 <ListVideo className="h-4 w-4" />
-                <span className="hidden text-[12px] sm:inline">Episodi</span>
-              </button>
+                <span className="text-[12px]">Episodi</span>
+              </PlayerChromeButton>
+            )}
+            {hasEpisodes && (
+              <PlayerChromeButton
+                onClick={() => {
+                  setShowEpisodes(true);
+                  setShowControls(true);
+                }}
+                aria-label="Episodi"
+                className="sm:hidden"
+              >
+                <ListVideo className="h-4 w-4" />
+              </PlayerChromeButton>
             )}
             {canCast && (
-            <button
-              type="button"
+            <PlayerChromeButton
               onClick={() => {
                 setShowCast(true);
                 setShowControls(true);
               }}
-              className={`flex h-9 w-9 items-center justify-center rounded-full border backdrop-blur-sm transition-colors ${
-                castingTo
-                  ? "border-mint/40 bg-mint/15 text-mint"
-                  : "border-white/15 bg-black/40 text-white/90 hover:bg-black/60"
-              }`}
               title="Trasmetti alla TV"
+              aria-label="Trasmetti alla TV"
+              className={
+                castingTo
+                  ? "border-mint/40 bg-mint/15 text-mint hover:bg-mint/20"
+                  : ""
+              }
             >
               <Cast className="h-4 w-4" />
-            </button>
+            </PlayerChromeButton>
             )}
-            <button
-              type="button"
+            <PlayerChromeButton
               onClick={() => {
                 setShowPartyPanel(true);
                 setShowControls(true);
               }}
-              className={`flex h-9 w-9 items-center justify-center rounded-full border backdrop-blur-sm transition-colors ${
-                partySession
-                  ? "border-accent/40 bg-accent/15 text-accent"
-                  : "border-white/15 bg-black/40 text-white/90 hover:bg-black/60"
-              }`}
               title="Guarda insieme"
+              aria-label="Guarda insieme"
+              className={
+                partySession
+                  ? "border-accent/40 bg-accent/15 text-accent hover:bg-accent/20"
+                  : ""
+              }
             >
               <Users className="h-4 w-4" />
-            </button>
+            </PlayerChromeButton>
           </div>
         </div>
 
@@ -1502,7 +1510,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           </div>
         )}
 
-        <div className="pointer-events-auto bg-gradient-to-t from-black/90 via-black/50 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-12 sm:px-6 sm:pb-6 sm:pt-16">
+        <div
+          className={`bg-gradient-to-t from-black/90 via-black/50 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-12 sm:px-6 sm:pb-6 sm:pt-16 ${
+            chromeInteractive ? "pointer-events-auto" : "pointer-events-none"
+          }`}
+        >
           <PlayerScrubBar
             duration={duration}
             currentTime={currentTime}
@@ -1524,51 +1536,40 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           />
 
           <div className="flex items-center justify-between gap-2 sm:gap-4">
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-4">
-              <button
-                type="button"
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-3">
+              <PlayerChromeButton
                 onClick={() => void togglePlay()}
                 disabled={isPartyGuest}
-                className={`flex h-10 w-10 items-center justify-center rounded-full text-white transition-transform ${
-                  isPartyGuest
-                    ? "cursor-default opacity-70"
-                    : "hover:scale-105"
-                }`}
+                size="lg"
+                aria-label={playing ? "Pausa" : "Play"}
                 title={isPartyGuest ? "Controlli gestiti dall'host" : undefined}
+                className="border-transparent bg-transparent shadow-none hover:bg-white/10 disabled:bg-transparent"
               >
                 {playing ? (
-                  <Pause className="h-6 w-6" fill="currentColor" />
+                  <Pause className="h-7 w-7" fill="currentColor" />
                 ) : (
-                  <Play className="h-6 w-6 fill-current" />
+                  <Play className="h-7 w-7 fill-current" />
                 )}
-              </button>
+              </PlayerChromeButton>
 
-              <button
+              <PlayerChromeButton
                 onClick={() => skip(-10)}
                 disabled={isPartyGuest}
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/80 ${
-                  isPartyGuest
-                    ? "cursor-default opacity-40"
-                    : "hover:bg-white/10 hover:text-white"
-                }`}
-                title="Indietro 10s"
                 aria-label="Indietro 10 secondi"
+                title="Indietro 10s"
+                className="border-transparent bg-transparent shadow-none hover:bg-white/10 disabled:bg-transparent"
               >
-                <RotateCcw className="h-4 w-4" />
-              </button>
-              <button
+                <RotateCcw className="h-5 w-5" />
+              </PlayerChromeButton>
+              <PlayerChromeButton
                 onClick={() => skip(10)}
                 disabled={isPartyGuest}
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/80 ${
-                  isPartyGuest
-                    ? "cursor-default opacity-40"
-                    : "hover:bg-white/10 hover:text-white"
-                }`}
-                title="Avanti 10s"
                 aria-label="Avanti 10 secondi"
+                title="Avanti 10s"
+                className="border-transparent bg-transparent shadow-none hover:bg-white/10 disabled:bg-transparent"
               >
-                <RotateCw className="h-4 w-4" />
-              </button>
+                <RotateCw className="h-5 w-5" />
+              </PlayerChromeButton>
 
               {prevEp && (
                 <button

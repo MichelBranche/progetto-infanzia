@@ -1,9 +1,11 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { LordFlixPosterCard } from "./LordFlixPosterCard";
 import { LordFlixContinueCard } from "./LordFlixContinueCard";
 import type { BrowseItem } from "../lib/browse";
-import { browseItemId } from "../lib/browse";
+import { browseItemId, browseItemMedia } from "../lib/browse";
+import { prefetchPosterUrls } from "../lib/posterPrefetch";
+import { posterUrlFor } from "./PosterImage";
 import {
   RowInteractionContext,
   useRowScrollContainer,
@@ -48,8 +50,28 @@ export function MediaRow({
 }: MediaRowProps) {
   const { scrollRef, collapseEpoch, scrollProps } = useRowScrollContainer();
   const sectionRef = useRef<HTMLElement>(null);
-  useStaggerInView(sectionRef, ".stagger-card", animateEntrance, [items.length, title]);
+  useStaggerInView(
+    sectionRef,
+    ":scope > .stagger-card",
+    animateEntrance,
+    [title],
+  );
+  useStaggerInView(
+    scrollRef,
+    ".stagger-card",
+    animateEntrance,
+    [items.length, title],
+    scrollRef,
+  );
   const isContinueRow = layout === "continue";
+
+  useEffect(() => {
+    prefetchPosterUrls(
+      items
+        .slice(0, 14)
+        .map((browse) => posterUrlFor(browseItemMedia(browse), "browse")),
+    );
+  }, [items]);
 
   const scroll = (direction: "left" | "right") => {
     if (!scrollRef.current) return;
@@ -122,7 +144,7 @@ export function MediaRow({
             }`}
             {...scrollProps}
           >
-            {items.map((browse) => (
+            {items.map((browse, index) => (
               <div
                 key={browseItemId(browse)}
                 className={`${animateEntrance ? "stagger-card " : ""}${isContinueRow ? "" : "shrink-0"}`}
@@ -130,6 +152,7 @@ export function MediaRow({
                 {isContinueRow ? (
                   <LordFlixContinueCard
                     browse={browse}
+                    priorityPoster={index < 6}
                     onPlay={onPlay}
                     onPlayStreaming={onPlayStreaming}
                     onOpenDetail={onOpenDetail}
@@ -139,6 +162,7 @@ export function MediaRow({
                   <LordFlixPosterCard
                     browse={browse}
                     layout="row"
+                    priorityPoster={index < 8}
                     onPlay={onPlay}
                     onPlayStreaming={onPlayStreaming}
                     onOpenDetail={onOpenDetail}

@@ -715,6 +715,9 @@ pub async fn dispatch_web_command(
             removed: 0,
             total: 0,
         }),
+        "dev_local_dashboard_cmd" => {
+            ok(crate::dev_admin::local_dashboard(state.db.as_ref())?)
+        }
         other => Err(format!(
             "Comando non disponibile sulla web API: {other}. Usa l app desktop per questa funzione."
         )),

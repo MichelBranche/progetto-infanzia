@@ -1,29 +1,44 @@
 import { Film, Sparkles, Tv } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePosterQuality } from "../context/PosterQualityContext";
+import type { PosterQualityTier } from "../lib/posterQuality";
+import {
+  adaptHeroUrl,
+  adaptPosterUrl,
+  posterUrlFallbacks,
+} from "../lib/posterUrl";
 import type { MediaItem } from "../types/media";
-import { maximizeHeroUrl, maximizePosterUrl } from "../lib/posterUrl";
 
 export type PosterVariant = "browse" | "continue" | "episode" | "hero";
+
+function rawPosterUrlFor(
+  item: MediaItem,
+  variant: PosterVariant = "browse",
+): string | undefined {
+  if (variant === "hero") {
+    return item.backgroundUrl ?? item.seriesPosterUrl ?? item.posterUrl;
+  }
+  if (variant === "continue") {
+    return item.backgroundUrl ?? item.posterUrl ?? item.seriesPosterUrl;
+  }
+  if (variant === "episode") {
+    return item.posterUrl ?? item.seriesPosterUrl;
+  }
+  if (item.seriesPosterUrl) {
+    return item.seriesPosterUrl;
+  }
+  return item.posterUrl;
+}
 
 export function posterUrlFor(
   item: MediaItem,
   variant: PosterVariant = "browse",
+  tier: PosterQualityTier = "high",
 ): string | undefined {
-  let url: string | undefined;
-  if (variant === "hero") {
-    url = item.backgroundUrl ?? item.seriesPosterUrl ?? item.posterUrl;
-  } else if (variant === "continue") {
-    url = item.backgroundUrl ?? item.posterUrl ?? item.seriesPosterUrl;
-  } else if (variant === "episode") {
-    url = item.posterUrl ?? item.seriesPosterUrl;
-  } else if (item.seriesPosterUrl) {
-    url = item.seriesPosterUrl;
-  } else {
-    url = item.posterUrl;
-  }
+  const url = rawPosterUrlFor(item, variant);
   return variant === "hero"
-    ? maximizeHeroUrl(url)
-    : maximizePosterUrl(url);
+    ? adaptHeroUrl(url, tier)
+    : adaptPosterUrl(url, tier);
 }
 
 interface PosterImageProps {
@@ -43,18 +58,94 @@ export function PosterImage({
   srcOverride,
   onImageLoad,
 }: PosterImageProps) {
-  const posterUrl = srcOverride
-    ? variant === "hero"
-      ? maximizeHeroUrl(srcOverride)
-      : maximizePosterUrl(srcOverride)
-    : posterUrlFor(item, variant);
+  const { tier, reportSlowImageLoad } = usePosterQuality();
+  const rawUrl = srcOverride ?? rawPosterUrlFor(item, variant);
   const [failed, setFailed] = useState(false);
+  const [srcIndex, setSrcIndex] = useState(0);
+  const [upgradedSrc, setUpgradedSrc] = useState<string | undefined>();
+  const loadStartedAt = useRef<number | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const reportedLoadFor = useRef<string | null>(null);
+
+  const candidates = useMemo(
+    () => (rawUrl ? posterUrlFallbacks(rawUrl, tier) : []),
+    [rawUrl, tier],
+  );
+
+  const upgradeUrl = useMemo(() => {
+    if (!rawUrl || tier === "low") return undefined;
+    const high =
+      variant === "hero"
+        ? adaptHeroUrl(rawUrl, "high")
+        : adaptPosterUrl(rawUrl, "high");
+    const current =
+      variant === "hero"
+        ? adaptHeroUrl(rawUrl, tier)
+        : adaptPosterUrl(rawUrl, tier);
+    return high && high !== current ? high : undefined;
+  }, [rawUrl, tier, variant]);
+
+  const activeSrc = upgradedSrc ?? candidates[srcIndex];
+  const eager =
+    priority || variant === "hero" || variant === "browse" || variant === "continue";
+
+  const handleImageReady = useCallback(
+    (image: HTMLImageElement) => {
+      const src = image.currentSrc || image.src;
+      if (!src || reportedLoadFor.current === src) return;
+      reportedLoadFor.current = src;
+
+      const startedAt = loadStartedAt.current;
+      if (startedAt) {
+        reportSlowImageLoad(Date.now() - startedAt);
+      }
+      onImageLoad?.(image);
+    },
+    [onImageLoad, reportSlowImageLoad],
+  );
+
+  useEffect(() => {
+    setSrcIndex(0);
+    setFailed(false);
+    setUpgradedSrc(undefined);
+    reportedLoadFor.current = null;
+  }, [rawUrl, tier]);
+
+  useEffect(() => {
+    loadStartedAt.current = activeSrc ? Date.now() : null;
+    reportedLoadFor.current = null;
+  }, [activeSrc]);
+
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img || !activeSrc) return;
+    if (img.complete && img.naturalWidth > 0) {
+      handleImageReady(img);
+    }
+  }, [activeSrc, handleImageReady]);
+
+  useEffect(() => {
+    if (!upgradeUrl || !activeSrc || upgradeUrl === activeSrc) return;
+
+    let cancelled = false;
+    const img = new Image();
+    img.decoding = "async";
+    img.onload = () => {
+      if (!cancelled) setUpgradedSrc(upgradeUrl);
+    };
+    img.src = upgradeUrl;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [upgradeUrl, activeSrc]);
+
   const fitClass =
     variant === "browse"
       ? "object-contain object-center"
       : "object-cover object-center";
 
-  if (!posterUrl || failed) {
+  if (!activeSrc || failed) {
     return (
       <div
         className={`absolute inset-0 bg-gradient-to-br ${item.gradient} ${className}`}
@@ -64,13 +155,22 @@ export function PosterImage({
 
   return (
     <img
-      src={posterUrl}
+      ref={imgRef}
+      key={activeSrc}
+      src={activeSrc}
       alt={item.title}
-      loading={priority || variant === "hero" ? "eager" : "lazy"}
+      loading={eager ? "eager" : "lazy"}
       decoding="async"
-      fetchPriority={priority || variant === "hero" ? "high" : undefined}
-      onError={() => setFailed(true)}
-      onLoad={(event) => onImageLoad?.(event.currentTarget)}
+      fetchPriority={priority || variant === "hero" ? "high" : "auto"}
+      onError={() => {
+        if (srcIndex + 1 < candidates.length) {
+          setSrcIndex((index) => index + 1);
+          loadStartedAt.current = Date.now();
+          return;
+        }
+        setFailed(true);
+      }}
+      onLoad={(event) => handleImageReady(event.currentTarget)}
       className={`absolute inset-0 h-full w-full ${fitClass} ${className}`}
     />
   );

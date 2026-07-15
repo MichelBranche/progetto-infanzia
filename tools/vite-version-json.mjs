@@ -22,8 +22,8 @@ export function branchefyVersionJson(repoRoot) {
         source: JSON.stringify(
           {
             version,
-            essential: true,
-            title: "Aggiornamento importante essenziale",
+            essential: false,
+            title: "Nuovo aggiornamento disponibile",
           },
           null,
           2,

@@ -173,6 +173,50 @@ function ColorSwatches({
   );
 }
 
+function ProfileFormActions({
+  dockActions,
+  submitLabel,
+  submitting,
+  canSubmit,
+  onCancel,
+}: {
+  dockActions: boolean;
+  submitLabel: string;
+  submitting?: boolean;
+  canSubmit: boolean;
+  onCancel: () => void;
+}) {
+  const docked =
+    "fixed inset-x-0 bottom-0 z-20 border-t border-white/[0.08] bg-[#05000d]/94 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-xl sm:static sm:z-auto sm:mx-auto sm:mt-2 sm:max-w-md sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:pb-0 sm:backdrop-blur-none";
+  const embedded =
+    "sticky bottom-0 -mx-1 border-t border-white/[0.06] bg-[#0a0a0e]/95 px-1 pb-1 pt-4 backdrop-blur-sm";
+
+  return (
+    <div className={dockActions ? docked : embedded}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-4">
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.98 }}
+          whileHover={{ scale: 1.01 }}
+          onClick={onCancel}
+          className="min-h-12 w-full touch-manipulation rounded-xl border border-white/12 bg-white/[0.03] px-5 py-3.5 text-[15px] font-medium text-text-muted transition-colors hover:border-white/20 hover:bg-white/[0.06] hover:text-text-secondary sm:min-w-[9.5rem] sm:w-auto"
+        >
+          Annulla
+        </motion.button>
+        <motion.button
+          type="submit"
+          disabled={submitting || !canSubmit}
+          whileTap={submitting || !canSubmit ? undefined : { scale: 0.98 }}
+          whileHover={submitting || !canSubmit ? undefined : { scale: 1.01 }}
+          className="min-h-12 w-full touch-manipulation rounded-xl bg-accent px-6 py-3.5 text-[15px] font-semibold text-white shadow-[0_10px_30px_rgba(255,103,64,0.28)] transition-opacity hover:opacity-95 disabled:opacity-40 sm:min-w-[11rem] sm:w-auto"
+        >
+          {submitting ? "Salvataggio..." : submitLabel}
+        </motion.button>
+      </div>
+    </div>
+  );
+}
+
 export function ProfileCustomizeForm({
   initial,
   previewProfileId,
@@ -180,6 +224,7 @@ export function ProfileCustomizeForm({
   submitLabel,
   submitting,
   error,
+  dockActions = false,
   onCancel,
   onSubmit,
 }: {
@@ -189,6 +234,7 @@ export function ProfileCustomizeForm({
   submitLabel: string;
   submitting?: boolean;
   error?: string | null;
+  dockActions?: boolean;
   onCancel: () => void;
   onSubmit: (value: ProfileCustomizeValue) => Promise<void>;
 }) {
@@ -262,7 +308,7 @@ export function ProfileCustomizeForm({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -12 }}
       transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-      className="mx-auto w-full max-w-xl pb-8"
+      className={`mx-auto w-full max-w-xl ${dockActions ? "pb-28 sm:pb-4" : "pb-2"}`}
     >
       <form onSubmit={(e) => void handleSubmit(e)}>
         <div className="flex flex-col items-center gap-8">
@@ -473,22 +519,13 @@ export function ProfileCustomizeForm({
               </p>
             )}
 
-            <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-center">
-              <button
-                type="button"
-                onClick={onCancel}
-                className="rounded-xl border border-white/10 px-5 py-3 text-[14px] font-medium text-text-muted transition-colors hover:border-white/18 hover:text-text-secondary"
-              >
-                Annulla
-              </button>
-              <button
-                type="submit"
-                disabled={submitting || !value.name.trim()}
-                className="rounded-xl bg-accent px-6 py-3 text-[14px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-              >
-                {submitting ? "Salvataggio..." : submitLabel}
-              </button>
-            </div>
+            <ProfileFormActions
+              dockActions={dockActions}
+              submitLabel={submitLabel}
+              submitting={submitting}
+              canSubmit={Boolean(value.name.trim())}
+              onCancel={onCancel}
+            />
           </div>
         </div>
       </form>

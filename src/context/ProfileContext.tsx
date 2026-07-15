@@ -21,6 +21,7 @@ import {
   type Profile,
   type UpdateProfileInput,
 } from "../types/profile";
+import { GUEST_PROFILE, GUEST_PROFILE_ID } from "../lib/guestProfile";
 
 interface ProfileContextValue {
   profiles: Profile[];
@@ -39,6 +40,7 @@ interface ProfileContextValue {
   createNewProfile: (input: CreateProfileInput) => Promise<Profile>;
   updateExistingProfile: (id: string, input: UpdateProfileInput) => Promise<Profile>;
   removeProfile: (id: string) => Promise<void>;
+  enterGuestSession: () => void;
   isParent: boolean;
 }
 
@@ -58,6 +60,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       setProfiles(data);
       setActiveProfile((current) => {
         if (!current) return current;
+        if (current.id === GUEST_PROFILE_ID) return current;
         const fresh = data.find((p) => p.id === current.id);
         if (!fresh) {
           sessionStorage.removeItem(ACTIVE_PROFILE_KEY);
@@ -157,6 +160,13 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     [refreshProfiles, activeProfile?.id],
   );
 
+  const enterGuestSession = useCallback(() => {
+    setActiveProfile(GUEST_PROFILE);
+    setPendingProfile(null);
+    sessionStorage.setItem(ACTIVE_PROFILE_KEY, GUEST_PROFILE_ID);
+    setIsManaging(false);
+  }, []);
+
   const removeProfile = useCallback(
     async (id: string) => {
       await deleteProfile(id);
@@ -186,6 +196,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       createNewProfile,
       updateExistingProfile,
       removeProfile,
+      enterGuestSession,
       isParent: activeProfile ? isParentProfile(activeProfile) : false,
     }),
     [
@@ -203,6 +214,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       createNewProfile,
       updateExistingProfile,
       removeProfile,
+      enterGuestSession,
     ],
   );
 

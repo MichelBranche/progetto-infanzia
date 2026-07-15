@@ -7,12 +7,11 @@ import { isBrowserDevMode } from "../lib/tauriEnv";
 import { isWebShell } from "../lib/runtimeInvoke";
 import { BootLiquidBackground } from "./LiquidBackground";
 import { ProfileAvatar } from "./ProfileAvatar";
-import { setProfileAvatar, updateProfile } from "../lib/profilesApi";
+import { applyProfileCustomization } from "../lib/profileCustomization";
 import { roleLabel, type Profile } from "../types/profile";
 import {
   ProfileCustomizeForm,
   profileCustomizeToCreate,
-  profileCustomizeToUpdate,
   valueFromProfile,
   type ProfileCustomizeValue,
 } from "./profile/ProfileCustomizeForm";
@@ -123,7 +122,6 @@ export function ProfileSelectScreen() {
     startManaging,
     stopManaging,
     createNewProfile,
-    updateExistingProfile,
     removeProfile,
     refreshProfiles,
   } = useProfile();
@@ -220,6 +218,7 @@ export function ProfileSelectScreen() {
           {creating ? (
             <ProfileCustomizeForm
               key="create"
+              dockActions
               initial={defaultCreateValue(isGuest)}
               submitLabel="Crea profilo"
               submitting={submitting}
@@ -231,12 +230,7 @@ export function ProfileSelectScreen() {
                 try {
                   let profile = await createNewProfile(profileCustomizeToCreate(value));
                   if (value.avatarStyle === "photo" && value.avatarImagePath) {
-                    profile = value.avatarImagePath.startsWith("data:")
-                      ? await updateProfile(profile.id, {
-                          avatarStyle: "photo",
-                          avatarImagePath: value.avatarImagePath,
-                        })
-                      : await setProfileAvatar(profile.id, value.avatarImagePath);
+                    profile = await applyProfileCustomization(profile.id, value);
                   }
                   await refreshProfiles();
                   setCreating(false);
@@ -251,6 +245,7 @@ export function ProfileSelectScreen() {
           ) : editingProfile ? (
             <ProfileCustomizeForm
               key={editingProfile.id}
+              dockActions
               initial={valueFromProfile(editingProfile)}
               previewProfileId={editingProfile.id}
               submitLabel="Salva"
@@ -261,20 +256,7 @@ export function ProfileSelectScreen() {
                 setSubmitting(true);
                 setError(null);
                 try {
-                  await updateExistingProfile(
-                    editingProfile.id,
-                    profileCustomizeToUpdate(value),
-                  );
-                  if (value.avatarStyle === "photo" && value.avatarImagePath) {
-                    if (value.avatarImagePath.startsWith("data:")) {
-                      await updateProfile(editingProfile.id, {
-                        avatarStyle: "photo",
-                        avatarImagePath: value.avatarImagePath,
-                      });
-                    } else {
-                      await setProfileAvatar(editingProfile.id, value.avatarImagePath);
-                    }
-                  }
+                  await applyProfileCustomization(editingProfile.id, value);
                   await refreshProfiles();
                   setEditingProfile(null);
                 } catch (err) {

@@ -35,7 +35,7 @@ export function AppAccessScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const guestLimitLabel = formatDuration(GUEST_DAILY_LIMIT_SECONDS) ?? "2h";
+  const guestLimitLabel = formatDuration(GUEST_DAILY_LIMIT_SECONDS) ?? "1h";
 
   const submitAuth = async () => {
     setBusy(true);
@@ -137,12 +137,12 @@ export function AppAccessScreen() {
                       Continua come ospite
                     </p>
                     <p className="mt-1 text-[13px] leading-relaxed text-text-secondary">
-                      Nessuna email richiesta. Puoi guardare contenuti con un limite
-                      giornaliero.
+                      Nessuna email richiesta. Puoi esplorare e guardare con un
+                      limite di prova.
                     </p>
                     <p className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-text-muted">
                       <Clock className="h-3.5 w-3.5" />
-                      Max {guestLimitLabel} al giorno
+                      {guestLimitLabel} di visione · poi pausa 24h
                     </p>
                   </div>
                 </div>

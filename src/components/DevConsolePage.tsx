@@ -5,6 +5,7 @@ import {
   Film,
   Lightbulb,
   Loader2,
+  Megaphone,
   MessageSquare,
   RotateCcw,
   Shield,
@@ -56,13 +57,15 @@ import {
   ProfileSectionLabel,
   ProfileTabBar,
 } from "./dev/DevConsoleUi";
+import { BroadcastAdminPanel } from "./dev/BroadcastAdminPanel";
 
-type DevTab = "cloud" | "local" | "feedback";
+type DevTab = "cloud" | "local" | "feedback" | "broadcasts";
 
 const MAIN_TABS: { id: DevTab; label: string; icon: typeof Users }[] = [
   { id: "cloud", label: "Utenti cloud", icon: Users },
   { id: "local", label: "Profili locali", icon: UserRound },
   { id: "feedback", label: "Feedback", icon: MessageSquare },
+  { id: "broadcasts", label: "Annunci globali", icon: Megaphone },
 ];
 
 function formatWhen(iso?: string) {
@@ -608,7 +611,13 @@ export function DevConsolePage() {
   }, []);
 
   const stats =
-    tab === "feedback"
+    tab === "broadcasts"
+      ? [
+          { label: "Annunci", value: "—", icon: Megaphone },
+          { label: "Utenti auth", value: cloudUsers.length, icon: Users },
+          { label: "Feedback", value: feedbackItems.length, icon: MessageSquare },
+        ]
+      : tab === "feedback"
       ? [
           { label: "Da fare", value: inboxCount, icon: MessageSquare },
           { label: "Risolti", value: resolvedCount, icon: CheckCircle2 },
@@ -649,15 +658,17 @@ export function DevConsolePage() {
 
       <DevFilterRow
         trailing={
-          <DevSearchInput
-            value={query}
-            onChange={setQuery}
-            placeholder={
-              tab === "feedback"
-                ? "Cerca messaggio, oggetto o profilo…"
-                : "Cerca email, nome o profilo…"
-            }
-          />
+          tab !== "broadcasts" ? (
+            <DevSearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder={
+                tab === "feedback"
+                  ? "Cerca messaggio, oggetto o profilo…"
+                  : "Cerca email, nome o profilo…"
+              }
+            />
+          ) : undefined
         }
       >
         {tab === "feedback" &&
@@ -704,6 +715,8 @@ export function DevConsolePage() {
       )}
 
       {tab === "feedback" && feedbackWarning && <DevWarningBanner message={feedbackWarning} />}
+
+      {tab === "broadcasts" && <BroadcastAdminPanel />}
 
       {tab === "cloud" && (
         <DevMasterDetail

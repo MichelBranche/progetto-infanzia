@@ -16,9 +16,10 @@ import {
 } from "../lib/appAccess";
 import {
   addGuestUsageSeconds,
-  getGuestSecondsRemaining,
+  getGuestCooldownRemainingMs,
   getGuestSecondsUsedToday,
   GUEST_DAILY_LIMIT_SECONDS,
+  isGuestAccessBlocked,
   isGuestLimitReached,
 } from "../lib/guestUsage";
 import { useCloudAccount } from "./CloudAccountContext";
@@ -32,10 +33,14 @@ interface AppAccessContextValue {
   guestSecondsUsed: number;
   guestSecondsRemaining: number;
   guestLimitReached: boolean;
+  guestAccessBlocked: boolean;
+  guestCooldownRemainingMs: number;
+  guestWatching: boolean;
   completeGuestSetup: () => void;
   completeRegisteredSetup: () => void;
   refreshGuestUsage: () => void;
   recordGuestPlayback: (seconds: number) => number;
+  setGuestWatching: (watching: boolean) => void;
   syncFromStorage: () => void;
   logoutAccess: () => void;
 }
@@ -51,9 +56,19 @@ export function AppAccessProvider({ children }: { children: ReactNode }) {
     getGuestSecondsUsedToday,
   );
 
+  const [guestTick, setGuestTick] = useState(0);
+  const [guestWatching, setGuestWatching] = useState(false);
+
   const refreshGuestUsage = useCallback(() => {
     setGuestSecondsUsed(getGuestSecondsUsedToday());
+    setGuestTick(Date.now());
   }, []);
+
+  useEffect(() => {
+    if (mode !== "guest") return;
+    const id = window.setInterval(() => refreshGuestUsage(), 1000);
+    return () => window.clearInterval(id);
+  }, [mode, refreshGuestUsage]);
 
   useEffect(() => {
     setSetupComplete(isAppAccessSetupComplete());
@@ -115,12 +130,19 @@ export function AppAccessProvider({ children }: { children: ReactNode }) {
       isGuest: setupComplete && mode === "guest",
       isRegistered: setupComplete && mode === "registered",
       guestSecondsUsed,
-      guestSecondsRemaining: getGuestSecondsRemaining(),
+      guestSecondsRemaining: Math.max(
+        0,
+        GUEST_DAILY_LIMIT_SECONDS - guestSecondsUsed,
+      ),
       guestLimitReached: mode === "guest" && isGuestLimitReached(),
+      guestAccessBlocked: mode === "guest" && isGuestAccessBlocked(),
+      guestCooldownRemainingMs: getGuestCooldownRemainingMs(),
+      guestWatching,
       completeGuestSetup,
       completeRegisteredSetup,
       refreshGuestUsage,
       recordGuestPlayback,
+      setGuestWatching,
       syncFromStorage,
       logoutAccess,
     }),
@@ -129,6 +151,8 @@ export function AppAccessProvider({ children }: { children: ReactNode }) {
       setupComplete,
       mode,
       guestSecondsUsed,
+      guestTick,
+      guestWatching,
       completeGuestSetup,
       completeRegisteredSetup,
       refreshGuestUsage,

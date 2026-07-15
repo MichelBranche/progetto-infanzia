@@ -82,23 +82,35 @@ export function getNavSections(
   profile: Profile | null,
   hasStreaming = false,
   devMode = false,
+  isGuest = false,
 ): NavSection[] {
   if (!profile) return [];
 
   const isParent = isParentProfile(profile);
+  const guestHidden = new Set([
+    "profile",
+    "chats",
+    "invite",
+    "activity",
+    "streaming",
+  ]);
+
+  const filterGuest = (items: NavItem[]) =>
+    isGuest ? items.filter((item) => !guestHidden.has(item.id)) : items;
+
   const sections: NavSection[] = [
     {
       id: "primary",
-      items: filterItems(primaryItems, hasStreaming),
+      items: filterGuest(filterItems(primaryItems, hasStreaming)),
     },
     {
       id: "browse",
       label: "Esplora",
-      items: browseSectionItems(),
+      items: filterGuest(browseSectionItems()),
     },
   ];
 
-  if (isParent) {
+  if (isParent && !isGuest) {
     sections.push({
       id: "system",
       label: "Account",
@@ -109,7 +121,7 @@ export function getNavSections(
   sections.push({
     id: "support",
     label: "Supporto",
-    items: supportItems,
+    items: filterGuest(supportItems),
   });
 
   if (devMode) {

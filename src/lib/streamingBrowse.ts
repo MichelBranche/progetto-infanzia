@@ -7,8 +7,53 @@ import { maximizeHeroUrl, maximizePosterUrl, pickBestLogoUrl } from "./posterUrl
 
 const STREAMING_GRADIENT = "from-indigo-950 via-slate-900 to-violet-950";
 
+function continueCatalogKey(
+  item: Pick<StreamingContinueItem, "catalogPrefix" | "contentType" | "titleId" | "slug">,
+): string {
+  return `${item.catalogPrefix}:${item.contentType}:${item.titleId}:${item.slug ?? ""}`;
+}
+
+function previewCatalogKey(preview: StremioMetaPreview): string {
+  return `${preview.catalogPrefix ?? "sc"}:${preview.type}:${preview.id}:${preview.slug ?? ""}`;
+}
+
+export function enrichContinuePreview(
+  item: StreamingContinueItem,
+  catalog: StremioMetaPreview[] = [],
+): StremioMetaPreview {
+  const preview = continueToPreview(item);
+  const match = catalog.find(
+    (entry) => previewCatalogKey(entry) === continueCatalogKey(item),
+  );
+  if (!match) return preview;
+
+  return {
+    ...preview,
+    poster:
+      preview.poster ??
+      maximizePosterUrl(match.poster ?? match.background),
+    background:
+      preview.background ??
+      maximizeHeroUrl(match.background ?? match.poster),
+  };
+}
+
 export function streamingBrowseItem(preview: StremioMetaPreview): BrowseItem {
   return { kind: "streaming", preview };
+}
+
+export function dedupeStreamingPreviews(
+  previews: StremioMetaPreview[],
+): StremioMetaPreview[] {
+  const seen = new Set<string>();
+  const out: StremioMetaPreview[] = [];
+  for (const preview of previews) {
+    const key = `${preview.catalogPrefix ?? "sc"}:${preview.type}:${preview.id}:${preview.slug ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(preview);
+  }
+  return out;
 }
 
 export function isStreamingSeries(preview: StremioMetaPreview) {
@@ -367,7 +412,8 @@ export function continueToPreview(item: StreamingContinueItem): StremioMetaPrevi
     type: item.contentType,
     name: item.titleName,
     resumeEpisodeLabel: item.episodeLabel,
-    poster: item.poster,
+    poster: maximizePosterUrl(item.poster),
+    background: maximizeHeroUrl(item.poster),
     catalogPrefix: item.catalogPrefix,
     slug: item.slug,
     watchPosition: item.positionSecs,

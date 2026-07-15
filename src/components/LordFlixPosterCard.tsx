@@ -15,6 +15,7 @@ import { PosterImage, posterUrlFor } from "./PosterImage";
 export interface LordFlixPosterCardProps {
   browse: BrowseItem;
   layout?: "row" | "grid";
+  priorityPoster?: boolean;
   showReflection?: boolean;
   onOpen?: (browse: BrowseItem) => void;
   onPlay?: (id: string) => void;
@@ -96,6 +97,7 @@ function openBrowseItem(
 export const LordFlixPosterCard = memo(function LordFlixPosterCard({
   browse,
   layout = "row",
+  priorityPoster = false,
   showReflection = false,
   onOpen,
   onPlay,
@@ -162,6 +164,7 @@ export const LordFlixPosterCard = memo(function LordFlixPosterCard({
           <PosterImage
             item={media}
             variant="browse"
+            priority={priorityPoster}
             className="lf-browse-card__img"
             onImageLoad={handleImageLoad}
           />

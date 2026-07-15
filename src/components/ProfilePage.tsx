@@ -21,9 +21,9 @@ import { useCloudFriendPresence } from "../hooks/useFriendPresence";
 import { useLanFriendPresence } from "../hooks/useLanFriendPresence";
 import {
   ProfileCustomizeForm,
-  profileCustomizeToUpdate,
   valueFromProfile,
 } from "./profile/ProfileCustomizeForm";
+import { applyProfileCustomization } from "../lib/profileCustomization";
 import { PROFILE_CARD } from "./profile/ProfileUi";
 import { AchievementsPanel } from "./profile/AchievementsPanel";
 import { useAchievements } from "../hooks/useAchievements";
@@ -64,7 +64,7 @@ export function ProfilePage({
   onJoinSession,
   pendingFriendRequests = 0,
 }: ProfilePageProps) {
-  const { updateExistingProfile } = useProfile();
+  const { refreshProfiles } = useProfile();
   const { profile: cloudProfile } = useCloudAccount();
   const friendsTabActive = activeTab === "friends";
   const cloudPresence = useCloudFriendPresence(true);
@@ -257,7 +257,7 @@ export function ProfilePage({
               initial={{ opacity: 0, y: 20, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 16, scale: 0.97 }}
-              className={`relative max-h-[min(90vh,52rem)] w-full max-w-lg overflow-y-auto p-6 shadow-2xl sm:p-8 ${PROFILE_CARD}`}
+              className={`relative flex max-h-[min(90vh,52rem)] w-full max-w-lg flex-col overflow-hidden p-6 shadow-2xl sm:p-8 ${PROFILE_CARD}`}
             >
               <button
                 type="button"
@@ -270,10 +270,11 @@ export function ProfilePage({
               <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-text-muted">
                 Profilo
               </p>
-              <h2 className="font-display mb-6 mt-1 text-2xl font-semibold tracking-[-0.03em] text-text-primary">
+              <h2 className="font-display mb-4 mt-1 shrink-0 text-2xl font-semibold tracking-[-0.03em] text-text-primary">
                 Personalizza
               </h2>
-              <ProfileCustomizeForm
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <ProfileCustomizeForm
                 initial={valueFromProfile(profile)}
                 previewProfileId={profileId}
                 showRole={false}
@@ -285,10 +286,8 @@ export function ProfilePage({
                   setCustomizeSubmitting(true);
                   setCustomizeError(null);
                   try {
-                    await updateExistingProfile(
-                      profileId,
-                      profileCustomizeToUpdate(value),
-                    );
+                    await applyProfileCustomization(profileId, value);
+                    await refreshProfiles();
                     setCustomizing(false);
                   } catch (err) {
                     setCustomizeError(
@@ -298,7 +297,8 @@ export function ProfilePage({
                     setCustomizeSubmitting(false);
                   }
                 }}
-              />
+                />
+              </div>
             </motion.div>
           </motion.div>
         )}

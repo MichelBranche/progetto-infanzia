@@ -1,5 +1,4 @@
-import { isTauri } from "@tauri-apps/api/core";
-import { runtimeInvoke as invoke } from "./runtimeInvoke";
+import { runtimeInvoke as invoke, usesBackendApi } from "./runtimeInvoke";
 import type {
   MangaBrowseItem,
   MangaChapterItem,
@@ -18,6 +17,7 @@ import packageJson from "../../package.json";
 const API_BASE = "https://api.mangadex.org";
 const UPLOADS_BASE = "https://uploads.mangadex.org/covers";
 const MANGA_USER_AGENT = `Branchefy/${packageJson.version} (https://github.com/MichelBranche/progetto-infanzia)`;
+const MANGADEX_TIMEOUT_MS = 45_000;
 
 const BASE_RATINGS = ["safe", "suggestive"] as const;
 const ADULT_RATINGS = ["safe", "suggestive", "erotica", "pornographic"] as const;
@@ -53,11 +53,15 @@ function buildQuery(params: Record<string, string | number | readonly string[]>)
 async function mdFetch<T>(path: string, query?: Record<string, string | number | readonly string[]>): Promise<T> {
   const qs = query ? buildQuery(query) : "";
 
-  if (isTauri()) {
-    const body = await invoke<string>("mangadex_fetch_cmd", {
-      path,
-      query: qs || null,
-    });
+  if (usesBackendApi()) {
+    const body = await invoke<string>(
+      "mangadex_fetch_cmd",
+      {
+        path,
+        query: qs || null,
+      },
+      MANGADEX_TIMEOUT_MS,
+    );
     return JSON.parse(body) as T;
   }
 

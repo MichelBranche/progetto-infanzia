@@ -55,6 +55,10 @@ export function LibraryProvider({
         "branchefy-intro-sound",
         String(settings.introSoundEnabled),
       );
+      localStorage.setItem(
+        "branchefy-home-card-sounds",
+        String(settings.homeCardSoundsEnabled),
+      );
     } catch {
       // impostazioni opzionali al primo avvio
     } finally {

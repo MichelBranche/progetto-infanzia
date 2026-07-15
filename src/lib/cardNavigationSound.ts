@@ -1,4 +1,5 @@
 import { playAudioElement } from "./webAudio";
+import { readHomeCardSoundsPref } from "./settingsApi";
 
 const CARD_NAV_SOUND_SRC = "/audio/card-navigation.wav";
 const CARD_OPEN_TITLE_SOUND_SRC = "/audio/card-open-title.mp3";
@@ -27,6 +28,7 @@ function playCached(
 }
 
 export function playCardNavigationSound() {
+  if (!readHomeCardSoundsPref()) return;
   try {
     const now = Date.now();
     if (now - lastNavSoundAt < NAV_SOUND_MIN_INTERVAL_MS) return;
@@ -38,6 +40,7 @@ export function playCardNavigationSound() {
 }
 
 export function playCardOpenTitleSound() {
+  if (!readHomeCardSoundsPref()) return;
   try {
     openTitleAudio = playCached(
       openTitleAudio,

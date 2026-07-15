@@ -5,13 +5,12 @@ import {
   KeyRound,
   Loader2,
   Lock,
+  LayoutGrid,
   Shield,
-  Tv,
   Volume2,
 } from "lucide-react";
 import { setProfilePin, removeProfilePin } from "../lib/profilesApi";
 import { fetchSettings, updateSettings } from "../lib/settingsApi";
-import { STREAMING_SERVICES } from "../data/streaming";
 import { ParentalLimitsPanel } from "./ParentalLimitsPanel";
 import { AppUpdaterSection } from "./AppUpdaterSection";
 import { CloudAuthPanel } from "./CloudAuthPanel";
@@ -25,7 +24,6 @@ import {
   SettingsButton,
   SettingsGroupLabel,
   SettingsInput,
-  SettingsPill,
   SettingsSection,
   SettingsSwitch,
 } from "./settings/SettingsUi";
@@ -76,14 +74,6 @@ export function SettingsPage({ profileId }: SettingsPageProps) {
     } finally {
       setSaving(false);
     }
-  };
-
-  const toggleService = (id: string) => {
-    if (!settings) return;
-    const next = settings.subscribedServices.includes(id)
-      ? settings.subscribedServices.filter((s) => s !== id)
-      : [...settings.subscribedServices, id];
-    void saveSettings({ subscribedServices: next });
   };
 
   const handleSetPin = async () => {
@@ -233,35 +223,6 @@ export function SettingsPage({ profileId }: SettingsPageProps) {
               </SettingsSection>
             </motion.div>
 
-            <motion.div
-              {...sectionMotion}
-              transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
-            >
-              <SettingsGroupLabel>Streaming</SettingsGroupLabel>
-
-              <SettingsSection
-                icon={Tv}
-                title="I tuoi abbonamenti"
-                description="Per ogni titolo vedi dove è disponibile in streaming"
-              >
-                <div className="flex flex-wrap gap-2">
-                  {STREAMING_SERVICES.map((service) => {
-                    const active = settings.subscribedServices.includes(service.id);
-                    return (
-                      <SettingsPill
-                        key={service.id}
-                        active={active}
-                        disabled={saving}
-                        onClick={() => toggleService(service.id)}
-                      >
-                        {service.label}
-                      </SettingsPill>
-                    );
-                  })}
-                </div>
-              </SettingsSection>
-            </motion.div>
-
             {STREMIO_ADDONS_ENABLED && (
               <motion.div
                 {...sectionMotion}
@@ -327,6 +288,25 @@ export function SettingsPage({ profileId }: SettingsPageProps) {
                   />
                 }
               />
+
+              <div className="mt-3">
+                <SettingsSection
+                  icon={LayoutGrid}
+                  title="Suoni card home"
+                  description="Effetti al passaggio del mouse sulle card e al click per aprire un titolo"
+                  headerRight={
+                    <SettingsSwitch
+                      enabled={settings.homeCardSoundsEnabled}
+                      disabled={saving}
+                      onChange={() =>
+                        void saveSettings({
+                          homeCardSoundsEnabled: !settings.homeCardSoundsEnabled,
+                        })
+                      }
+                    />
+                  }
+                />
+              </div>
 
               <div className="mt-3">
                 <AppUpdaterSection />

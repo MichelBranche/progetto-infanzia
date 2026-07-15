@@ -23,10 +23,12 @@ import { PlatformPromoBanner } from "./components/PlatformPromoBanner";
 import { ProfilePage, type ProfileTab } from "./components/ProfilePage";
 import { AppUpdaterProvider } from "./context/AppUpdaterContext";
 import { WebEssentialUpdateBanner } from "./components/WebEssentialUpdateBanner";
+import { GlobalBroadcastModal } from "./components/GlobalBroadcastModal";
 import { ProfilePinModal } from "./components/ProfilePinModal";
 import { LibraryProvider, useLibrary } from "./context/LibraryContext";
 import { AddonsProvider, useAddons } from "./context/AddonsContext";
 import { CloudAccountProvider, useCloudAccount } from "./context/CloudAccountContext";
+import { PosterQualityProvider } from "./context/PosterQualityContext";
 import { usePresenceHeartbeat } from "./hooks/useFriendPresence";
 import { NotificationProvider, useNotifications } from "./context/NotificationContext";
 import { CloudFriendAlertsProvider, useCloudFriendAlertsContext } from "./context/CloudFriendAlertsContext";
@@ -48,7 +50,9 @@ import { EmailConfirmedPage } from "./components/EmailConfirmedPage";
 import { WebAppInstallPage } from "./components/WebAppInstallPage";
 import { isEmailConfirmedPath } from "./lib/authRoutes";
 import { isWebAppInstallPath } from "./lib/webAppRoutes";
-import { GuestUsageBanner } from "./components/GuestUsageBanner";
+import { GuestUsageWidget } from "./components/GuestUsageWidget";
+import { GuestHotSinglesToast } from "./components/GuestHotSinglesToast";
+import { GuestLimitBlockedScreen } from "./components/GuestLimitBlockedScreen";
 import { PreviewAudioProvider } from "./context/PreviewAudioContext";
 import {
   ARCHIVIO_CARTONI_LOGO,
@@ -63,6 +67,7 @@ import {
   parseStreamingMediaId,
   previewToMediaItem,
   previewToWatchTarget,
+  dedupeStreamingPreviews,
 } from "./lib/streamingBrowse";
 import { useStreamingCatalogs } from "./lib/useStreamingCatalogs";
 import { useMyList } from "./lib/useMyList";
@@ -270,7 +275,7 @@ function AppContent() {
   const platformPromoVariant = homePlatformPromoVariant(isCompactShell);
   const { activeProfile, clearProfile, isParent } = useProfile();
   const { profile: cloudProfile, user, signOut } = useCloudAccount();
-  const { isGuest, guestLimitReached, logoutAccess } = useAppAccess();
+  const { isGuest, guestAccessBlocked, logoutAccess } = useAppAccess();
   const { notify } = useNotifications();
   const devMode = isDevAdminEmail(cloudProfile?.email);
   usePresenceHeartbeat(Boolean(cloudProfile));
@@ -468,18 +473,23 @@ function AppContent() {
     };
   }, [handleJoinWatchPartyFromInvite]);
 
+  const handleGuestRegister = useCallback(() => {
+    clearProfile();
+    logoutAccess();
+  }, [clearProfile, logoutAccess]);
+
   const ensureGuestCanPlay = useCallback(() => {
-    if (isGuest && guestLimitReached) {
+    if (isGuest && guestAccessBlocked) {
       notify({
         kind: "info",
-        title: "Limite ospite raggiunto",
+        title: "Tempo ospite esaurito",
         message:
-          "Hai usato le 2 ore giornaliere. Registrati dalle Impostazioni per continuare.",
+          "Hai finito l'ora di prova. Crea un account per continuare subito.",
       });
       return false;
     }
     return true;
-  }, [isGuest, guestLimitReached, notify]);
+  }, [isGuest, guestAccessBlocked, notify]);
 
   const handleLogout = useCallback(async () => {
     if (user) {
@@ -741,10 +751,16 @@ function AppContent() {
   }, [streamingPreviews, streamingRows]);
 
   const continueHomeRow = useMemo(() => {
+    if (isGuest) return null;
+    const posterCatalog = dedupeStreamingPreviews([
+      ...catalogIndex,
+      ...streamingRows.flatMap((row) => row.items),
+    ]);
     const items = buildContinueBrowseItems(
       library?.collections ?? [],
       streamingContinue,
       library?.items ?? [],
+      posterCatalog,
     );
     if (items.length === 0) return null;
     return {
@@ -757,7 +773,10 @@ function AppContent() {
     library?.collections,
     library?.items,
     streamingContinue,
+    catalogIndex,
+    streamingRows,
     applyMyListToBrowseItems,
+    isGuest,
   ]);
 
   const unifiedHomeRows = useMemo(() => {
@@ -1162,7 +1181,10 @@ function AppContent() {
         onOpenSearch={handleOpenSearch}
         onCloseSearch={handleCloseSearch}
         searchActive={searchOpen}
-        onSwitchProfile={clearProfile}
+        onSwitchProfile={() => {
+          if (isGuest) handleGuestRegister();
+          else clearProfile();
+        }}
         onLogout={() => void handleLogout()}
       />
 
@@ -1176,7 +1198,10 @@ function AppContent() {
       />
 
       <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <GuestUsageBanner onUpgrade={() => handleNav("settings")} />
+        <GuestUsageWidget onRegister={handleGuestRegister} />
+        {isGuest && guestAccessBlocked && (
+          <GuestLimitBlockedScreen onRegister={handleGuestRegister} />
+        )}
 
         <SuspenseRoute>
           <SearchOverlay
@@ -1619,8 +1644,9 @@ function AppGate() {
     verifyPin,
     profiles,
     loading: profilesLoading,
+    enterGuestSession,
   } = useProfile();
-  const { setupComplete, loading: accessLoading, syncFromStorage } = useAppAccess();
+  const { setupComplete, loading: accessLoading, syncFromStorage, mode, isGuest } = useAppAccess();
   const { backendOnline, checking, checkBackend } = useDevBackendGate();
 
   useEffect(() => {
@@ -1665,7 +1691,15 @@ function AppGate() {
     bootDone &&
     !activeProfile &&
     !pendingProfile &&
-    !showAccess;
+    !showAccess &&
+    mode !== "guest";
+
+  useEffect(() => {
+    if (!setupComplete || mode !== "guest") return;
+    if (!activeProfile && !pendingProfile) {
+      enterGuestSession();
+    }
+  }, [setupComplete, mode, activeProfile, pendingProfile, enterGuestSession]);
 
   if (bootDone && backendOnline === false) {
     return (
@@ -1692,6 +1726,8 @@ function AppGate() {
         />
       ) : null}
 
+      {bootDone && <GlobalBroadcastModal />}
+
       {showAccess && <AppAccessScreen />}
 
       {showProfileSelect && <ProfileSelectScreen />}
@@ -1717,6 +1753,7 @@ function AppGate() {
                 <ChatMessageAlertsProvider>
                   <ChatPopupProvider>
                     <WatchPartyHostProvider>
+                      {isGuest && <GuestHotSinglesToast />}
                       <AppContent />
                     </WatchPartyHostProvider>
                   </ChatPopupProvider>
@@ -1747,17 +1784,19 @@ function App() {
 
   return (
     <CloudAccountProvider>
-      <AppAccessProvider>
-        <NotificationProvider>
-          <MobileDeviceProvider>
-            <ProfileProvider>
-              <PreviewAudioProvider>
-                <AppGate />
-              </PreviewAudioProvider>
-            </ProfileProvider>
-          </MobileDeviceProvider>
-        </NotificationProvider>
-      </AppAccessProvider>
+      <PosterQualityProvider>
+        <AppAccessProvider>
+          <NotificationProvider>
+            <MobileDeviceProvider>
+              <ProfileProvider>
+                <PreviewAudioProvider>
+                  <AppGate />
+                </PreviewAudioProvider>
+              </ProfileProvider>
+            </MobileDeviceProvider>
+          </NotificationProvider>
+        </AppAccessProvider>
+      </PosterQualityProvider>
     </CloudAccountProvider>
   );
 }
