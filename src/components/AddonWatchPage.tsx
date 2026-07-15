@@ -583,8 +583,8 @@ export function AddonWatchPage({
               await startPlayback(videoId, videoTitle);
             })();
           }}
-          onBack={async () => {
-            await saveYoutubeProgress(
+          onBack={() => {
+            void saveYoutubeProgress(
               playback.videoId,
               playback.videoTitle !== meta.name ? playback.videoTitle : undefined,
             );
@@ -635,16 +635,16 @@ export function AddonWatchPage({
         onStreamAudioLanguageChange={
           isSc ? handleStreamAudioLanguage : undefined
         }
-        onBack={async () => {
+        onBack={() => {
           if (watchPartySession) {
             onWatchPartySessionChange?.(null);
-            await onBack();
+            void onBack();
             return;
           }
           setPlayback(null);
           void loadEpisodeProgress();
-          await onRefreshContinue?.();
-          if (initialVideoId) await onBack();
+          void onRefreshContinue?.();
+          if (initialVideoId) void onBack();
         }}
       />
     );

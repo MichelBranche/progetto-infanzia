@@ -192,6 +192,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const episodeNavTriggeredRef = useRef(false);
   const castDeviceRef = useRef<CastDevice | null>(null);
   const saveChainRef = useRef(Promise.resolve());
+  const leavingRef = useRef(false);
   const partySessionRef = useRef<WatchPartySession | null>(null);
   const remoteSyncTargetRef = useRef<{ playing: boolean; position: number } | null>(
     null,
@@ -388,11 +389,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     await saveProgressRef.current(video.currentTime, video.duration);
   }, []);
 
+  useEffect(() => {
+    leavingRef.current = false;
+  }, [media.id, effectiveStreamUrl]);
+
   useImperativeHandle(ref, () => ({ flushWatchProgress }), [flushWatchProgress]);
 
-  const handleBack = useCallback(async () => {
-    await flushWatchProgress();
-    await onBack();
+  const handleBack = useCallback(() => {
+    if (leavingRef.current) return;
+    leavingRef.current = true;
+    videoRef.current?.pause();
+    void flushWatchProgress();
+    void Promise.resolve(onBack()).finally(() => {
+      leavingRef.current = false;
+    });
   }, [flushWatchProgress, onBack]);
 
   const resetHideTimer = useCallback(() => {
@@ -1312,7 +1322,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         <div className="pointer-events-auto px-4 pb-2 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pt-5">
           <PlayerChromeButton
             size="lg"
-            onClick={() => void handleBack()}
+            onClick={handleBack}
             aria-label="Esci dal player"
             title="Indietro"
             className="border-white/20 bg-black/55"
@@ -1340,7 +1350,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             </p>
             <button
               type="button"
-              onClick={() => void handleBack()}
+              onClick={handleBack}
               className="mt-6 rounded-full bg-white px-5 py-2.5 text-[13px] font-semibold text-black"
             >
               Torna indietro

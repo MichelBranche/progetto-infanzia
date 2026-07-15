@@ -1,29 +1,16 @@
-# Branchefy v0.2.9
+# Branchefy v0.2.10
 
-## Modalità ospite
+## Fix player
 
-- Nuova esperienza ospite con **1 ora di visione al giorno** e blocco di 24 ore dopo l'esaurimento
-- Widget timer in basso a sinistra (conta solo durante la riproduzione)
-- Schermata di blocco con invito a registrarsi
-- Popup ironici **"hot singles"** con foto e messaggi parodia, ingresso casuale da ogni lato dello schermo
+- **Indietro istantaneo**: il pulsante esci dal player risponde subito, senza attendere il salvataggio del progresso
+- Il progresso continua a salvarsi in background senza bloccare la navigazione
+- Refresh catalogo e continue-watching non ritardano più l'uscita dal player
 
-## Player e profili
+## Incluso da v0.2.9
 
-- Pulsante indietro del player più grande e sempre cliccabile su mobile
-- Salvataggio foto profilo da **Profilo → Personalizza**
-- Layout migliorato per i pulsanti Crea profilo / Salva
-
-## Web app
-
-- Manga su mobile: richieste MangaDex via backend (niente più errori CORS)
-- Dev console: dashboard profili locali disponibile anche su web
-- Poster e qualità immagini migliorati
-- Annunci globali in-app con pannello admin in dev console
-
-## Libri e catalogo
-
-- Miglioramenti We-Lib (ricerca, lettura, audio)
-- Browse e poster streaming più affidabili
+- Modalità ospite (1h/giorno, timer, blocco 24h, popup hot singles)
+- Player mobile migliorato, salvataggio foto profilo, fix manga web
+- Annunci globali, poster e miglioramenti catalogo
 
 ## Piattaforme
 

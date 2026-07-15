@@ -531,12 +531,12 @@ function AppContent() {
     });
   };
 
-  const handleBackFromWatch = async () => {
+  const handleBackFromWatch = () => {
     setWatchingId(null);
     setWatchAutoplay(false);
     setDetailSimilar([]);
-    await refresh();
-    await refreshStreamingContinue();
+    void refresh();
+    void refreshStreamingContinue();
   };
 
   const handleNav = (id: string) => {
@@ -1098,10 +1098,10 @@ function AppContent() {
   }
 
   if (addonWatch) {
-    const handleBackFromAddon = async () => {
+    const handleBackFromAddon = () => {
       setAddonWatch(null);
       setDetailSimilar([]);
-      await refreshStreamingContinue();
+      void refreshStreamingContinue();
       refreshFriendAlerts();
     };
 
