@@ -1,15 +1,17 @@
-# Branchefy v0.2.10
+# Branchefy v0.2.11
 
-## Fix player
+## Fix build
 
-- **Indietro istantaneo**: il pulsante esci dal player risponde subito, senza attendere il salvataggio del progresso
-- Il progresso continua a salvarsi in background senza bloccare la navigazione
-- Refresh catalogo e continue-watching non ritardano più l'uscita dal player
+- Corretti errori TypeScript che bloccavano la build desktop macOS/Windows su CI
+
+## Incluso da v0.2.10
+
+- **Indietro istantaneo** nel player (nessuna attesa sul salvataggio progresso)
 
 ## Incluso da v0.2.9
 
 - Modalità ospite (1h/giorno, timer, blocco 24h, popup hot singles)
-- Player mobile migliorato, salvataggio foto profilo, fix manga web
+- Player mobile, salvataggio foto profilo, fix manga web
 - Annunci globali, poster e miglioramenti catalogo
 
 ## Piattaforme

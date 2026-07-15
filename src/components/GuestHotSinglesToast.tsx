@@ -90,7 +90,6 @@ export function GuestHotSinglesToast() {
                 duration: RISE_DURATION_S,
                 ease: [0.25, 0.1, 0.25, 1],
               },
-              exit: { duration: 0.35, ease: [0.22, 1, 0.36, 1] },
             }}
             className={`pointer-events-auto absolute ${layout.className} ${CARD_CLASS}`}
           >

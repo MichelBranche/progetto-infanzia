@@ -9,7 +9,6 @@ import { isHeroEligibleLocalItem, isHeroPriorityLocalItem, isHeroPriorityPreview
 import type { StreamingRow } from "./useStreamingCatalogs";
 import { decodeHtmlEntities } from "./htmlText";
 import {
-  continueToPreview,
   dedupeStreamingPreviews,
   enrichContinuePreview,
   streamingBrowseItem,

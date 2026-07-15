@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -30,18 +31,18 @@ export function PosterQualityProvider({ children }: { children: ReactNode }) {
   const [tier, setTier] = useState<PosterQualityTier>(() =>
     detectPosterQualityTier(),
   );
-  const [lastDowngradeAt, setLastDowngradeAt] = useState(0);
+  const lastDowngradeAtRef = useRef(0);
 
   useEffect(() => subscribePosterQualityTier(setTier), []);
 
   const reportSlowImageLoad = useCallback((elapsedMs: number) => {
     if (elapsedMs < SLOW_IMAGE_MS) return;
     const now = Date.now();
-    setLastDowngradeAt((prev) => {
-      if (now - prev < SLOW_IMAGE_DOWNGRADE_COOLDOWN_MS) return prev;
-      setTier((current) => downgradeTier(current));
-      return now;
-    });
+    if (now - lastDowngradeAtRef.current < SLOW_IMAGE_DOWNGRADE_COOLDOWN_MS) {
+      return;
+    }
+    lastDowngradeAtRef.current = now;
+    setTier((current) => downgradeTier(current));
   }, []);
 
   const value = useMemo(

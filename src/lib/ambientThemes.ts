@@ -1,6 +1,5 @@
 import type { AmbientPalette } from "./imagePalette";
 import {
-  DEFAULT_AMBIENT_PALETTE,
   gradientPreviewFromHex,
   paletteFromHex,
   paletteFromHuesPublic,
@@ -213,7 +212,10 @@ const THEME_BY_ID = Object.fromEntries(
   AMBIENT_THEMES.map((theme) => [theme.id, theme]),
 ) as Record<Exclude<AmbientThemeId, "custom">, AmbientTheme>;
 
-export const DEFAULT_AMBIENT_THEME_ID: AmbientThemeId = "violet";
+export const DEFAULT_AMBIENT_THEME_ID = "violet" satisfies Exclude<
+  AmbientThemeId,
+  "custom"
+>;
 
 export function isAmbientThemeId(value: string): value is AmbientThemeId {
   return value === "custom" || value in THEME_BY_ID;
@@ -271,7 +273,8 @@ export function writeAmbientThemeId(id: AmbientThemeId): void {
 
 export function getAmbientTheme(id: AmbientThemeId = readAmbientThemeId()): AmbientTheme {
   if (id === "custom") return buildCustomAmbientTheme();
-  return THEME_BY_ID[id] ?? THEME_BY_ID[DEFAULT_AMBIENT_THEME_ID];
+  const presetId = id as Exclude<AmbientThemeId, "custom">;
+  return THEME_BY_ID[presetId] ?? THEME_BY_ID[DEFAULT_AMBIENT_THEME_ID];
 }
 
 export function getUserAmbientPalette(): AmbientPalette {

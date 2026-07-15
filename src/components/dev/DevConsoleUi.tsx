@@ -67,7 +67,7 @@ export function DevHero({
 export function DevStatsGrid({
   stats,
 }: {
-  stats: { label: string; value: number; icon: LucideIcon }[];
+  stats: { label: string; value: number | string; icon: LucideIcon }[];
 }) {
   return (
     <motion.div
