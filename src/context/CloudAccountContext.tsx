@@ -18,6 +18,7 @@ import {
   updateCloudDisplayName,
 } from "../lib/cloudAuth";
 import { getSupabase } from "../lib/supabaseClient";
+import { setScFallbackEmail } from "../lib/scServerFallback";
 import type { CloudProfile } from "../types/cloud";
 
 interface CloudAccountContextValue {
@@ -42,6 +43,11 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<CloudProfile | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const syncInFlightRef = useRef<Promise<unknown> | null>(null);
+
+  // Abilita il fallback SC via server per l'account autorizzato (solo desktop).
+  useEffect(() => {
+    setScFallbackEmail(user?.email ?? null);
+  }, [user?.email]);
 
   const runCloudSync = useCallback(async (cloudProfile: CloudProfile) => {
     if (syncInFlightRef.current) {

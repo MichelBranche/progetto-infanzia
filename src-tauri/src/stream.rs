@@ -672,8 +672,12 @@ async fn remote_proxy_response(
 ) -> Result<Response<Body>, StatusCode> {
     let entry = state.addon_proxy.get(id).ok_or(StatusCode::NOT_FOUND)?;
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
+    let mut builder =
+        reqwest::Client::builder().timeout(std::time::Duration::from_secs(120));
+    if entry.use_proxy {
+        builder = crate::sc_proxy::apply_async(builder);
+    }
+    let client = builder
         .build()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -696,6 +700,7 @@ async fn remote_proxy_response(
             &body,
             &entry.upstream_url,
             &entry.request_headers,
+            entry.use_proxy,
         );
         let rewritten = rewrite_localhost_stream_urls(&rewritten);
         return Response::builder()

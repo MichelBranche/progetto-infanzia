@@ -26,6 +26,7 @@ mod saturn_catalog;
 mod saturn_playback;
 pub mod sc_catalog;
 mod sc_playback;
+pub mod sc_proxy;
 mod vix_embed;
 mod scanner;
 mod settings;
@@ -501,7 +502,14 @@ fn update_settings_cmd(
         return Err("Solo il profilo genitore può modificare le impostazioni".into());
     }
     state.db.update_settings(&input)?;
-    state.db.get_settings(state.media_root.read().as_path())
+    let settings = state.db.get_settings(state.media_root.read().as_path())?;
+    // Applica subito il proxy SC senza riavviare l'app (solo desktop).
+    sc_proxy::set_sc_proxy(if settings.sc_proxy_enabled {
+        Some(settings.sc_proxy_url.clone())
+    } else {
+        None
+    });
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -2223,6 +2231,17 @@ fn init_app(handle: &AppHandle) -> Result<AppState, String> {
         .join("library.db");
 
     let db = Arc::new(Database::open(&db_path)?);
+    // Proxy SC opzionale (solo desktop): off di default → connessione diretta.
+    {
+        let enabled = db
+            .get_meta(crate::settings::META_SC_PROXY_ENABLED)
+            .ok()
+            .flatten()
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        let url = db.get_meta(crate::settings::META_SC_PROXY_URL).ok().flatten();
+        sc_proxy::set_sc_proxy(if enabled { url } else { None });
+    }
     let _ = profile_avatar::migrate_filesystem_avatars_to_db(handle, db.as_ref());
     let _ = db.ensure_catalog_addon();
     let _ = saturn_catalog::ensure_defaults(&db);

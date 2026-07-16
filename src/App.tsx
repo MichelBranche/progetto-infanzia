@@ -61,6 +61,7 @@ import {
   isArchivioCartoniRow,
 } from "./lib/brandAssets";
 import { sectionMeta } from "./data/nav";
+import { pathForNav, parseLocationPath } from "./lib/webUrlSync";
 import type { BrowseItem } from "./lib/browse";
 import type { MediaItem } from "./types/media";
 import type { StremioMetaPreview } from "./types/stremio";
@@ -293,13 +294,20 @@ function AppContent() {
     refresh,
   } = useLibrary();
 
-  const [activeNav, setActiveNav] = useState("home");
+  const [activeNav, setActiveNav] = useState(() => {
+    if (!isWebShell()) return "home";
+    const parsed = parseLocationPath(window.location.pathname);
+    return parsed && !parsed.title ? parsed.activeNav : "home";
+  });
   const [profileTab, setProfileTab] = useState<ProfileTab>("watched");
   const [searchOpen, setSearchOpen] = useState(false);
   const [watchingId, setWatchingId] = useState<string | null>(null);
   const [watchAutoplay, setWatchAutoplay] = useState(false);
   const [seriesKey, setSeriesKey] = useState<string | null>(null);
-  const [addonWatch, setAddonWatch] = useState<AddonWatchTarget | null>(null);
+  const [addonWatch, setAddonWatch] = useState<AddonWatchTarget | null>(() => {
+    if (!isWebShell()) return null;
+    return parseLocationPath(window.location.pathname)?.title ?? null;
+  });
   const [detailSimilar, setDetailSimilar] = useState<BrowseItem[]>([]);
   const [partyGuestSession, setPartyGuestSession] = useState<WatchPartySession | null>(null);
   const [friendProfile, setFriendProfile] = useState<FriendProfileTarget | null>(null);
@@ -353,6 +361,7 @@ function AppContent() {
   } | null>(null);
   const [heroItems, setHeroItems] = useState<MediaItem[]>([]);
   const prevActiveNavRef = useRef(activeNav);
+  const firstUrlSyncRef = useRef(true);
   const cartoniCatalogRefreshRef = useRef(false);
   const mainScrollRef = useRef<HTMLElement>(null);
   const { hasStreaming } = useAddons();
@@ -444,6 +453,51 @@ function AppContent() {
       setActiveNav("home");
     }
   }, [isParent, activeNav]);
+
+  // Deep link web: riflette "sezione + titolo aperto" nell'URL. Il primo giro
+  // normalizza il path (replaceState, niente entry in cronologia); i successivi
+  // usano pushState così il tasto Indietro del browser funziona. Solo web app.
+  useEffect(() => {
+    if (!isWebShell()) return;
+    const desired = pathForNav(activeNav, addonWatch);
+    if (desired == null) return;
+    const current = window.location.pathname;
+    if (desired !== current) {
+      if (firstUrlSyncRef.current) {
+        window.history.replaceState(window.history.state, "", desired);
+      } else {
+        window.history.pushState(window.history.state, "", desired);
+      }
+    }
+    firstUrlSyncRef.current = false;
+  }, [activeNav, addonWatch]);
+
+  // Indietro/Avanti del browser: ricostruisce la vista dal path e chiude gli
+  // overlay non rappresentati nell'URL, così si torna sempre a uno stato pulito.
+  useEffect(() => {
+    if (!isWebShell()) return;
+    const onPopState = () => {
+      const parsed = parseLocationPath(window.location.pathname);
+      if (!parsed) return;
+      setSearchOpen(false);
+      setSearchQuery("");
+      setSeriesKey(null);
+      setMangaDetail(null);
+      setMangaReader(null);
+      setBookDetail(null);
+      setBookReader(null);
+      setWatchingId(null);
+      setFriendProfile(null);
+      if (parsed.title) {
+        setAddonWatch(parsed.title);
+      } else {
+        setAddonWatch(null);
+        setActiveNav(parsed.activeNav);
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   useEffect(() => {
     const openChats = () => {

@@ -1672,6 +1672,13 @@ impl Database {
             .or_else(|| self.get_meta("sc_lang").ok().flatten())
             .filter(|v| !v.trim().is_empty())
             .unwrap_or_else(|| "auto".to_string());
+        let sc_proxy_enabled = self
+            .get_meta(crate::settings::META_SC_PROXY_ENABLED)?
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        let sc_proxy_url = self
+            .get_meta(crate::settings::META_SC_PROXY_URL)?
+            .unwrap_or_default();
 
         Ok(crate::settings::AppSettings {
             intro_sound_enabled,
@@ -1684,6 +1691,8 @@ impl Database {
             tmdb_enrich_on_scan,
             cast_transcode_enabled,
             preferred_audio_language,
+            sc_proxy_enabled,
+            sc_proxy_url,
         })
     }
 
@@ -1738,6 +1747,15 @@ impl Database {
                     if stored == "en" { "en" } else { "it" },
                 )?;
             }
+        }
+        if let Some(enabled) = input.sc_proxy_enabled {
+            self.set_meta(
+                crate::settings::META_SC_PROXY_ENABLED,
+                if enabled { "true" } else { "false" },
+            )?;
+        }
+        if let Some(url) = &input.sc_proxy_url {
+            self.set_meta(crate::settings::META_SC_PROXY_URL, url.trim())?;
         }
         Ok(())
     }

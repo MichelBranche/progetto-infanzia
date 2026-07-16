@@ -57,8 +57,11 @@ const ARCHIVE_PROGRESS_SAVE_EVERY: usize = 200;
 const ARCHIVE_HARD_MAX_PAGE: u32 = 20;
 const SEARCH_HARD_MAX_PAGE: u32 = 80;
 /// Titoli per ciclo di arricchimento parallelo (pagina dettaglio).
-pub const TITLE_META_ENRICH_BATCH: usize = 160;
-const TITLE_META_ENRICH_WORKERS: usize = 8;
+pub const TITLE_META_ENRICH_BATCH: usize = 60;
+/// Poche connessioni contemporanee: traffico più simile a un browser, meno
+/// probabilità di attivare l'anti-bot di SC. Il catalogo si completa un filo
+/// più lentamente ma in modo del tutto trasparente all'utente (c'è il seed).
+const TITLE_META_ENRICH_WORKERS: usize = 3;
 const TITLE_META_ENRICH_SAVE_EVERY: usize = 40;
 const META_SC_META_ENRICH_CURSOR: &str = "sc_catalog_meta_enrich_cursor";
 
@@ -189,13 +192,14 @@ fn http_client() -> Result<Client, String> {
 }
 
 fn http_client_with_timeout(secs: u64) -> Result<Client, String> {
-    Client::builder()
+    let builder = Client::builder()
         .timeout(Duration::from_secs(secs))
         .cookie_store(true)
         .user_agent(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
              (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Branchefy/0.1",
-        )
+        );
+    crate::sc_proxy::apply_blocking(builder)
         .build()
         .map_err(|e| e.to_string())
 }
@@ -1176,9 +1180,9 @@ fn fetch_paginated_titles(
         }
 
         page += 1;
-        // Ritmo moderato: search fa molte query, archivio max 20 pagine.
-        let delay_ms = if base_path.contains("/search") { 160 } else { 220 };
-        std::thread::sleep(Duration::from_millis(delay_ms));
+        // Ritmo moderato + variazione: search fa molte query, archivio max 20 pagine.
+        let delay_ms = if base_path.contains("/search") { 220 } else { 300 };
+        std::thread::sleep(Duration::from_millis(jittered_ms(delay_ms)));
     }
 
     if let Some(db) = persist_db {
@@ -1467,6 +1471,19 @@ fn enrich_index_with_genre_archives(
 
 /// Arricchisce un batch di titoli SC (generi + provider) dalle pagine dettaglio.
 /// Fetch paralleli; salva l'indice a chunk. Ritorna quanti titoli aggiornati.
+/// Pausa `base..=1.5*base` ms: evita intervalli perfettamente regolari, che gli
+/// anti-bot riconoscono come traffico automatico. Nessuna dipendenza esterna.
+fn jittered_ms(base: u64) -> u64 {
+    if base == 0 {
+        return 0;
+    }
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos() as u64;
+    base + (nanos % (base / 2 + 1))
+}
+
 pub fn enrich_cached_index_metadata(db: &Database, limit: usize) -> Result<usize, String> {
     let Some((mut index, _)) = load_cached_index(db) else {
         return Ok(0);
@@ -1534,7 +1551,8 @@ pub fn enrich_cached_index_metadata(db: &Database, limit: usize) -> Result<usize
                 let enriched =
                     fetch_title_preview_from_detail(&html_client, &cdn, &locale, &id, &slug);
                 let _ = tx.send((idx, enriched));
-                std::thread::sleep(Duration::from_millis(25));
+                // Ritmo "da persona": ~2-3 richieste/sec per worker.
+                std::thread::sleep(Duration::from_millis(jittered_ms(350)));
             }
         });
     }
@@ -1621,7 +1639,8 @@ pub fn spawn_continuous_metadata_enrichment(db: std::sync::Arc<Database>) {
                 Ok(_) => {
                     idle_rounds = 0;
                     backoff_ms = 400;
-                    std::thread::sleep(Duration::from_millis(150));
+                    // Respiro tra un ciclo e l'altro: niente raffiche continue.
+                    std::thread::sleep(Duration::from_millis(jittered_ms(1500)));
                 }
                 Err(_) => {
                     std::thread::sleep(Duration::from_millis(backoff_ms));

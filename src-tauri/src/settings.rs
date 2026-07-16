@@ -5,6 +5,8 @@ pub const META_HOME_CARD_SOUNDS: &str = "home_card_sounds_enabled";
 pub const META_SUBSCRIBED_SERVICES: &str = "subscribed_services";
 pub const META_CAST_TRANSCODE: &str = "cast_transcode_enabled";
 pub const META_PREFERRED_AUDIO_LANG: &str = "preferred_audio_lang";
+pub const META_SC_PROXY_ENABLED: &str = "sc_proxy_enabled";
+pub const META_SC_PROXY_URL: &str = "sc_proxy_url";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +21,10 @@ pub struct AppSettings {
     pub tmdb_enrich_on_scan: bool,
     pub cast_transcode_enabled: bool,
     pub preferred_audio_language: String,
+    /// Instrada le richieste StreamingCommunity attraverso `sc_proxy_url` (solo desktop).
+    pub sc_proxy_enabled: bool,
+    /// Proxy per SC: `http://…`, `https://…`, `socks5://…` o `socks5h://…` (con eventuale user:pass@).
+    pub sc_proxy_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -31,6 +37,8 @@ pub struct UpdateSettingsInput {
     pub tmdb_enrich_on_scan: Option<bool>,
     pub cast_transcode_enabled: Option<bool>,
     pub preferred_audio_language: Option<String>,
+    pub sc_proxy_enabled: Option<bool>,
+    pub sc_proxy_url: Option<String>,
 }
 
 pub const STREAMING_SERVICE_IDS: &[&str] =

@@ -12,6 +12,8 @@ pub struct ProxyEntry {
     pub upstream_url: String,
     pub request_headers: HashMap<String, String>,
     pub rewrite_manifest: bool,
+    /// Instrada lo scaricamento (manifest + segmenti) attraverso il proxy SC.
+    pub use_proxy: bool,
     pub created_at: Instant,
 }
 
@@ -37,6 +39,7 @@ impl AddonProxyRegistry {
         upstream_url: String,
         request_headers: HashMap<String, String>,
         rewrite_manifest: bool,
+        use_proxy: bool,
     ) -> String {
         self.cleanup_old();
         let id = format!("{:016x}", {
@@ -53,6 +56,7 @@ impl AddonProxyRegistry {
             upstream_url,
             request_headers,
             rewrite_manifest,
+            use_proxy,
             created_at: Instant::now(),
         };
         self.entries
@@ -79,10 +83,11 @@ impl AddonProxyRegistry {
         reference: &str,
         base: Option<&url::Url>,
         request_headers: &HashMap<String, String>,
+        use_proxy: bool,
     ) -> String {
         let absolute = resolve_url(base, reference);
         let rewrite = is_hls_playlist_url(&absolute);
-        let id = self.register(absolute, request_headers.clone(), rewrite);
+        let id = self.register(absolute, request_headers.clone(), rewrite, use_proxy);
         self.playback_url(&id)
     }
 
@@ -91,6 +96,7 @@ impl AddonProxyRegistry {
         line: &str,
         base: Option<&url::Url>,
         request_headers: &HashMap<String, String>,
+        use_proxy: bool,
     ) -> String {
         let mut result = line.to_string();
         let mut search_from = 0;
@@ -101,7 +107,7 @@ impl AddonProxyRegistry {
             };
             let url_end = url_start + end_off;
             let reference = &result[url_start..url_end];
-            let proxied = self.proxy_reference(reference, base, request_headers);
+            let proxied = self.proxy_reference(reference, base, request_headers, use_proxy);
             result = format!("{}{}{}", &result[..url_start], proxied, &result[url_end..]);
             search_from = url_start + proxied.len();
         }
@@ -113,6 +119,7 @@ impl AddonProxyRegistry {
         manifest_body: &str,
         manifest_url: &str,
         request_headers: &HashMap<String, String>,
+        use_proxy: bool,
     ) -> String {
         let base = url::Url::parse(manifest_url).ok();
         manifest_body
@@ -122,12 +129,13 @@ impl AddonProxyRegistry {
                 if trimmed.is_empty() {
                     return line.to_string();
                 }
-                let with_uris = self.rewrite_uri_attributes(line, base.as_ref(), request_headers);
+                let with_uris =
+                    self.rewrite_uri_attributes(line, base.as_ref(), request_headers, use_proxy);
                 let trimmed = with_uris.trim();
                 if trimmed.starts_with('#') {
                     return with_uris;
                 }
-                self.proxy_reference(trimmed, base.as_ref(), request_headers)
+                self.proxy_reference(trimmed, base.as_ref(), request_headers, use_proxy)
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -173,7 +181,7 @@ mod tests {
 https://vixcloud.co/playlist/1?type=video&rendition=720p&token=def"#;
 
         let rewritten =
-            proxy.rewrite_hls_manifest(master, "https://vixcloud.co/playlist/1?b=1", &headers);
+            proxy.rewrite_hls_manifest(master, "https://vixcloud.co/playlist/1?b=1", &headers, false);
 
         assert!(!rewritten.contains("vixcloud.co/playlist"), "{rewritten}");
         assert!(rewritten.contains("/remote/"));

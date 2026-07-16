@@ -1,4 +1,5 @@
 import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
+import { scServerBase, shouldRouteScToServer } from "./scServerFallback";
 
 export type RuntimeInvokeArgs = Record<string, unknown>;
 
@@ -87,16 +88,12 @@ export async function pingBackendHealth(timeoutMs = 4_000): Promise<boolean> {
   }
 }
 
-export async function runtimeInvoke<T>(
+async function postInvoke<T>(
+  base: string,
   command: string,
-  args?: RuntimeInvokeArgs,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
+  args: RuntimeInvokeArgs | undefined,
+  timeoutMs: number,
 ): Promise<T> {
-  if (isTauri()) {
-    return tauriInvoke<T>(command, args);
-  }
-
-  const base = webApiBase();
   const response = await fetchWithTimeout(
     `${base}/api/invoke`,
     {
@@ -134,4 +131,20 @@ export async function runtimeInvoke<T>(
   }
 
   return payload as T;
+}
+
+export async function runtimeInvoke<T>(
+  command: string,
+  args?: RuntimeInvokeArgs,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<T> {
+  if (isTauri()) {
+    // Account autorizzato con IP bloccato: i soli comandi SC passano dal server.
+    if (shouldRouteScToServer(command)) {
+      return postInvoke<T>(scServerBase(), command, args, timeoutMs);
+    }
+    return tauriInvoke<T>(command, args);
+  }
+
+  return postInvoke<T>(webApiBase(), command, args, timeoutMs);
 }

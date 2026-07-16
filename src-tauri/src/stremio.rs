@@ -443,7 +443,7 @@ pub fn raw_to_playable(
 
             let (playback_url, proxied) = if needs_proxy {
                 if let Some(registry) = proxy {
-                    let id = registry.register(url.clone(), request_headers, is_hls);
+                    let id = registry.register(url.clone(), request_headers, is_hls, false);
                     (registry.playback_url(&id), true)
                 } else {
                     (url.clone(), false)

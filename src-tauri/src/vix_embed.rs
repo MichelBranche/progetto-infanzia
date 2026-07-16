@@ -59,9 +59,10 @@ fn remote_catalog() -> &'static RwLock<RemoteCatalog> {
 }
 
 fn http_client() -> Result<Client, String> {
-    Client::builder()
+    let builder = Client::builder()
         .timeout(Duration::from_secs(12))
-        .user_agent(USER_AGENT)
+        .user_agent(USER_AGENT);
+    crate::sc_proxy::apply_blocking(builder)
         .build()
         .map_err(|e| e.to_string())
 }

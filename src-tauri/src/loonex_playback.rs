@@ -485,7 +485,7 @@ pub fn resolve_playback(
     }
 
     let is_hls = stream_url.contains(".m3u8");
-    let proxy_id = proxy.register(stream_url, headers, is_hls);
+    let proxy_id = proxy.register(stream_url, headers, is_hls, false);
 
     Ok(PlayableStream {
         url: proxy.playback_url(&proxy_id),

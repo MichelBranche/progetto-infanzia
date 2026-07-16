@@ -11,6 +11,8 @@ export interface AppSettings {
   tmdbEnrichOnScan: boolean;
   castTranscodeEnabled: boolean;
   preferredAudioLanguage: string;
+  scProxyEnabled: boolean;
+  scProxyUrl: string;
 }
 
 export interface UpdateSettingsInput {
@@ -21,6 +23,8 @@ export interface UpdateSettingsInput {
   tmdbEnrichOnScan?: boolean;
   castTranscodeEnabled?: boolean;
   preferredAudioLanguage?: string;
+  scProxyEnabled?: boolean;
+  scProxyUrl?: string;
 }
 
 export const INTRO_SOUND_KEY = "branchefy-intro-sound";
@@ -35,6 +39,8 @@ const DEFAULT_BROWSER_SETTINGS: AppSettings = {
   tmdbEnrichOnScan: false,
   castTranscodeEnabled: false,
   preferredAudioLanguage: "auto",
+  scProxyEnabled: false,
+  scProxyUrl: "",
 };
 
 export async function fetchSettings(): Promise<AppSettings> {

@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Blocks,
+  Globe,
   KeyRound,
   Lock,
   LayoutGrid,
   Shield,
   Volume2,
 } from "lucide-react";
+import { IS_TAURI_SHELL } from "../lib/tauriShell";
 import { setProfilePin, removeProfilePin } from "../lib/profilesApi";
 import { fetchSettings, updateSettings } from "../lib/settingsApi";
 import { ParentalLimitsPanel } from "./ParentalLimitsPanel";
@@ -46,6 +48,7 @@ export function SettingsPage({ profileId }: SettingsPageProps) {
   const [currentPin, setCurrentPin] = useState("");
   const [pinMessage, setPinMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scProxyDraft, setScProxyDraft] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,6 +65,10 @@ export function SettingsPage({ profileId }: SettingsPageProps) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (settings) setScProxyDraft(settings.scProxyUrl ?? "");
+  }, [settings?.scProxyUrl]);
 
   const saveSettings = async (patch: Parameters<typeof updateSettings>[1]) => {
     setSaving(true);
@@ -303,6 +310,60 @@ export function SettingsPage({ profileId }: SettingsPageProps) {
                   }
                 />
               </div>
+
+              {IS_TAURI_SHELL && (
+                <div className="mt-3">
+                  <SettingsSection
+                    icon={Globe}
+                    title="Proxy StreamingCommunity (avanzato)"
+                    description="Instrada solo il traffico StreamingCommunity attraverso un proxy (utile se il tuo IP è stato bloccato). Lascialo spento per la connessione diretta."
+                    headerRight={
+                      <SettingsSwitch
+                        enabled={settings.scProxyEnabled}
+                        disabled={saving}
+                        onChange={() =>
+                          void saveSettings({
+                            scProxyEnabled: !settings.scProxyEnabled,
+                          })
+                        }
+                      />
+                    }
+                  >
+                    {settings.scProxyEnabled && (
+                      <div className="mt-1">
+                        <SettingsInput
+                          value={scProxyDraft}
+                          onChange={(e) => setScProxyDraft(e.target.value)}
+                          placeholder="socks5://utente:password@host:1080"
+                          spellCheck={false}
+                          autoCapitalize="none"
+                        />
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <SettingsButton
+                            variant="primary"
+                            onClick={() =>
+                              void saveSettings({ scProxyUrl: scProxyDraft.trim() })
+                            }
+                          >
+                            Salva proxy
+                          </SettingsButton>
+                          {settings.scProxyUrl && (
+                            <span className="text-[12px] text-text-secondary">
+                              Attivo: {settings.scProxyUrl}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-3 text-[12px] leading-relaxed text-text-muted">
+                          Schemi supportati: <code>http://</code>, <code>https://</code>,{" "}
+                          <code>socks5://</code>, <code>socks5h://</code> (con eventuale
+                          {" "}<code>utente:password@</code>). Non serve una VPN di sistema:
+                          solo le richieste a StreamingCommunity passano dal proxy.
+                        </p>
+                      </div>
+                    )}
+                  </SettingsSection>
+                </div>
+              )}
 
               <div className="mt-3">
                 <AppUpdaterSection />

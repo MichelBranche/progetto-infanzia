@@ -227,7 +227,9 @@ fn stream_from_playlist(
     db: &Database,
 ) -> PlayableStream {
     let headers = vix_embed::request_headers(db);
-    let proxy_id = proxy.register(playlist_url, headers, true);
+    // SC: instrada anche i segmenti attraverso il proxy quando configurato.
+    let use_proxy = crate::sc_proxy::current_sc_proxy().is_some();
+    let proxy_id = proxy.register(playlist_url, headers, true, use_proxy);
     PlayableStream {
         url: proxy.playback_url(&proxy_id),
         name: Some("Streaming Community".to_string()),
@@ -634,13 +636,14 @@ struct ScSession {
 
 impl ScSession {
     fn open(app: &str, locale: &str) -> Result<Self, String> {
-        let client = Client::builder()
+        let builder = Client::builder()
             .timeout(Duration::from_secs(30))
             .cookie_store(true)
             .user_agent(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
                  (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Branchefy/0.1",
-            )
+            );
+        let client = crate::sc_proxy::apply_blocking(builder)
             .build()
             .map_err(|e| e.to_string())?;
 

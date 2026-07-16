@@ -1,28 +1,16 @@
-# Branchefy v0.2.12
+# Branchefy v0.2.13
 
-## Watch Party
+## Web app
 
-- **Sync perfetto**: eliminati i desync tra host e ospiti (correzione dello sfasamento di clock)
-- **Convergenza fluida**: le piccole differenze si allineano regolando dolcemente la velocità, senza salti
-- **Chat in stanza**: pannello a tendina in basso a destra con badge messaggi non letti
-- **Chiudi stanza**: nuovo tasto per terminare la stanza dal menu amici in alto
+- **Link condivisibili**: aprendo un contenuto l'URL diventa `/titolo/nome-film` e le sezioni hanno il proprio indirizzo (`/film`, `/serie`, `/anime`, …)
+- Il tasto **Indietro/Avanti** del browser ora naviga tra i contenuti
+- Un link incollato a freddo (o inviato a un amico) apre direttamente il titolo giusto
 
-## Amici
+## StreamingCommunity
 
-- **Profilo amico a tutta pagina**: foto, presenza e titoli visti di recente al posto della finestra compatta
-
-## Sezione Anime
-
-- Nuova homepage dedicata con hero, righe curate (in corso, popolari, novità) e filtri per genere/audio
-
-## Fix
-
-- **Avvisi globali** ripristinati (richiede l'applicazione della migration DB `app_broadcasts`)
-- Player: risolto lo schermo nero dopo la creazione di una stanza
-
-## Prestazioni
-
-- Scroll e caricamento più fluidi: rendering pigro delle righe/griglie fuori schermo, immagini lazy, ricerca indicizzata
+- **Proxy opzionale** (desktop): chi ha l'IP bloccato può instradare il solo traffico SC tramite un proxy/VPN (HTTP o SOCKS5) dalle Impostazioni, senza cambiare nulla per gli altri utenti
+- **Traffico più gentile**: l'aggiornamento del catalogo in background è più lento e con ritmo variabile, per non farsi scambiare per un bot
+- Recupero automatico via server per l'account autorizzato quando l'IP di casa è bloccato
 
 ## Piattaforme
 
