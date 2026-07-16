@@ -8,7 +8,6 @@ import {
   Copy,
   ExternalLink,
   Link2,
-  Loader2,
   Share2,
   UserPlus,
   Users,
@@ -333,7 +332,7 @@ export function InviteFriendsPage({
                   <SettingsInset className="flex flex-wrap items-center gap-3">
                     <span className="font-display text-[clamp(1.5rem,5vw,2rem)] font-semibold tracking-[0.14em] text-text-primary">
                       {loadingCode ? (
-                        <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+                        <span className="inline-block h-8 w-36 shimmer rounded-md align-middle" />
                       ) : (
                         lanCode || "—"
                       )}

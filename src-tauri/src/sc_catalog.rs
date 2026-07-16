@@ -1,10 +1,20 @@
 use crate::db::Database;
 use crate::html_text::decode_html_entities;
 use crate::stremio::StremioMetaPreview;
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::io::{Read, Write};
+use std::path::Path;
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// Snapshot gzip del catalogo SC incluso nella release (generato da `export-sc-catalog-seed`).
+const BUNDLED_SC_CATALOG_SEED_GZ: &[u8] =
+    include_bytes!("../resources/sc_catalog_seed.json.gz");
 
 const DEFAULT_APP_URL: &str = "https://streamingcommunityz.tech";
 const DEFAULT_CDN_URL: &str = "https://cdn.streamingcommunityz.tech";
@@ -12,7 +22,7 @@ const DEFAULT_LANG: &str = "it";
 const META_SC_RESOLVED_APP: &str = "sc_resolved_app_url";
 const FALLBACK_APP_URLS: &[&str] = &["https://streamingunity.dog"];
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScCatalogRow {
     pub key: String,
@@ -35,10 +45,27 @@ pub struct ScCatalogResponse {
 const META_SC_INDEX: &str = "sc_catalog_index";
 const META_SC_INDEX_TS: &str = "sc_catalog_index_ts";
 const META_SC_INDEX_VERSION: &str = "sc_catalog_index_version";
-const CURRENT_INDEX_VERSION: &str = "10";
+const CURRENT_INDEX_VERSION: &str = "14";
 const INDEX_TTL_SECS: i64 = 2 * 3600;
 const SLIDER_ROW_LIMIT: usize = 60;
-const MAX_GENRE_ARCHIVE_PAGES: usize = 8;
+const MAX_GENRE_ARCHIVE_PAGES: usize = 40;
+/// Catalogo considerato “completo” per passare al solo delta all’avvio.
+const COMPLETE_MOVIE_MIN: usize = 8_000;
+const MIN_USABLE_INDEX: usize = 800;
+const ARCHIVE_PROGRESS_SAVE_EVERY: usize = 200;
+/// L’archivio SC risponde 503 oltre page=20 (~1200 titoli). La search no.
+const ARCHIVE_HARD_MAX_PAGE: u32 = 20;
+const SEARCH_HARD_MAX_PAGE: u32 = 80;
+/// Titoli per ciclo di arricchimento parallelo (pagina dettaglio).
+pub const TITLE_META_ENRICH_BATCH: usize = 160;
+const TITLE_META_ENRICH_WORKERS: usize = 8;
+const TITLE_META_ENRICH_SAVE_EVERY: usize = 40;
+const META_SC_META_ENRICH_CURSOR: &str = "sc_catalog_meta_enrich_cursor";
+
+static META_ENRICH_RUNNING: Mutex<bool> = Mutex::new(false);
+static CATALOG_BOOT_RUNNING: Mutex<bool> = Mutex::new(false);
+/// Cache in-process dell'indice (evita di riparsare ~10MB JSON ad ogni fetch).
+static INDEX_MEM_CACHE: Mutex<Option<(i64, String, Vec<StremioMetaPreview>)>> = Mutex::new(None);
 
 #[derive(Serialize)]
 struct SliderFetchItem {
@@ -72,6 +99,12 @@ struct ScEpisodeSnippet {
     images: Vec<ScImage>,
 }
 
+#[derive(Deserialize, Default, Clone)]
+struct ScCredit {
+    #[serde(default)]
+    name: Option<String>,
+}
+
 #[derive(Deserialize)]
 struct ScTitle {
     id: i64,
@@ -85,6 +118,10 @@ struct ScTitle {
     images: Vec<ScImage>,
     #[serde(default)]
     genres: Vec<ScGenre>,
+    #[serde(default)]
+    main_actors: Vec<ScCredit>,
+    #[serde(default)]
+    main_directors: Vec<ScCredit>,
     #[serde(default)]
     episode_id: Option<i64>,
     #[serde(default)]
@@ -148,8 +185,12 @@ struct ScImage {
 }
 
 fn http_client() -> Result<Client, String> {
+    http_client_with_timeout(30)
+}
+
+fn http_client_with_timeout(secs: u64) -> Result<Client, String> {
     Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(secs))
         .cookie_store(true)
         .user_agent(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
@@ -196,26 +237,81 @@ impl HtmlPageClient {
     }
 
     fn fetch_page(&self, path: &str) -> Option<(String, Vec<serde_json::Value>)> {
-        let html = self
+        self.fetch_page_with_retries(path, 12)
+    }
+
+    fn fetch_page_with_retries(
+        &self,
+        path: &str,
+        attempts: u32,
+    ) -> Option<(String, Vec<serde_json::Value>)> {
+        for attempt in 0..attempts.max(1) {
+            match self.fetch_page_once(path) {
+                FetchPageResult::Ok(payload) => return Some(payload),
+                FetchPageResult::Empty => {
+                    // Challenge/HTML senza inertia: riprova prima di dichiarare fine pagina.
+                    let sleep_ms = 800 + attempt * 600;
+                    std::thread::sleep(Duration::from_millis(sleep_ms as u64));
+                }
+                FetchPageResult::Transient => {
+                    // 429/503: backoff lungo, altrimenti SC taglia il crawl a ~20 pagine.
+                    let sleep_ms = 3_000 + attempt * attempt * 1_500;
+                    std::thread::sleep(Duration::from_millis(sleep_ms.min(45_000) as u64));
+                }
+            }
+        }
+        None
+    }
+
+    fn fetch_page_once(&self, path: &str) -> FetchPageResult {
+        let response = match self
             .client
             .get(format!("{}{}", self.app_base, path))
             .header("Accept", "text/html,application/xhtml+xml")
             .send()
-            .ok()?
-            .error_for_status()
-            .ok()?
-            .text()
-            .ok()?;
-        let page = parse_inertia_from_html(&html)?;
-        let props = page.get("props")?;
-        let titles = extract_titles(props.get("titles")?)?;
+        {
+            Ok(resp) => resp,
+            Err(_) => return FetchPageResult::Transient,
+        };
+        let status = response.status();
+        if status.as_u16() == 429
+            || status.as_u16() == 503
+            || status.is_server_error()
+        {
+            return FetchPageResult::Transient;
+        }
+        if !status.is_success() {
+            return FetchPageResult::Empty;
+        }
+        let html = match response.text() {
+            Ok(text) => text,
+            Err(_) => return FetchPageResult::Transient,
+        };
+        let Some(page) = parse_inertia_from_html(&html) else {
+            return FetchPageResult::Empty;
+        };
+        let Some(props) = page.get("props") else {
+            return FetchPageResult::Empty;
+        };
+        let Some(titles_val) = props.get("titles") else {
+            return FetchPageResult::Empty;
+        };
+        let Some(titles) = extract_titles(titles_val) else {
+            return FetchPageResult::Empty;
+        };
         let label = props
             .get("label")
             .and_then(|v| v.as_str())
             .map(str::to_string)
             .unwrap_or_else(|| "Catalogo".to_string());
-        Some((label, titles))
+        FetchPageResult::Ok((label, titles))
     }
+}
+
+enum FetchPageResult {
+    Ok((String, Vec<serde_json::Value>)),
+    Empty,
+    Transient,
 }
 
 fn extract_titles(value: &serde_json::Value) -> Option<Vec<serde_json::Value>> {
@@ -657,11 +753,37 @@ fn discover_genres(client: &Client, app_base: &str, locale: &str) -> Vec<(u32, S
 fn is_animation_label(text: &str) -> bool {
     let t = text.to_lowercase();
     [
-        "anim", "cartoon", "carton", "anime", "bambin", "kid", "family", "famiglia", "ragazz",
-        "juvenile", "disney", "pixar", "dreamworks", "nickelodeon",
+        "animazione",
+        "animation",
+        "cartoon",
+        "carton",
+        "anime",
+        "bambin",
+        "kids",
+        "juvenile",
+        "pixar",
+        "dreamworks",
+        "nickelodeon",
+        "miyazaki",
+        "sc-genre-animation",
+        "sc-genre-kids",
     ]
     .iter()
     .any(|needle| t.contains(needle))
+}
+
+fn is_animation_genre_label(genre: &str) -> bool {
+    let t = genre.trim().to_lowercase();
+    matches!(
+        t.as_str(),
+        "animazione"
+            | "animation"
+            | "cartoon"
+            | "anime"
+            | "bambini"
+            | "kids"
+            | "juvenile"
+    ) || t == "kid"
 }
 
 fn preview_is_animation(preview: &StremioMetaPreview) -> bool {
@@ -673,7 +795,10 @@ fn preview_is_animation(preview: &StremioMetaPreview) -> bool {
     if is_animation_label(&context) {
         return true;
     }
-    preview.genres.iter().any(|genre| is_animation_label(genre))
+    preview
+        .genres
+        .iter()
+        .any(|genre| is_animation_genre_label(genre))
 }
 
 fn apply_preview_metadata(
@@ -683,6 +808,14 @@ fn apply_preview_metadata(
     source_row_title: Option<&str>,
 ) {
     existing.genres = merge_genres(&existing.genres, &incoming.genres);
+    existing.cast = merge_string_lists(&existing.cast, &incoming.cast);
+    existing.directors = merge_string_lists(&existing.directors, &incoming.directors);
+    if let Some(services) = &incoming.streaming_services {
+        existing.streaming_services = Some(merge_string_lists(
+            existing.streaming_services.as_deref().unwrap_or(&[]),
+            services,
+        ));
+    }
     let incoming_anim = preview_is_animation(incoming)
         || is_animation_label(source_row_key.unwrap_or(""))
         || is_animation_label(source_row_title.unwrap_or(""));
@@ -719,10 +852,12 @@ fn apply_preview_metadata(
             .clone()
             .or_else(|| source_row_title.map(str::to_string));
         if let Some(genre) = source_row_title {
-            if !existing
-                .genres
-                .iter()
-                .any(|g| g.eq_ignore_ascii_case(genre))
+            // Evita dump di 10+ generi se un titolo compare in molti archivi SC.
+            if existing.genres.len() < 5
+                && !existing
+                    .genres
+                    .iter()
+                    .any(|g| g.eq_ignore_ascii_case(genre))
             {
                 existing.genres.push(decode_text(genre));
             }
@@ -795,6 +930,56 @@ fn insert_preview(
     index.push(preview);
 }
 
+fn merge_string_lists(existing: &[String], incoming: &[String]) -> Vec<String> {
+    let mut out = existing.to_vec();
+    for item in incoming {
+        let trimmed = item.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !out.iter().any(|e| e.eq_ignore_ascii_case(trimmed)) {
+            out.push(decode_text(trimmed));
+        }
+    }
+    out
+}
+
+fn credits_from_value(title: &serde_json::Value, key: &str) -> Vec<String> {
+    title
+        .get(key)
+        .and_then(|v| v.as_array())
+        .map(|people| {
+            people
+                .iter()
+                .filter_map(|person| {
+                    person
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|name| decode_text(name))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn credits_from_title_struct(title: &ScTitle) -> (Vec<String>, Vec<String>) {
+    let cast = title
+        .main_actors
+        .iter()
+        .filter_map(|person| person.name.as_deref())
+        .filter(|name| !name.trim().is_empty())
+        .map(decode_text)
+        .collect();
+    let directors = title
+        .main_directors
+        .iter()
+        .filter_map(|person| person.name.as_deref())
+        .filter(|name| !name.trim().is_empty())
+        .map(decode_text)
+        .collect();
+    (cast, directors)
+}
+
 fn genres_from_value(title: &serde_json::Value) -> Vec<String> {
     title
         .get("genres")
@@ -811,6 +996,51 @@ fn genres_from_value(title: &serde_json::Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Provider ufficiali dal dettaglio SC (`netflix_id`, `prime_id`, …).
+fn streaming_services_from_value(title: &serde_json::Value) -> Vec<String> {
+    const PROVIDER_FIELDS: &[(&str, &str)] = &[
+        ("netflix_id", "netflix"),
+        ("prime_id", "prime"),
+        ("disney_id", "disney"),
+        ("apple_id", "apple"),
+        ("paramount_id", "paramount"),
+        ("now_id", "now"),
+        ("hbo_id", "hbo"),
+    ];
+
+    let mut services = Vec::new();
+    for (field, service_id) in PROVIDER_FIELDS {
+        let Some(value) = title.get(*field) else {
+            continue;
+        };
+        let present = match value {
+            serde_json::Value::Null => false,
+            serde_json::Value::Bool(flag) => *flag,
+            serde_json::Value::Number(n) => n.as_i64().unwrap_or(0) != 0,
+            serde_json::Value::String(s) => !s.trim().is_empty(),
+            _ => !value.is_null(),
+        };
+        if present {
+            services.push((*service_id).to_string());
+        }
+    }
+    services
+}
+
+fn title_has_provider_fields(title: &serde_json::Value) -> bool {
+    [
+        "netflix_id",
+        "prime_id",
+        "disney_id",
+        "apple_id",
+        "paramount_id",
+        "now_id",
+        "hbo_id",
+    ]
+    .iter()
+    .any(|field| title.get(*field).is_some())
 }
 
 fn merge_genres(existing: &[String], incoming: &[String]) -> Vec<String> {
@@ -845,17 +1075,6 @@ fn map_title_values_unlimited(
     }
 }
 
-fn is_film_genre_name(name: &str) -> bool {
-    let n = name.to_lowercase();
-    [
-        "horror", "horrore", "azione", "action", "avventura", "adventure", "dramma", "drama",
-        "romance", "romantico", "commedia", "comedy", "fantascienza", "sci-fi", "fantasy",
-        "thriller", "crime", "mistero", "mystery", "animazione", "animation",
-    ]
-    .iter()
-    .any(|needle| n.contains(needle))
-}
-
 fn fetch_paginated_titles(
     html_client: &HtmlPageClient,
     cdn: &str,
@@ -865,21 +1084,51 @@ fn fetch_paginated_titles(
     source_row_key: Option<&str>,
     source_row_title: Option<&str>,
     archive_genre: Option<&str>,
-) {
-    for page in 1..=500 {
-        if archive_genre.is_some() && page > MAX_GENRE_ARCHIVE_PAGES {
-            break;
-        }
+    persist_db: Option<&Database>,
+    stop_on_known_pages: Option<u32>,
+) -> usize {
+    let mut empty_streak = 0u32;
+    let mut duplicate_streak = 0u32;
+    let mut added = 0usize;
+    let mut last_saved_len = index.len();
+    // None = crawl completo: non fermarsi su pagine già note (solo pagine vuote).
+    let max_dup_pages = stop_on_known_pages;
+    let max_page: u32 = if archive_genre.is_some() {
+        MAX_GENRE_ARCHIVE_PAGES as u32
+    } else if base_path.contains("/archive") {
+        ARCHIVE_HARD_MAX_PAGE
+    } else if base_path.contains("/search") {
+        SEARCH_HARD_MAX_PAGE
+    } else {
+        ARCHIVE_HARD_MAX_PAGE
+    };
+
+    let mut page: u32 = 1;
+    let mut hard_fail_streak = 0u32;
+    while page <= max_page {
         let path = if base_path.contains('?') {
             format!("{base_path}&page={page}")
         } else {
             format!("{base_path}?page={page}")
         };
-        let Some((_, titles)) = html_client.fetch_page(&path) else {
-            break;
+        let fetched = html_client.fetch_page(&path);
+        let Some((_, titles)) = fetched else {
+            hard_fail_streak += 1;
+            if hard_fail_streak >= 8 {
+                break;
+            }
+            // Riprova la STESSA pagina dopo pausa (non saltare titoli).
+            std::thread::sleep(Duration::from_secs(5 + hard_fail_streak as u64));
+            continue;
         };
+        hard_fail_streak = 0;
         if titles.is_empty() {
-            break;
+            empty_streak += 1;
+            if empty_streak >= 2 {
+                break;
+            }
+            page += 1;
+            continue;
         }
         let before = index.len();
         map_title_values_unlimited(
@@ -891,10 +1140,53 @@ fn fetch_paginated_titles(
             source_row_title,
             archive_genre,
         );
-        if archive_genre.is_none() && index.len() == before {
-            break;
+        let page_added = index.len().saturating_sub(before);
+        added += page_added;
+
+        // Archivio ordinato per data desc: stop su duplicati solo se richiesto (delta).
+        if archive_genre.is_none() && page_added == 0 {
+            if let Some(max_dup) = max_dup_pages {
+                duplicate_streak += 1;
+                if duplicate_streak >= max_dup {
+                    break;
+                }
+            }
+        } else {
+            duplicate_streak = 0;
+        }
+        empty_streak = 0;
+
+        if let Some(db) = persist_db {
+            if index.len().saturating_sub(last_saved_len) >= ARCHIVE_PROGRESS_SAVE_EVERY {
+                let _ = save_cached_index(db, index, false);
+                last_saved_len = index.len();
+                let _ = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(".tmp-sc-sync.log")
+                    .and_then(|mut f| {
+                        use std::io::Write;
+                        writeln!(
+                            f,
+                            "[sc-sync] progress {base_path} page={page} total={}",
+                            index.len()
+                        )
+                    });
+            }
+        }
+
+        page += 1;
+        // Ritmo moderato: search fa molte query, archivio max 20 pagine.
+        let delay_ms = if base_path.contains("/search") { 160 } else { 220 };
+        std::thread::sleep(Duration::from_millis(delay_ms));
+    }
+
+    if let Some(db) = persist_db {
+        if index.len() > last_saved_len {
+            let _ = save_cached_index(db, index, false);
         }
     }
+    added
 }
 
 pub fn sync_catalog_index(
@@ -902,6 +1194,31 @@ pub fn sync_catalog_index(
     cdn: &str,
     locale: &str,
     slider_names: &[String],
+    seed: Vec<StremioMetaPreview>,
+    persist_db: Option<&Database>,
+) -> Result<Vec<StremioMetaPreview>, String> {
+    sync_catalog_index_inner(app, cdn, locale, slider_names, seed, persist_db, true)
+}
+
+/// Solo archivi movie/tv (per seed release): senza crawl generi (lento + 503).
+pub fn sync_catalog_index_archives(
+    app: &str,
+    cdn: &str,
+    locale: &str,
+    seed: Vec<StremioMetaPreview>,
+    persist_db: Option<&Database>,
+) -> Result<Vec<StremioMetaPreview>, String> {
+    sync_catalog_index_inner(app, cdn, locale, &[], seed, persist_db, false)
+}
+
+fn sync_catalog_index_inner(
+    app: &str,
+    cdn: &str,
+    locale: &str,
+    slider_names: &[String],
+    seed: Vec<StremioMetaPreview>,
+    persist_db: Option<&Database>,
+    with_genre_archives: bool,
 ) -> Result<Vec<StremioMetaPreview>, String> {
     let app_base = app.trim_end_matches('/');
     let client = http_client()?;
@@ -912,104 +1229,139 @@ pub fn sync_catalog_index(
     let xsrf = bootstrap_csrf(&client, app_base).ok();
     let html_client = HtmlPageClient::new(client, app_base);
     let cdn = cdn.trim_end_matches('/');
-    let mut seen = HashSet::new();
-    let mut index = Vec::new();
+    let mut index = seed;
+    let mut seen: HashSet<String> = index.iter().map(preview_dedupe_key).collect();
 
     if let Some(token) = xsrf.as_ref() {
-        if let Ok(sliders) =
-            fetch_slider_batch(&html_client.client, app_base, token, locale, slider_names)
-        {
-            for slider in sliders {
-                let source_key = format!("sc-{}", slider.name);
-                for title in slider.titles {
-                    insert_preview(
-                        &mut index,
-                        &mut seen,
-                        map_title(cdn, title),
-                        Some(&source_key),
-                        Some(&slider.label),
-                    );
+        if !slider_names.is_empty() {
+            if let Ok(sliders) =
+                fetch_slider_batch(&html_client.client, app_base, token, locale, slider_names)
+            {
+                for slider in sliders {
+                    let source_key = format!("sc-{}", slider.name);
+                    for title in slider.titles {
+                        insert_preview(
+                            &mut index,
+                            &mut seen,
+                            map_title(cdn, title),
+                            Some(&source_key),
+                            Some(&slider.label),
+                        );
+                    }
                 }
             }
         }
     }
-
+    // Solo movie/tv separati: crawl completo (nessuno stop su duplicati) + save a chunk.
     let archive_paths = [
-        format!("/{locale}/archive"),
         format!("/{locale}/archive?type=movie"),
         format!("/{locale}/archive?type=tv"),
     ];
-    for path in archive_paths {
+    for path in &archive_paths {
+        let before = index.len();
         fetch_paginated_titles(
             &html_client,
             cdn,
-            &path,
+            path,
             &mut seen,
             &mut index,
             None,
             None,
             None,
+            persist_db,
+            None, // crawl completo fino a pagine vuote
+        );
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(".tmp-sc-sync.log")
+            .and_then(|mut f| {
+                use std::io::Write;
+                writeln!(
+                    f,
+                    "[sc-sync] archive {path}: +{} (total {})",
+                    index.len().saturating_sub(before),
+                    index.len()
+                )
+            });
+    }
+
+    // Search paginata (niente hard-cap page=20): solo se l’archivio (max 20 pagine) non basta.
+    let movies = index.iter().filter(|p| p.r#type == "movie").count();
+    if movies < COMPLETE_MOVIE_MIN {
+        crawl_search_catalog(
+            &html_client,
+            cdn,
+            locale,
+            &mut seen,
+            &mut index,
+            persist_db,
         );
     }
 
-    for (genre_id, name) in discover_genres(&html_client.client, app_base, locale) {
-        if !is_film_genre_name(&name) {
-            continue;
+    if with_genre_archives {
+        // Tag categorie dagli archivi genere (i listing non espongono `genres` inline).
+        enrich_index_with_genre_archives(
+            &html_client,
+            cdn,
+            locale,
+            &mut seen,
+            &mut index,
+            persist_db,
+        );
+    }
+
+    // L'archivio paginato copre già il catalogo: evita N browse slider lenti.
+    if with_genre_archives && index.len() < 800 {
+        for slider_name in slider_names {
+            let path = format!("/{locale}/browse/{slider_name}");
+            let source_key = format!("sc-{slider_name}");
+            fetch_paginated_titles(
+                &html_client,
+                cdn,
+                &path,
+                &mut seen,
+                &mut index,
+                Some(&source_key),
+                None,
+                None,
+                persist_db,
+                Some(25),
+            );
         }
-        let path = format!("/{locale}/archive?type=movie&genres={genre_id}");
-        let source_key = format!("sc-genre-{}", name.to_lowercase());
-        fetch_paginated_titles(
-            &html_client,
-            cdn,
-            &path,
-            &mut seen,
-            &mut index,
-            Some(&source_key),
-            Some(&name),
-            Some(&name),
-        );
     }
 
-    for slider_name in slider_names {
-        let path = format!("/{locale}/browse/{slider_name}");
-        let source_key = format!("sc-{slider_name}");
-        fetch_paginated_titles(
-            &html_client,
-            cdn,
-            &path,
-            &mut seen,
-            &mut index,
-            Some(&source_key),
-            None,
-            None,
-        );
-    }
-
-    for hub in [format!("/{locale}/movies"), format!("/{locale}/tv-shows")] {
-        if let Ok(html) = html_client
-            .client
-            .get(format!("{app_base}{hub}"))
-            .header("Accept", "text/html,application/xhtml+xml")
-            .send()
-            .and_then(|r| r.error_for_status())
-            .and_then(|r| r.text())
-        {
-            if let Some(page) = parse_inertia_from_html(&html) {
-                if let Some(sliders_val) = page.get("props").and_then(|props| props.get("sliders"))
-                {
-                    if let Ok(sliders) =
-                        serde_json::from_value::<Vec<ScSlider>>(sliders_val.clone())
+    if with_genre_archives {
+        for hub in [format!("/{locale}/movies"), format!("/{locale}/tv-shows")] {
+            if index.len() >= 800 {
+                break;
+            }
+            if let Ok(html) = html_client
+                .client
+                .get(format!("{app_base}{hub}"))
+                .header("Accept", "text/html,application/xhtml+xml")
+                .send()
+                .and_then(|r| r.error_for_status())
+                .and_then(|r| r.text())
+            {
+                if let Some(page) = parse_inertia_from_html(&html) {
+                    if let Some(sliders_val) =
+                        page.get("props").and_then(|props| props.get("sliders"))
                     {
-                        for slider in sliders {
-                            let source_key = format!("sc-{}", slider.name);
-                            for title in slider.titles {
-                                insert_preview(
-                                    &mut index,
-                                    &mut seen,
-                                    map_title(cdn, title),
-                                    Some(&source_key),
-                                    Some(&slider.label),
-                                );
+                        if let Ok(sliders) =
+                            serde_json::from_value::<Vec<ScSlider>>(sliders_val.clone())
+                        {
+                            for slider in sliders {
+                                let source_key = format!("sc-{}", slider.name);
+                                for title in slider.titles {
+                                    insert_preview(
+                                        &mut index,
+                                        &mut seen,
+                                        map_title(cdn, title),
+                                        Some(&source_key),
+                                        Some(&slider.label),
+                                    );
+                                }
                             }
                         }
                     }
@@ -1018,7 +1370,296 @@ pub fn sync_catalog_index(
         }
     }
 
+    if let Some(db) = persist_db {
+        let _ = save_cached_index(db, &index, true);
+    }
+
     Ok(index)
+}
+
+fn crawl_search_catalog(
+    html_client: &HtmlPageClient,
+    cdn: &str,
+    locale: &str,
+    seen: &mut HashSet<String>,
+    index: &mut Vec<StremioMetaPreview>,
+    persist_db: Option<&Database>,
+) {
+    let mut queries: Vec<(String, Option<u32>)> = Vec::new();
+    // Lettere/cifre: paginazione completa (fino a pagina vuota).
+    for ch in b'a'..=b'z' {
+        queries.push(((ch as char).to_string(), None));
+    }
+    for ch in b'0'..=b'9' {
+        queries.push(((ch as char).to_string(), None));
+    }
+    // Digrammi: stop dopo 2 pagine senza titoli nuovi (molte query).
+    for a in b'a'..=b'z' {
+        for b in b'a'..=b'z' {
+            queries.push((format!("{}{}", a as char, b as char), Some(2)));
+        }
+    }
+
+    for (query, stop_on_known) in queries {
+        let before = index.len();
+        let path = format!(
+            "/{locale}/search?q={}",
+            urlencoding::encode(&query)
+        );
+        fetch_paginated_titles(
+            html_client,
+            cdn,
+            &path,
+            seen,
+            index,
+            None,
+            None,
+            None,
+            persist_db,
+            stop_on_known,
+        );
+        let added = index.len().saturating_sub(before);
+        if added > 0 || query.len() == 1 {
+            let _ = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(".tmp-sc-sync.log")
+                .and_then(|mut f| {
+                    use std::io::Write;
+                    writeln!(
+                        f,
+                        "[sc-sync] search q={query:?}: +{added} (total {})",
+                        index.len()
+                    )
+                });
+        }
+    }
+}
+
+fn enrich_index_with_genre_archives(
+    html_client: &HtmlPageClient,
+    cdn: &str,
+    locale: &str,
+    seen: &mut HashSet<String>,
+    index: &mut Vec<StremioMetaPreview>,
+    persist_db: Option<&Database>,
+) {
+    let genres = discover_genres(&html_client.client, &html_client.app_base, locale);
+    for (genre_id, name) in genres {
+        let source_key = format!("sc-genre-{}", name.to_lowercase().replace(' ', "-"));
+        for type_q in ["movie", "tv"] {
+            let path = format!("/{locale}/archive?type={type_q}&genres={genre_id}");
+            fetch_paginated_titles(
+                html_client,
+                cdn,
+                &path,
+                seen,
+                index,
+                Some(&source_key),
+                Some(&name),
+                Some(&name),
+                persist_db,
+                Some(25),
+            );
+        }
+    }
+}
+
+/// Arricchisce un batch di titoli SC (generi + provider) dalle pagine dettaglio.
+/// Fetch paralleli; salva l'indice a chunk. Ritorna quanti titoli aggiornati.
+pub fn enrich_cached_index_metadata(db: &Database, limit: usize) -> Result<usize, String> {
+    let Some((mut index, _)) = load_cached_index(db) else {
+        return Ok(0);
+    };
+    let app = resolve_app_url(db).or_else(|_| discover_app_url(db))?;
+    let cdn = cdn_url(db);
+    let locale = lang(db);
+    let app_base = app.trim_end_matches('/').to_string();
+    let client = http_client()?;
+    let _ = client
+        .get(format!("{app_base}/{locale}"))
+        .header("Accept", "text/html,application/xhtml+xml")
+        .send();
+
+    let cursor = db
+        .get_meta(META_SC_META_ENRICH_CURSOR)
+        .ok()
+        .flatten()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .unwrap_or(0);
+
+    let mut candidates: Vec<(usize, String, String)> = index
+        .iter()
+        .enumerate()
+        .filter(|(_, preview)| {
+            preview.catalog_prefix.as_deref().unwrap_or("sc") == "sc"
+                && preview
+                    .slug
+                    .as_ref()
+                    .is_some_and(|s| !s.trim().is_empty())
+                && (preview.genres.is_empty()
+                    || preview.genres.len() > 8
+                    || preview.streaming_services.is_none())
+        })
+        .filter_map(|(idx, preview)| {
+            let slug = preview.slug.as_ref()?.clone();
+            Some((idx, preview.id.clone(), slug))
+        })
+        .collect();
+
+    if candidates.is_empty() {
+        let _ = db.set_meta(META_SC_META_ENRICH_CURSOR, "0");
+        return Ok(0);
+    }
+
+    // Riprendi dal cursore (rotazione circolare sull'elenco target).
+    let start = cursor % candidates.len();
+    candidates.rotate_left(start);
+    candidates.truncate(limit.max(1));
+
+    let (tx, rx) = std::sync::mpsc::channel::<(usize, Option<StremioMetaPreview>)>();
+    let worker_count = TITLE_META_ENRICH_WORKERS.min(candidates.len()).max(1);
+    let chunk_size = (candidates.len() + worker_count - 1) / worker_count;
+
+    for chunk in candidates.chunks(chunk_size) {
+        let chunk: Vec<_> = chunk.to_vec();
+        let tx = tx.clone();
+        let client = client.clone();
+        let app_base = app_base.clone();
+        let cdn = cdn.clone();
+        let locale = locale.clone();
+        std::thread::spawn(move || {
+            let html_client = HtmlPageClient::new(client, &app_base);
+            for (idx, id, slug) in chunk {
+                let enriched =
+                    fetch_title_preview_from_detail(&html_client, &cdn, &locale, &id, &slug);
+                let _ = tx.send((idx, enriched));
+                std::thread::sleep(Duration::from_millis(25));
+            }
+        });
+    }
+    drop(tx);
+
+    let mut updated = 0usize;
+    let mut processed = 0usize;
+    let mut dirty = false;
+    for (idx, enriched_opt) in rx {
+        processed += 1;
+        let Some(enriched) = enriched_opt else {
+            continue;
+        };
+        let Some(existing) = index.get_mut(idx) else {
+            continue;
+        };
+        let before_genres = existing.genres.len();
+        let before_type = existing.r#type.clone();
+        let before_services = existing.streaming_services.clone();
+        apply_preview_metadata(existing, &enriched, None, None);
+        // Pagina dettaglio: i generi SC reali sostituiscono il dump degli archivi genere.
+        if !enriched.genres.is_empty() {
+            existing.genres = enriched.genres.clone();
+        }
+        // Dettaglio visto → provider noti (anche lista vuota).
+        existing.streaming_services = Some(
+            enriched
+                .streaming_services
+                .clone()
+                .unwrap_or_default(),
+        );
+        if !enriched.r#type.is_empty() {
+            existing.r#type = enriched.r#type.clone();
+        }
+        if existing.genres.len() != before_genres
+            || existing.r#type != before_type
+            || existing.streaming_services != before_services
+        {
+            updated += 1;
+            dirty = true;
+        }
+        repair_preview(existing);
+
+        if dirty && updated > 0 && updated % TITLE_META_ENRICH_SAVE_EVERY == 0 {
+            save_cached_index(db, &index, true)?;
+            dirty = false;
+        }
+    }
+
+    let next_cursor = start.saturating_add(processed);
+    let _ = db.set_meta(META_SC_META_ENRICH_CURSOR, &next_cursor.to_string());
+
+    if dirty || updated > 0 {
+        save_cached_index(db, &index, true)?;
+    }
+    Ok(updated)
+}
+
+/// Avvia un worker in background che arricchisce finché restano titoli da completare.
+/// Un solo job alla volta (desktop + web).
+pub fn spawn_continuous_metadata_enrichment(db: std::sync::Arc<Database>) {
+    {
+        let Ok(mut running) = META_ENRICH_RUNNING.lock() else {
+            return;
+        };
+        if *running {
+            return;
+        }
+        *running = true;
+    }
+
+    std::thread::spawn(move || {
+        let mut idle_rounds = 0u32;
+        let mut backoff_ms = 400u64;
+        loop {
+            match enrich_cached_index_metadata(db.as_ref(), TITLE_META_ENRICH_BATCH) {
+                Ok(0) => {
+                    idle_rounds += 1;
+                    if idle_rounds >= 2 {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_secs(2));
+                }
+                Ok(_) => {
+                    idle_rounds = 0;
+                    backoff_ms = 400;
+                    std::thread::sleep(Duration::from_millis(150));
+                }
+                Err(_) => {
+                    std::thread::sleep(Duration::from_millis(backoff_ms));
+                    backoff_ms = (backoff_ms.saturating_mul(2)).min(8_000);
+                    idle_rounds += 1;
+                    if idle_rounds >= 6 {
+                        break;
+                    }
+                }
+            }
+        }
+        if let Ok(mut running) = META_ENRICH_RUNNING.lock() {
+            *running = false;
+        }
+    });
+}
+
+fn fetch_title_preview_from_detail(
+    html_client: &HtmlPageClient,
+    cdn: &str,
+    locale: &str,
+    title_id: &str,
+    slug: &str,
+) -> Option<StremioMetaPreview> {
+    let path = format!("/{locale}/titles/{title_id}-{slug}");
+    let response = html_client
+        .client
+        .get(format!("{}{}", html_client.app_base, path))
+        .header("Accept", "text/html,application/xhtml+xml")
+        .send()
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let html = response.text().ok()?;
+    let page = parse_inertia_from_html(&html)?;
+    let title = page.get("props")?.get("title")?;
+    preview_from_value(cdn, title, None)
 }
 
 fn merge_row_items(index: &mut Vec<StremioMetaPreview>, rows: &[ScCatalogRow]) {
@@ -1036,6 +1677,90 @@ fn merge_row_items(index: &mut Vec<StremioMetaPreview>, rows: &[ScCatalogRow]) {
     }
 }
 
+fn decode_bundled_catalog_seed() -> Option<Vec<StremioMetaPreview>> {
+    if BUNDLED_SC_CATALOG_SEED_GZ.len() < 32 {
+        return None;
+    }
+    let mut decoder = GzDecoder::new(BUNDLED_SC_CATALOG_SEED_GZ);
+    let mut json = String::new();
+    decoder.read_to_string(&mut json).ok()?;
+    let items: Vec<StremioMetaPreview> = serde_json::from_str(&json).ok()?;
+    if items.len() < 800 {
+        return None;
+    }
+    Some(items)
+}
+
+/// Se il DB locale è vuoto/parziale, carica lo snapshot incluso nella release.
+/// Ritorna `true` se ha scritto l'indice.
+pub fn ensure_bundled_catalog_seed(db: &Database) -> bool {
+    let Some(mut bundled) = decode_bundled_catalog_seed() else {
+        return false;
+    };
+    let current_len = load_cached_index(db)
+        .map(|(items, _)| items.len())
+        .unwrap_or(0);
+    if current_len >= bundled.len() {
+        return false;
+    }
+
+    repair_index(&mut bundled);
+    let mut seen: HashSet<String> = bundled.iter().map(preview_dedupe_key).collect();
+    if let Some((cached, _)) = load_cached_index(db) {
+        for preview in cached {
+            insert_preview(&mut bundled, &mut seen, preview, None, None);
+        }
+    }
+    repair_index(&mut bundled);
+    save_cached_index(db, &bundled, true).is_ok()
+}
+
+/// Scrive l'indice SC corrente come seed gzip per la prossima release.
+pub fn write_catalog_seed_file(db: &Database, out_path: &Path) -> Result<(usize, usize, usize), String> {
+    let (index, _) = load_cached_index(db).ok_or_else(|| "Indice catalogo vuoto".to_string())?;
+    let movies = index.iter().filter(|p| p.r#type == "movie").count();
+    let series = index
+        .iter()
+        .filter(|p| p.r#type == "series" || p.r#type == "tv")
+        .count();
+    let json = serde_json::to_vec(&index).map_err(|e| e.to_string())?;
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    encoder
+        .write_all(&json)
+        .map_err(|e| format!("gzip write: {e}"))?;
+    let gz = encoder
+        .finish()
+        .map_err(|e| format!("gzip finish: {e}"))?;
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(out_path, gz).map_err(|e| e.to_string())?;
+    Ok((index.len(), movies, series))
+}
+
+/// Crawl completo archivio movie/tv (riprende da cache), poi esporta lo seed gzip.
+pub fn build_and_export_catalog_seed(db: &Database, out_path: &Path) -> Result<(usize, usize, usize), String> {
+    let app = resolve_app_url(db).or_else(|_| discover_app_url(db))?;
+    let cdn = cdn_url(db);
+    let locale = lang(db);
+    let cached = load_cached_index(db)
+        .map(|(items, _)| items)
+        .unwrap_or_default();
+    let before = cached.len();
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(".tmp-sc-sync.log")
+        .and_then(|mut f| {
+            use std::io::Write;
+            writeln!(f, "[sc-sync] seed export start cached={before}")
+        });
+    let mut index = sync_catalog_index_archives(&app, &cdn, &locale, cached, Some(db))?;
+    repair_index(&mut index);
+    save_cached_index(db, &index, true)?;
+    write_catalog_seed_file(db, out_path)
+}
+
 fn load_cached_index(db: &Database) -> Option<(Vec<StremioMetaPreview>, i64)> {
     let ts = db
         .get_meta(META_SC_INDEX_TS)
@@ -1043,12 +1768,100 @@ fn load_cached_index(db: &Database) -> Option<(Vec<StremioMetaPreview>, i64)> {
         .flatten()?
         .parse::<i64>()
         .ok()?;
+    let version = db
+        .get_meta(META_SC_INDEX_VERSION)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    if let Ok(guard) = INDEX_MEM_CACHE.lock() {
+        if let Some((cached_ts, cached_ver, items)) = guard.as_ref() {
+            if *cached_ts == ts && cached_ver == &version && !items.is_empty() {
+                return Some((items.clone(), ts));
+            }
+        }
+    }
+
     let json = db.get_meta(META_SC_INDEX).ok().flatten()?;
     let items: Vec<StremioMetaPreview> = serde_json::from_str(&json).ok()?;
     if items.is_empty() {
         return None;
     }
+    if let Ok(mut guard) = INDEX_MEM_CACHE.lock() {
+        *guard = Some((ts, version, items.clone()));
+    }
     Some((items, ts))
+}
+
+fn invalidate_index_mem_cache() {
+    if let Ok(mut guard) = INDEX_MEM_CACHE.lock() {
+        *guard = None;
+    }
+}
+
+#[allow(dead_code)]
+fn clear_index_mem_cache_for_tests() {
+    invalidate_index_mem_cache();
+}
+
+fn synthesize_home_rows_from_index(index: &[StremioMetaPreview]) -> Vec<ScCatalogRow> {
+    let mut movies: Vec<StremioMetaPreview> = index
+        .iter()
+        .filter(|p| {
+            p.r#type == "movie" && p.catalog_prefix.as_deref().unwrap_or("sc") == "sc"
+        })
+        .cloned()
+        .collect();
+    let mut series: Vec<StremioMetaPreview> = index
+        .iter()
+        .filter(|p| {
+            (p.r#type == "series" || p.r#type == "tv")
+                && p.catalog_prefix.as_deref().unwrap_or("sc") == "sc"
+        })
+        .cloned()
+        .collect();
+    movies.sort_by(|a, b| b.release_info.cmp(&a.release_info));
+    series.sort_by(|a, b| b.release_info.cmp(&a.release_info));
+    movies.truncate(SLIDER_ROW_LIMIT);
+    series.truncate(SLIDER_ROW_LIMIT);
+
+    let mut rows = Vec::new();
+    if !movies.is_empty() {
+        rows.push(ScCatalogRow {
+            key: "sc-recent-movies".into(),
+            title: "Film recenti".into(),
+            subtitle: "Dal catalogo locale".into(),
+            items: movies,
+        });
+    }
+    if !series.is_empty() {
+        rows.push(ScCatalogRow {
+            key: "sc-recent-series".into(),
+            title: "Serie recenti".into(),
+            subtitle: "Dal catalogo locale".into(),
+            items: series,
+        });
+    }
+    rows
+}
+
+/// Slider homepage best-effort: timeout corto, un solo host, senza hub lenti.
+fn fetch_sliders_quick(db: &Database, cdn: &str, locale: &str) -> Vec<ScCatalogRow> {
+    let Ok(client) = http_client_with_timeout(4) else {
+        return Vec::new();
+    };
+    let Some(base) = app_url_candidates(db).into_iter().next() else {
+        return Vec::new();
+    };
+    let cdn = cdn.trim_end_matches('/');
+    let Ok(sliders) = fetch_embedded_home_sliders(&client, &base, locale) else {
+        return Vec::new();
+    };
+    if sliders.iter().all(|s| s.titles.is_empty()) {
+        return Vec::new();
+    }
+    let mut seen = HashSet::new();
+    build_rows_from_sliders(cdn, sliders, &mut seen)
 }
 
 pub fn catalog_needs_background_sync(db: &Database) -> bool {
@@ -1062,25 +1875,43 @@ pub fn catalog_needs_background_sync(db: &Database) -> bool {
     if items.is_empty() {
         return true;
     }
-    let movies = items.iter().filter(|p| p.r#type == "movie").count();
-    let genre_tagged = items.iter().filter(|p| {
-        p.source_row_key
-            .as_deref()
-            .is_some_and(|k| k.starts_with("sc-genre-"))
-            || p.genres.iter().any(|g| !g.trim().is_empty())
-    }).count();
-    movies > 80 && genre_tagged < 40
+    let sc_items: Vec<_> = items
+        .iter()
+        .filter(|p| p.catalog_prefix.as_deref().unwrap_or("sc") == "sc")
+        .collect();
+    if sc_items.len() < 800 {
+        return true;
+    }
+    let movies = sc_items.iter().filter(|p| p.r#type == "movie").count();
+    // Completo ≈ archivio SC (~13k film): sotto soglia continua il crawl full.
+    movies < COMPLETE_MOVIE_MIN
 }
 
 fn save_cached_index(db: &Database, index: &[StremioMetaPreview], bump_version: bool) -> Result<(), String> {
     if index.is_empty() {
         return Ok(());
     }
+    // Non sovrascrivere mai un indice completo con uno parziale (solo slider).
+    if let Some((cached, _)) = load_cached_index(db) {
+        if cached.len() > index.len() && index.len() < 800 {
+            return Ok(());
+        }
+    }
     let json = serde_json::to_string(index).map_err(|e| e.to_string())?;
     db.set_meta(META_SC_INDEX, &json)?;
-    db.set_meta(META_SC_INDEX_TS, &now_ts().to_string())?;
-    if bump_version {
+    let ts = now_ts();
+    db.set_meta(META_SC_INDEX_TS, &ts.to_string())?;
+    let version = if bump_version {
         db.set_meta(META_SC_INDEX_VERSION, CURRENT_INDEX_VERSION)?;
+        CURRENT_INDEX_VERSION.to_string()
+    } else {
+        db.get_meta(META_SC_INDEX_VERSION)
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    };
+    if let Ok(mut guard) = INDEX_MEM_CACHE.lock() {
+        *guard = Some((ts, version, index.to_vec()));
     }
     Ok(())
 }
@@ -1141,29 +1972,72 @@ fn build_genre_rows_from_index(index: &[StremioMetaPreview]) -> Vec<ScCatalogRow
     rows
 }
 
+fn slim_preview_for_transport(mut preview: StremioMetaPreview) -> StremioMetaPreview {
+    // Riduce il payload browse senza togliere campi usati da hero/card/filtri.
+    preview.description = None;
+    preview.cast.clear();
+    preview.directors.clear();
+    preview
+}
+
+fn slim_index_for_transport(index: Vec<StremioMetaPreview>) -> Vec<StremioMetaPreview> {
+    index.into_iter().map(slim_preview_for_transport).collect()
+}
+
+fn slim_rows_for_transport(rows: Vec<ScCatalogRow>) -> Vec<ScCatalogRow> {
+    rows.into_iter()
+        .map(|mut row| {
+            row.items = row
+                .items
+                .into_iter()
+                .map(slim_preview_for_transport)
+                .collect();
+            row
+        })
+        .collect()
+}
+
 pub fn fetch_catalog(
     db: &Database,
-    app: &str,
+    _app: &str,
     cdn: &str,
     locale: &str,
 ) -> Result<ScCatalogResponse, String> {
+    let _ = ensure_bundled_catalog_seed(db);
     let needs_background_sync = catalog_needs_background_sync(db);
-
-    let mut rows = fetch_sliders_for_db(db, cdn, locale)?;
-    repair_rows(&mut rows);
 
     let mut index = load_cached_index(db)
         .map(|(cached, _)| cached)
         .unwrap_or_default();
     repair_index(&mut index);
 
-    merge_row_items(&mut index, &rows);
-    repair_index(&mut index);
-    append_genre_rows(&mut rows, &index);
+    // Con catalogo locale già completo: zero rete sul path critico del boot.
+    let mut rows = if !needs_background_sync && index.len() >= MIN_USABLE_INDEX {
+        synthesize_home_rows_from_index(&index)
+    } else if index.len() >= MIN_USABLE_INDEX {
+        fetch_sliders_quick(db, cdn, locale)
+    } else {
+        fetch_sliders_for_db(db, cdn, locale).unwrap_or_else(|_| fetch_sliders_quick(db, cdn, locale))
+    };
+    repair_rows(&mut rows);
 
-    if !index.is_empty() {
-        let _ = save_cached_index(db, &index, false);
+    let before_len = index.len();
+    if !rows.is_empty()
+        && !(rows.len() <= 2
+            && rows
+                .iter()
+                .all(|r| r.key.starts_with("sc-recent-")))
+    {
+        merge_row_items(&mut index, &rows);
+        repair_index(&mut index);
+        if index.len() > before_len {
+            let _ = save_cached_index(db, &index, false);
+        }
+    } else if rows.is_empty() && !index.is_empty() {
+        rows = synthesize_home_rows_from_index(&index);
     }
+
+    append_genre_rows(&mut rows, &index);
 
     let synced_at = db
         .get_meta(META_SC_INDEX_TS)
@@ -1175,13 +2049,25 @@ pub fn fetch_catalog(
     let total_count = index.len();
 
     Ok(ScCatalogResponse {
-        rows,
-        index,
+        rows: slim_rows_for_transport(rows),
+        index: slim_index_for_transport(index),
         synced_at,
         total_count,
         needs_background_sync,
     })
 }
+
+/// Stato leggero per il poll UI (niente indice da 10MB).
+pub fn catalog_status(db: &Database) -> (usize, i64, bool) {
+    let needs_background_sync = catalog_needs_background_sync(db);
+    let (total, synced_at) = match load_cached_index(db) {
+        Some((items, ts)) => (items.len(), ts),
+        None => (0, 0),
+    };
+    (total, synced_at, needs_background_sync)
+}
+
+static CATALOG_REFRESH_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn refresh_catalog_index(
     db: &Database,
@@ -1189,6 +2075,9 @@ pub fn refresh_catalog_index(
     cdn: &str,
     locale: &str,
 ) -> Result<ScCatalogResponse, String> {
+    let _guard = CATALOG_REFRESH_LOCK
+        .lock()
+        .map_err(|_| "Sync catalogo già in corso".to_string())?;
     let app = resolve_app_url(db).or_else(|_| discover_app_url(db))?;
     let mut rows = fetch_sliders_for_db(db, cdn, locale)?;
     repair_rows(&mut rows);
@@ -1196,10 +2085,14 @@ pub fn refresh_catalog_index(
         .map(|(cached, _)| cached)
         .unwrap_or_default();
     let slider_names = discover_slider_names(&http_client()?, app.trim_end_matches('/'), locale);
-    let mut index = sync_catalog_index(&app, cdn, locale, &slider_names)?;
-    if index.is_empty() && !cached.is_empty() {
-        index = cached;
-    }
+    let mut index = sync_catalog_index(
+        &app,
+        cdn,
+        locale,
+        &slider_names,
+        cached,
+        Some(db),
+    )?;
     repair_index(&mut index);
     merge_row_items(&mut index, &rows);
     repair_index(&mut index);
@@ -1211,8 +2104,91 @@ pub fn refresh_catalog_index(
         rows,
         index,
         synced_at,
-        needs_background_sync: false,
+        needs_background_sync: catalog_needs_background_sync(db),
     })
+}
+
+/// Aggiornamento leggero: solo titoli nuovi dalle prime pagine archivio.
+/// Si ferma quando 2 pagine consecutive sono già tutte note.
+pub fn incremental_catalog_update(db: &Database) -> Result<usize, String> {
+    let Ok(_guard) = CATALOG_REFRESH_LOCK.try_lock() else {
+        return Ok(0);
+    };
+    let app = resolve_app_url(db).or_else(|_| discover_app_url(db))?;
+    let cdn = cdn_url(db);
+    let locale = lang(db);
+    let app_base = app.trim_end_matches('/');
+    let client = http_client()?;
+    let _ = client
+        .get(format!("{app_base}/{locale}"))
+        .header("Accept", "text/html,application/xhtml+xml")
+        .send();
+    let html_client = HtmlPageClient::new(client, app_base);
+    let cdn = cdn.trim_end_matches('/');
+
+    let mut index = load_cached_index(db)
+        .map(|(cached, _)| cached)
+        .unwrap_or_default();
+    if index.is_empty() {
+        return Ok(0);
+    }
+    let mut seen: HashSet<String> = index.iter().map(preview_dedupe_key).collect();
+    let before = index.len();
+
+    for type_q in ["movie", "tv"] {
+        let path = format!("/{locale}/archive?type={type_q}");
+        fetch_paginated_titles(
+            &html_client,
+            cdn,
+            &path,
+            &mut seen,
+            &mut index,
+            None,
+            None,
+            None,
+            None,
+            Some(2), // stop dopo 2 pagine di soli duplicati
+        );
+    }
+
+    let added = index.len().saturating_sub(before);
+    if added > 0 {
+        repair_index(&mut index);
+        save_cached_index(db, &index, false)?;
+    } else {
+        // Aggiorna solo il timestamp “checked”.
+        let _ = db.set_meta(META_SC_INDEX_TS, &now_ts().to_string());
+    }
+    Ok(added)
+}
+
+/// All’avvio: full crawl se catalogo incompleto, altrimenti solo delta + enrich.
+pub fn spawn_catalog_boot_maintenance(db: std::sync::Arc<Database>) {
+    {
+        let Ok(mut running) = CATALOG_BOOT_RUNNING.lock() else {
+            return;
+        };
+        if *running {
+            return;
+        }
+        *running = true;
+    }
+
+    std::thread::spawn(move || {
+        let _ = ensure_bundled_catalog_seed(db.as_ref());
+        let needs_full = catalog_needs_background_sync(db.as_ref());
+        let cdn = cdn_url(db.as_ref());
+        let locale = lang(db.as_ref());
+        if needs_full {
+            let _ = refresh_catalog_index(db.as_ref(), "", &cdn, &locale);
+        } else {
+            let _ = incremental_catalog_update(db.as_ref());
+        }
+        if let Ok(mut running) = CATALOG_BOOT_RUNNING.lock() {
+            *running = false;
+        }
+        spawn_continuous_metadata_enrichment(db);
+    });
 }
 
 fn decode_text(value: &str) -> String {
@@ -1270,21 +2246,6 @@ pub fn catalog_enabled(db: &crate::db::Database) -> bool {
         .unwrap_or(true)
 }
 
-fn preview_matches_query(preview: &StremioMetaPreview, query: &str) -> bool {
-    let q = query.trim().to_lowercase();
-    if q.is_empty() {
-        return false;
-    }
-    let name = preview.name.to_lowercase();
-    let slug = preview
-        .slug
-        .as_deref()
-        .unwrap_or("")
-        .to_lowercase()
-        .replace('-', " ");
-    name.contains(&q) || slug.contains(&q)
-}
-
 /// Ricerca su tutto l'indice locale SC (nessun limite artificiale).
 pub fn search_index(db: &Database, query: &str) -> Vec<StremioMetaPreview> {
     let q = query.trim();
@@ -1292,12 +2253,7 @@ pub fn search_index(db: &Database, query: &str) -> Vec<StremioMetaPreview> {
         return Vec::new();
     }
     load_cached_index(db)
-        .map(|(index, _)| {
-            index
-                .into_iter()
-                .filter(|preview| preview_matches_query(preview, q))
-                .collect()
-        })
+        .map(|(index, _)| crate::smart_search::filter_and_rank_previews(index, q, 200))
         .unwrap_or_default()
 }
 
@@ -1440,6 +2396,7 @@ fn map_title(cdn: &str, title: ScTitle) -> StremioMetaPreview {
     let background = hero_background_url(cdn, &title.images);
     let logo = title_logo_url(cdn, &title.images)
         .or_else(|| title_logo_url(cdn, &episode_images));
+    let (cast, directors) = credits_from_title_struct(&title);
     StremioMetaPreview {
         id: title.id.to_string(),
         r#type: stremio_type.to_string(),
@@ -1457,6 +2414,9 @@ fn map_title(cdn: &str, title: ScTitle) -> StremioMetaPreview {
             .into_iter()
             .map(|g| decode_text(&g.name))
             .collect(),
+        cast,
+        directors,
+        streaming_services: None,
         source_row_key: None,
         source_row_title: None,
         resume_video_id: if is_series {
@@ -1510,6 +2470,15 @@ pub fn preview_from_value(
             genres.push(decode_text(genre));
         }
     }
+    let cast = credits_from_value(title, "main_actors");
+    let directors = credits_from_value(title, "main_directors");
+    // Listing archive non espongono i campi provider → None (sconosciuto).
+    // Pagine dettaglio hanno sempre netflix_id/prime_id/… (anche null) → Some([...]).
+    let streaming_services = if title_has_provider_fields(title) {
+        Some(streaming_services_from_value(title))
+    } else {
+        None
+    };
     Some(StremioMetaPreview {
         id: id.to_string(),
         r#type: stremio_type.to_string(),
@@ -1530,6 +2499,9 @@ pub fn preview_from_value(
         catalog_prefix: Some("sc".to_string()),
         slug: Some(slug.to_string()),
         genres,
+        cast,
+        directors,
+        streaming_services,
         source_row_key: None,
         source_row_title: None,
         resume_video_id: if is_series {
@@ -1564,6 +2536,8 @@ mod tests {
                 last_air_date: Some("2022".into()),
                 images: Vec::new(),
                 genres: Vec::new(),
+                main_actors: Vec::new(),
+                main_directors: Vec::new(),
                 episode_id: Some(123456),
                 episode: Some(ScEpisodeSnippet {
                     id: Some(123456),
@@ -1684,8 +2658,15 @@ mod tests {
             .iter()
             .map(|name| (*name).to_string())
             .collect();
-        let index = sync_catalog_index(DEFAULT_APP_URL, DEFAULT_CDN_URL, DEFAULT_LANG, &names)
-            .expect("SC full index sync");
+        let index = sync_catalog_index(
+            DEFAULT_APP_URL,
+            DEFAULT_CDN_URL,
+            DEFAULT_LANG,
+            &names,
+            Vec::new(),
+            None,
+        )
+        .expect("SC full index sync");
         let movies: Vec<_> = index.iter().filter(|p| p.r#type == "movie").collect();
         let with_genres = movies.iter().filter(|p| !p.genres.is_empty()).count();
         let with_genre_key = movies
@@ -1708,8 +2689,15 @@ mod tests {
             .iter()
             .map(|name| (*name).to_string())
             .collect();
-        let index = sync_catalog_index(DEFAULT_APP_URL, DEFAULT_CDN_URL, DEFAULT_LANG, &names)
-            .expect("SC full index sync");
+        let index = sync_catalog_index(
+            DEFAULT_APP_URL,
+            DEFAULT_CDN_URL,
+            DEFAULT_LANG,
+            &names,
+            Vec::new(),
+            None,
+        )
+        .expect("SC full index sync");
         assert!(
             index.len() >= 1900,
             "expected full catalog index, got {} titles",

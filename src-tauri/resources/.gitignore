@@ -1,0 +1,5 @@
+# Snapshot catalogo SC precaricato nella release (gzip JSON).
+# Rigenera con: npm run catalog:export-seed
+*
+!.gitignore
+!sc_catalog_seed.json.gz

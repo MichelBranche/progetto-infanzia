@@ -55,15 +55,19 @@ export function useCloudFriendPresence(active = true) {
       setLoading(false);
       return;
     }
+
+    // Cache calda: aggiorna senza far lampeggiare lo stato loading
+    // (evita re-render inutili sul poll periodico).
+    const cached = getBootFriendsCache();
+    if (cached) {
+      setFriends(cached.friends);
+      setPresence(cached.presence);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const cached = getBootFriendsCache();
-      if (cached) {
-        setFriends(cached.friends);
-        setPresence(cached.presence);
-        return;
-      }
-
       const payload = await prefetchBootFriends();
       if (payload) {
         setFriends(payload.friends);

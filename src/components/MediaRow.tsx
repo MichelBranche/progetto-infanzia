@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { LordFlixPosterCard } from "./LordFlixPosterCard";
 import { LordFlixContinueCard } from "./LordFlixContinueCard";
@@ -64,6 +64,10 @@ export function MediaRow({
     scrollRef,
   );
   const isContinueRow = layout === "continue";
+  const rowInteractionValue = useMemo(
+    () => ({ collapseEpoch }),
+    [collapseEpoch],
+  );
 
   useEffect(() => {
     prefetchPosterUrls(
@@ -85,7 +89,7 @@ export function MediaRow({
   if (items.length === 0) return null;
 
   return (
-    <RowInteractionContext.Provider value={{ collapseEpoch }}>
+    <RowInteractionContext.Provider value={rowInteractionValue}>
       <section
         ref={sectionRef}
         className="group/row lf-home-row relative space-y-1 overflow-visible"

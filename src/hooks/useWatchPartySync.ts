@@ -28,18 +28,7 @@ const HOST_HEARTBEAT_PLAYING_MS = 800;
 const HOST_HEARTBEAT_PAUSED_MS = 2500;
 const CLOUD_KEEPALIVE_MS = 45_000;
 const SYNC_THROTTLE_MS = 80;
-const MAX_EXTRAPOLATE_SEC = 3;
 const LAN_RECONNECT_BASE_MS = 1200;
-
-function extrapolatePosition(
-  position: number,
-  playing: boolean,
-  sentAt?: number,
-): number {
-  if (!playing || !sentAt) return position;
-  const ageSec = (Date.now() - sentAt) / 1000;
-  return position + Math.min(Math.max(ageSec, 0), MAX_EXTRAPOLATE_SEC);
-}
 
 function shouldApplyGuestContent(content: WatchPartyContent): boolean {
   return Boolean(content.streamUrl) && content.contentKind !== "streaming";
@@ -109,12 +98,16 @@ export function useWatchPartySync({
 
   const applyRemoteSync = useCallback(
     (nextPlaying: boolean, position: number, sentAt?: number) => {
+      // Ordinamento: scarta messaggi host più vecchi di quello già applicato.
+      // `sentAt` è sempre l'orologio dell'host, quindi confrontabile tra loro.
       if (sentAt && sentAt < lastAppliedSentAtRef.current) return;
       if (sentAt) lastAppliedSentAtRef.current = sentAt;
 
-      const adjusted = extrapolatePosition(position, nextPlaying, sentAt);
+      // Passa la posizione GREZZA: l'estrapolazione (avanzamento durante il play)
+      // avviene lato guest con clock locale (receivedAt), così un eventuale
+      // sfasamento tra l'orologio dell'host e quello del guest non introduce drift.
       applyingRemoteRef.current = true;
-      onRemoteSyncRef.current(nextPlaying, adjusted);
+      onRemoteSyncRef.current(nextPlaying, position);
       window.setTimeout(() => {
         applyingRemoteRef.current = false;
       }, 350);
@@ -210,11 +203,10 @@ export function useWatchPartySync({
       const applyRoomSnapshot = (room: WatchPartyRoom) => {
         if (session.role === "guest") {
           applyGuestContent(room.content);
-          applyRemoteSync(
-            room.playing,
-            room.positionSecs,
-            room.updatedAt ? Date.parse(room.updatedAt) : undefined,
-          );
+          // Snapshot iniziale: nessun `sentAt` (l'`updatedAt` è clock del server e
+          // non è confrontabile con i `sentAt` dell'host). Serve solo come punto di
+          // partenza; i sync live successivi allineano con precisione.
+          applyRemoteSync(room.playing, room.positionSecs);
         }
       };
 
@@ -335,10 +327,12 @@ export function useWatchPartySync({
             return;
           }
           if (msg.type === "content" && !isHost) {
-            onGuestContentRef.current?.(
-              msg.content.streamUrl,
-              msg.content.isHls,
-            );
+            if (shouldApplyGuestContent(msg.content)) {
+              onGuestContentRef.current?.(
+                msg.content.streamUrl,
+                msg.content.isHls,
+              );
+            }
             return;
           }
           if (msg.type === "sync" && !isHost) {

@@ -5,12 +5,13 @@ import type {
 } from "../types/stremio";
 import type { BrowseItem } from "./browse";
 import { browseItemId, isWatchInProgress, toBrowseItems } from "./browse";
-import { isHeroEligibleLocalItem, isHeroPriorityLocalItem, isHeroPriorityPreview, isScHeroWithLogo } from "./heroImage";
+import { isHeroEligibleLocalItem, isHeroEligiblePreview, isHeroPriorityLocalItem, isScHeroWithLogo } from "./heroImage";
 import type { StreamingRow } from "./useStreamingCatalogs";
 import { decodeHtmlEntities } from "./htmlText";
 import {
+  buildContinueCatalogMap,
   dedupeStreamingPreviews,
-  enrichContinuePreview,
+  enrichContinuePreviewWithMap,
   streamingBrowseItem,
   streamingPreviewDedupeKey,
 } from "./streamingBrowse";
@@ -18,7 +19,15 @@ import {
 export type LibraryMediaType = "film" | "serie" | "cartone";
 
 const ANIMATION_CONTEXT =
-  /anim|cartoon|carton|anime|bambin|kid|family|famiglia|disney|pixar|dreamworks|nickelodeon|miyazaki|sc-genre-animation|sc-genre-family|sc-genre-kids/i;
+  /anim|cartoon|carton|anime|bambin|\bkids?\b|pixar|dreamworks|nickelodeon|miyazaki|sc-genre-animation|sc-genre-kids/i;
+
+/** Solo etichette genere chiaramente animate — non Famiglia/Disney (troppi film live-action). */
+const ANIMATION_GENRE_LABEL =
+  /^(animazione|animation|cartoon|anime|bambini|kids|juvenile)$/i;
+
+/** Heuristica sul titolo quando l'indice non ha ancora generi/sourceRow. */
+const ANIMATION_TITLE =
+  /\b(minions|toy\s*story|shrek|frozen|encanto|luca\b|zootropolis|zootopia|moana|oceania|nemo|dory|\bcars\b|kung fu panda|dragon trainer|how to train|cattivissimo|despicable|sing\b|elemental|spider.?verse|super mario|pokemon|puffi|smurf|ghibli|madagasc|wallace|shaun the sheep|peanuts|incredibles|gli incredibili|inside out|inversione|ralph|wreck.?it|big hero|gli eroi della citt)\b/i;
 
 export function isCartoniCatalogPreview(preview: StremioMetaPreview): boolean {
   return preview.catalogPrefix === "loonex" || preview.catalogPrefix === "youtube";
@@ -41,7 +50,7 @@ function isAnimationContext(context?: {
 
 function isAnimationFromGenres(genres?: string[]): boolean {
   if (!genres?.length) return false;
-  return genres.some((genre) => ANIMATION_CONTEXT.test(genre));
+  return genres.some((genre) => ANIMATION_GENRE_LABEL.test(genre.trim()));
 }
 
 function resolveStreamingContext(
@@ -62,7 +71,9 @@ export function isAnimationStreamingPreview(
   if (preview.catalogPrefix === "youtube") return true;
   const resolved = resolveStreamingContext(preview, context);
   return (
-    isAnimationContext(resolved) || isAnimationFromGenres(preview.genres)
+    isAnimationContext(resolved) ||
+    isAnimationFromGenres(preview.genres) ||
+    ANIMATION_TITLE.test(preview.name ?? "")
   );
 }
 
@@ -237,8 +248,10 @@ export function buildRandomHeroItems(
     push(item, isHeroPriorityLocalItem(item));
   }
   for (const preview of streamingPreviews) {
-    if (!isScHeroWithLogo(preview)) continue;
-    push(toMediaItem(preview), isHeroPriorityPreview(preview));
+    if (!isHeroEligiblePreview(preview)) continue;
+    const prefix = preview.catalogPrefix?.toLowerCase() ?? "sc";
+    if (prefix !== "sc") continue;
+    push(toMediaItem(preview), isScHeroWithLogo(preview));
   }
 
   const priorityPool = shuffleArray(priority);
@@ -408,6 +421,30 @@ function streamingForTypes(
     .map((preview) => streamingBrowseItem(preview));
 }
 
+/** Catalogo discovery Film/Serie: tipo Stremio + mediaType (niente animazione/cartoni). */
+function streamingForDiscoverySection(
+  previews: StremioMetaPreview[],
+  section: "film" | "serie",
+): BrowseItem[] {
+  const wantMedia: LibraryMediaType = section === "film" ? "film" : "serie";
+  return previews
+    .filter((preview) => {
+      const prefix = preview.catalogPrefix ?? "sc";
+      if (prefix === "loonex" || prefix === "youtube" || prefix === "saturn") {
+        return false;
+      }
+      const rawType = (preview.type || "").toLowerCase();
+      if (section === "film") {
+        if (rawType !== "movie" && rawType !== "film") return false;
+      } else if (rawType !== "series" && rawType !== "tv" && rawType !== "channel") {
+        return false;
+      }
+      // Dopo enrichStreamingPreview, cartoni animati hanno mediaType "cartone".
+      return preview.mediaType === wantMedia;
+    })
+    .map((preview) => streamingBrowseItem(preview));
+}
+
 function localBrowseForCollection(collection: MediaCollection): BrowseItem[] {
   const grouped =
     collection.id === "cartoni" ||
@@ -468,10 +505,11 @@ export function mergeContinueBrowseItems(
   catalog: StremioMetaPreview[] = [],
 ): BrowseItem[] {
   const progressMap = buildStreamingProgressMap(continueItems);
+  const catalogMap = buildContinueCatalogMap(catalog);
   const streaming = continueItems
     .filter((item) => item.positionSecs > 5)
     .map((item) =>
-      streamingBrowseItem(enrichContinuePreview(item, catalog)),
+      streamingBrowseItem(enrichContinuePreviewWithMap(item, catalogMap)),
     );
   const local = toBrowseItems(localItems);
   const merged = dedupeContinueBrowseItems([...streaming, ...local]);
@@ -778,17 +816,33 @@ export function mergedSectionBrowseItems(
   scSearchResults: StremioMetaPreview[],
   streamingRows: StreamingRow[] = [],
 ): BrowseItem[] {
+  if (
+    section !== "film" &&
+    section !== "cartoni" &&
+    section !== "serie" &&
+    section !== "capsula" &&
+    section !== "search"
+  ) {
+    return localItems.map((item) => ({ kind: "media" as const, item }));
+  }
+
   const contextByKey = buildStreamingContextByKey(streamingRows);
   const enrich = (preview: StremioMetaPreview) => {
     const context = contextByKey.get(`${preview.type}:${preview.id}`);
     return enrichStreamingPreview(preview, context);
   };
+
+  if (section === "search") {
+    const local = toBrowseItems(localItems);
+    const streaming = scSearchResults.map(enrich).map(streamingBrowseItem);
+    return dedupeBrowseItems([...local, ...streaming]);
+  }
+
   const enriched = catalogPreviews.map(enrich);
-  const searchStreaming = scSearchResults.map(enrich);
 
   if (section === "film") {
     const local = localItems.map((item) => ({ kind: "media" as const, item }));
-    const streaming = streamingForTypes(enriched, ["film"]);
+    const streaming = streamingForDiscoverySection(enriched, "film");
     return dedupeBrowseItems([...local, ...streaming]);
   }
 
@@ -803,25 +857,14 @@ export function mergedSectionBrowseItems(
 
   if (section === "serie") {
     const local = toBrowseItems(localItems);
-    const streaming = streamingForTypes(enriched, ["serie"]);
+    const streaming = streamingForDiscoverySection(enriched, "serie");
     return dedupeBrowseItems([...local, ...streaming]);
   }
 
-  if (section === "capsula") {
-    const local = localItems.map((item) => ({ kind: "media" as const, item }));
-    const streaming = enriched
-      .filter(streamingInCapsula)
-      .map(streamingBrowseItem);
-    return dedupeBrowseItems([...local, ...streaming]);
-  }
-
-  if (section === "search") {
-    const local = toBrowseItems(localItems);
-    const streaming = searchStreaming.map(streamingBrowseItem);
-    return dedupeBrowseItems([...local, ...streaming]);
-  }
-
-  return localItems.map((item) => ({ kind: "media" as const, item }));
+  // section === "capsula"
+  const local = localItems.map((item) => ({ kind: "media" as const, item }));
+  const streaming = enriched.filter(streamingInCapsula).map(streamingBrowseItem);
+  return dedupeBrowseItems([...local, ...streaming]);
 }
 
 const MIN_CARTONI_HOME_ROW_ITEMS = 4;

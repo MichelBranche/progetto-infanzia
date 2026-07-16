@@ -60,6 +60,8 @@ interface FriendsPageProps {
   lanOffline?: LanFriendPresence[];
   lanPresenceLoading?: boolean;
   onRefreshLanPresence?: () => void;
+  /** Se fornita, il tap su un amico cloud apre la sua pagina profilo a schermo intero. */
+  onOpenFriendProfile?: (friend: FriendProfileTarget) => void;
 }
 
 export function FriendsPage({
@@ -76,6 +78,7 @@ export function FriendsPage({
   lanOffline = [],
   lanPresenceLoading = false,
   onRefreshLanPresence,
+  onOpenFriendProfile,
 }: FriendsPageProps) {
   const { profile: cloudProfile, configured: cloudConfigured } = useCloudAccount();
   const { notify } = useNotifications();
@@ -94,6 +97,14 @@ export function FriendsPage({
   const [partyPanelOpen, setPartyPanelOpen] = useState(false);
   const [selectedFriend, setSelectedFriend] = useState<FriendProfileTarget | null>(null);
   const [showAddPanel, setShowAddPanel] = useState(false);
+
+  const openFriend = useCallback(
+    (friend: FriendProfileTarget) => {
+      if (onOpenFriendProfile) onOpenFriendProfile(friend);
+      else setSelectedFriend(friend);
+    },
+    [onOpenFriendProfile],
+  );
 
   const loadMeta = useCallback(async () => {
     setMetaLoading(true);
@@ -292,7 +303,7 @@ export function FriendsPage({
                     online
                     away={friend.presence?.status === "away"}
                     dnd={friend.presence?.status === "dnd"}
-                    onPress={() => setSelectedFriend(friend)}
+                    onPress={() => openFriend(friend)}
                     trailing={
                       <button
                         type="button"
@@ -411,7 +422,7 @@ export function FriendsPage({
                         `Codice ${friend.friendCode}`
                       }
                       online={false}
-                      onPress={() => setSelectedFriend(friend)}
+                      onPress={() => openFriend(friend)}
                       trailing={
                         <button
                           type="button"

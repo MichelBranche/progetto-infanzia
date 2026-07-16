@@ -242,24 +242,31 @@ html.is-tauri {
   padding-right: var(--page-px);
 }
 
-/* Griglia catalogo: card compatte, max ~140px — evita poster sgranati */
+/* Griglia catalogo: colonne fluide che riempiono la larghezza senza overflow */
 .browse-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(108px, 132px));
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
   gap: 1.25rem 0.625rem;
   justify-content: start;
 }
 
 @media (min-width: 640px) {
   .browse-grid {
-    grid-template-columns: repeat(auto-fill, minmax(112px, 136px));
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
     gap: 1.5rem 0.75rem;
   }
 }
 
 @media (min-width: 1280px) {
   .browse-grid {
-    grid-template-columns: repeat(auto-fill, minmax(116px, 140px));
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    gap: 1.6rem 0.85rem;
+  }
+}
+
+@media (min-width: 1800px) {
+  .browse-grid {
+    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
   }
 }
 

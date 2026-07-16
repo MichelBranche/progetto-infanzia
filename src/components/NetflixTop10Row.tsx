@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { StremioMetaPreview } from "../types/stremio";
 import { usePosterQuality } from "../context/PosterQualityContext";
@@ -136,6 +136,13 @@ export function NetflixTop10Row({
     setHoveredId(null);
   }, [collapseEpoch]);
 
+  useEffect(() => () => clearHoverTimer(), []);
+
+  const rowInteractionValue = useMemo(
+    () => ({ collapseEpoch }),
+    [collapseEpoch],
+  );
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollLeft = 0;
@@ -179,7 +186,7 @@ export function NetflixTop10Row({
   };
 
   return (
-    <RowInteractionContext.Provider value={{ collapseEpoch }}>
+    <RowInteractionContext.Provider value={rowInteractionValue}>
       <section className="group/top10 row-pointer-pass relative z-10 overflow-visible py-3 hover:z-30 sm:py-4">
         <div className="page-px">
             <div className="mb-4 flex flex-col items-center gap-3 sm:mb-5">

@@ -16,6 +16,8 @@ import {
   hasUsableCatalog,
   ingestCatalogPayload,
   needsCatalogRefresh,
+  needsMetadataPoll,
+  pollCatalogMetadata,
   prefetchBootCatalog,
   scheduleCatalogRefresh,
   type BootCatalogPayload,
@@ -149,34 +151,43 @@ async function loadAddonRows(
   profileId: string,
   addons: InstalledAddon[],
 ): Promise<{ rows: StreamingRow[]; error: string | null }> {
-  const next: StreamingRow[] = [];
   let firstError: string | null = null;
   const sources = catalogAddons(addons);
 
+  const tasks: Array<{
+    addon: InstalledAddon;
+    catalog: ReturnType<typeof pickHomeCatalogs>[number];
+  }> = [];
   for (const addon of sources) {
     for (const catalog of pickHomeCatalogs(addon)) {
-      try {
-        const items = await fetchAddonCatalog(
-          profileId,
-          addon.id,
-          catalog.type,
-          catalog.id,
-        );
-        if (items.length > 0) {
-          next.push({
-            key: `${addon.id}-${catalog.type}-${catalog.id}`,
-            title: catalogLabel(catalog),
-            subtitle: `${catalog.name} · ${addon.name}`,
-            items: items.slice(0, 40),
-          });
-        }
-      } catch (err) {
-        if (!firstError) {
-          firstError = err instanceof Error ? err.message : String(err);
-        }
-      }
+      tasks.push({ addon, catalog });
     }
   }
+
+  const results = await Promise.allSettled(
+    tasks.map(({ addon, catalog }) =>
+      fetchAddonCatalog(profileId, addon.id, catalog.type, catalog.id),
+    ),
+  );
+
+  const next: StreamingRow[] = [];
+  results.forEach((result, i) => {
+    const { addon, catalog } = tasks[i];
+    if (result.status === "fulfilled") {
+      const items = result.value;
+      if (items.length > 0) {
+        next.push({
+          key: `${addon.id}-${catalog.type}-${catalog.id}`,
+          title: catalogLabel(catalog),
+          subtitle: `${catalog.name} · ${addon.name}`,
+          items: items.slice(0, 40),
+        });
+      }
+    } else if (!firstError) {
+      const err = result.reason;
+      firstError = err instanceof Error ? err.message : String(err);
+    }
+  });
 
   return { rows: next, error: firstError };
 }
@@ -315,6 +326,48 @@ export function useStreamingCatalogs(profileId: string): UseStreamingCatalogsRes
     };
   }, [applyScCatalog, hasBootData]);
 
+  // Rilegge la cache mentre il backend completa crawl/delta e metadati.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const tick = async () => {
+      const cached = getBootCatalogCache();
+      if (!needsMetadataPoll(cached)) return;
+      const growing =
+        Boolean(cached?.needsBackgroundSync) ||
+        (cached?.index.filter((i) => !i.catalogPrefix || i.catalogPrefix === "sc")
+          .filter((i) => i.type === "movie").length ?? 0) < 8_000;
+      const polled = await pollCatalogMetadata();
+      if (cancelled || !polled) return;
+      applyScCatalog({
+        rows: polled.rows,
+        index: polled.index,
+        syncedAt: polled.syncedAt,
+        totalCount: polled.totalCount,
+        needsFullSync: false,
+        error: polled.error,
+      });
+      if (!cancelled && needsMetadataPoll(getBootCatalogCache())) {
+        timer = window.setTimeout(
+          () => {
+            void tick();
+          },
+          growing ? 20_000 : 50_000,
+        );
+      }
+    };
+
+    timer = window.setTimeout(() => {
+      void tick();
+    }, 8_000);
+
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [applyScCatalog]);
+
   useEffect(() => {
     if (!STREMIO_ADDONS_ENABLED || addonsLoading || !profileId) {
       setAddonRows([]);
@@ -344,7 +397,10 @@ export function useStreamingCatalogs(profileId: string): UseStreamingCatalogsRes
     };
   }, [addons, addonsLoading, profileId, scRows.length, catalogIndex.length]);
 
-  const rows = [...scRows, ...(STREMIO_ADDONS_ENABLED ? addonRows : [])];
+  const rows = useMemo(
+    () => [...scRows, ...(STREMIO_ADDONS_ENABLED ? addonRows : [])],
+    [scRows, addonRows],
+  );
   const loading = scLoading || (STREMIO_ADDONS_ENABLED && addonLoading);
 
   const progressMap = useMemo(

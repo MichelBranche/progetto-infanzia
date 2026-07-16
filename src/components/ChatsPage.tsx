@@ -3,6 +3,7 @@ import { Loader2, MessageSquare, Plus, Users } from "lucide-react";
 import { CloudAuthPanel } from "./CloudAuthPanel";
 import { ChatPanel } from "./chat/ChatPanel";
 import { ProfileCard, ProfileEmptyState, ProfileSectionLabel } from "./profile/ProfileUi";
+import { ListSkeleton } from "./Skeleton";
 import { useCloudAccount } from "../context/CloudAccountContext";
 import { useChatPopup } from "../context/ChatPopupContext";
 import { listCloudFriends } from "../lib/cloudFriends";
@@ -232,8 +233,13 @@ export function ChatsPage() {
         )}
 
         {loading ? (
-          <div className="flex min-h-[320px] items-center justify-center">
-            <Loader2 className="h-7 w-7 animate-spin text-text-muted" />
+          <div className="grid gap-4 lg:grid-cols-[minmax(260px,300px)_1fr]">
+            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-2">
+              <ListSkeleton rows={7} variant="chat" />
+            </div>
+            <div className="hidden min-h-[320px] rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 lg:block">
+              <ListSkeleton rows={4} variant="line" />
+            </div>
           </div>
         ) : (
           <div className="grid gap-4 lg:grid-cols-[minmax(260px,300px)_1fr]">

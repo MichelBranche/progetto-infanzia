@@ -34,4 +34,4 @@ pub struct UpdateSettingsInput {
 }
 
 pub const STREAMING_SERVICE_IDS: &[&str] =
-    &["netflix", "prime", "disney", "apple", "paramount", "now"];
+    &["netflix", "prime", "disney", "apple", "paramount", "now", "hbo"];

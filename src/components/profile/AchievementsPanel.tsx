@@ -1,4 +1,5 @@
-import { Loader2, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
+import { ListSkeleton } from "../Skeleton";
 import {
   ACHIEVEMENT_CATEGORY_ICONS,
   ACHIEVEMENT_CATEGORY_LABELS,
@@ -52,8 +53,8 @@ function CategorySummary({
 export function AchievementsPanel({ state, loading }: AchievementsPanelProps) {
   if (loading) {
     return (
-      <div className="flex justify-center py-24">
-        <Loader2 className="h-7 w-7 animate-spin text-text-muted" />
+      <div className="px-1 py-4">
+        <ListSkeleton rows={5} variant="line" />
       </div>
     );
   }

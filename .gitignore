@@ -12,9 +12,17 @@ dist
 dist-ssr
 *.local
 .env
+.env.*
+
+# Scratch / debug locali (mai versionare)
+.tmp-*
+j.txt
+welib-jar*.txt
+welib-search-jar*.txt
 
 # Dati locali API browser dev (npm run dev:browser)
 .branchefy-data/
+.branchefy-data-seed/
 
 # Tauri updater signing keys (never commit private key)
 src-tauri/.updater-keys/

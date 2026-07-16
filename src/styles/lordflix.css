@@ -351,6 +351,15 @@
   background: transparent;
 }
 
+/* Smooth solo su scroll programmatico (es. reset top al cambio sezione).
+   La rotella/trackpad restano native. */
+@media (prefers-reduced-motion: no-preference) {
+  .lf-main-scroll.lf-home-scroll,
+  .lf-main-scroll.lf-section-scroll {
+    scroll-behavior: smooth;
+  }
+}
+
 html.lf-browse-ambient,
 html.lf-browse-ambient body {
   background-color: var(--lf-liquid);
@@ -913,6 +922,7 @@ html.is-tauri .mobile-nav-more-backdrop {
 .search-overlay {
   top: var(--app-nav-height);
   padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: transparent;
 }
 
 .search-overlay__scroll {
@@ -1312,6 +1322,58 @@ html.is-tauri .mobile-nav-more-backdrop {
   color: var(--lf-pill-active-text);
 }
 
+.lf-filter-chip-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.lf-filter-menu {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 40;
+  min-width: 11.5rem;
+  max-height: min(18rem, 55vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 0.9rem;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  background: rgb(18 18 22 / 0.96);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  padding: 0.35rem;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.45);
+}
+
+.lf-filter-menu__item {
+  display: block;
+  width: 100%;
+  border-radius: 0.65rem;
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: rgb(255 255 255 / 0.78);
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.lf-filter-menu__item:hover {
+  background: rgb(255 255 255 / 0.08);
+  color: #fff;
+}
+
+.lf-filter-menu__item--active {
+  background: #fff;
+  color: var(--lf-pill-active-text);
+}
+
+.lf-filter-menu__item--active:hover {
+  background: #fff;
+  color: var(--lf-pill-active-text);
+}
+
 .lf-discovery-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
@@ -1355,6 +1417,10 @@ html.is-tauri .mobile-nav-more-backdrop {
 
 .lf-browse-card--grid {
   width: 100%;
+  max-width: none;
+  /* Card della griglia fuori schermo: niente paint finche' non servono. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
 }
 
 .lf-browse-card--grid:hover {
@@ -1389,7 +1455,8 @@ html.is-tauri .mobile-nav-more-backdrop {
 }
 
 @media (min-width: 1024px) {
-  .lf-browse-card {
+  /* Solo nelle row orizzontali: in griglia resta width 100% della cella. */
+  .lf-browse-card:not(.lf-browse-card--grid) {
     width: 200px;
   }
 
@@ -2280,11 +2347,16 @@ html.is-tauri .glass-header,
 
 .lf-home-row {
   margin-bottom: 1.75rem;
+  /* Le righe fuori schermo saltano layout/paint: scroll piu' fluido su pagine lunghe.
+     `auto` memorizza l'altezza reale dopo il primo render, evitando salti di scrollbar. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 420px;
 }
 
 @media (min-width: 1024px) {
   .lf-home-row {
     margin-bottom: 2.5rem;
+    contain-intrinsic-size: auto 460px;
   }
 }
 

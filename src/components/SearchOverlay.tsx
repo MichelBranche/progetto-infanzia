@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2 } from "lucide-react";
+import { Sparkles } from "lucide-react";
+import { SearchResultsSkeleton } from "./Skeleton";
 import { LordFlixPosterCard } from "./LordFlixPosterCard";
 import type { MediaItem } from "../types/media";
 import type { StremioMetaPreview } from "../types/stremio";
@@ -8,7 +9,6 @@ import type { BrowseItem } from "../lib/browse";
 import { toBrowseItems, browseItemId } from "../lib/browse";
 import { streamingBrowseItem } from "../lib/streamingBrowse";
 import { enrichStreamingPreview } from "../lib/unifiedBrowse";
-import { partitionStreamingBrowseItems } from "../lib/searchGroups";
 import { LoadingSpinner } from "./LoadingSpinner";
 
 interface SearchOverlayProps {
@@ -19,6 +19,8 @@ interface SearchOverlayProps {
   streamingResults: StremioMetaPreview[];
   streamingTotal?: number;
   suggestions: StremioMetaPreview[];
+  didYouMean?: StremioMetaPreview | null;
+  onApplySuggestion?: (preview: StremioMetaPreview) => void;
   streamingLoading?: boolean;
   streamingLoadingMore?: boolean;
   streamingHasMore?: boolean;
@@ -40,6 +42,8 @@ export function SearchOverlay({
   streamingResults,
   streamingTotal = 0,
   suggestions,
+  didYouMean = null,
+  onApplySuggestion,
   streamingLoading,
   streamingLoadingMore,
   streamingHasMore,
@@ -63,14 +67,10 @@ export function SearchOverlay({
     () => streamingResults.map((preview) => streamingBrowseItem(enrich(preview))),
     [streamingResults, enrich],
   );
-  const streamingGroups = useMemo(
-    () => partitionStreamingBrowseItems(streamingBrowse),
-    [streamingBrowse],
-  );
   const suggestionBrowse = useMemo(
     () =>
       suggestions
-        .slice(0, 36)
+        .slice(0, 42)
         .map((preview) => streamingBrowseItem(enrich(preview))),
     [suggestions, enrich],
   );
@@ -130,30 +130,55 @@ export function SearchOverlay({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          className="search-overlay absolute inset-x-0 bottom-0 z-[25] bg-void"
+          className="search-overlay absolute inset-x-0 bottom-0 z-[25] bg-transparent"
           aria-hidden={!open}
         >
           <div className="flex h-full min-h-0 flex-col">
             <div className="search-overlay__scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
-              {showInitialLoader && (
-                <div className="flex items-center gap-3 page-px py-8 text-text-muted">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span className="text-[15px]">Ricerca in corso…</span>
-                </div>
-              )}
+              {showInitialLoader && <SearchResultsSkeleton count={10} />}
 
               {hasQuery && streamingLoading && streamingResults.length > 0 && (
                 <p className="page-px pb-1 pt-2 text-[12px] text-text-muted">
-                  Aggiornamento risultati…
+                  Affinamento risultati…
                 </p>
               )}
 
-              {!showInitialLoader && hasQuery && totalResults === 0 && !streamingLoading && (
-                <p className="page-px py-10 text-[15px] text-text-secondary">
-                  Nessun risultato per{" "}
-                  <span className="font-medium text-text-primary">«{trimmed}»</span>
-                </p>
-              )}
+              {!showInitialLoader &&
+                hasQuery &&
+                totalResults === 0 &&
+                !streamingLoading && (
+                  <div className="page-px py-10">
+                    <p className="text-[15px] text-text-secondary">
+                      Nessun risultato per{" "}
+                      <span className="font-medium text-text-primary">
+                        «{trimmed}»
+                      </span>
+                    </p>
+                    {didYouMean && onApplySuggestion && (
+                      <button
+                        type="button"
+                        onClick={() => onApplySuggestion(didYouMean)}
+                        className="mt-4 inline-flex max-w-full items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-left transition hover:border-accent/40 hover:bg-accent/10"
+                      >
+                        <Sparkles className="h-4 w-4 shrink-0 text-accent" />
+                        <span className="min-w-0 text-[14px] text-text-secondary">
+                          Forse cercavi{" "}
+                          <span className="font-semibold text-text-primary">
+                            {didYouMean.name}
+                          </span>
+                          ?
+                        </span>
+                      </button>
+                    )}
+                    <p className="mt-4 text-[12px] text-text-muted">
+                      Prova senza errori di battitura, il nome di un attore, oppure{" "}
+                      <span className="text-text-secondary">
+                        film / serie / anime
+                      </span>{" "}
+                      prima del titolo.
+                    </p>
+                  </div>
+                )}
 
               {hasQuery && totalResults > 0 && (
                 <p className="page-px pb-2 pt-2 text-[13px] text-text-muted">
@@ -167,7 +192,7 @@ export function SearchOverlay({
               {!showInitialLoader && !hasQuery && suggestionBrowse.length > 0 && (
                 <SearchSection title="In evidenza">
                   <SearchGrid
-                    items={suggestionBrowse.slice(0, 12)}
+                    items={suggestionBrowse.slice(0, 18)}
                     onPlay={onPlay}
                     onPlayStreaming={onPlayStreaming}
                     onOpenSeries={onOpenSeries}
@@ -179,52 +204,22 @@ export function SearchOverlay({
               )}
 
               {hasQuery && streamingBrowse.length > 0 && (
-                <>
-                  {streamingGroups.sc.length > 0 && (
-                    <SearchSection title="Streaming Community">
-                      <SearchGrid
-                        items={streamingGroups.sc}
-                        onPlay={onPlay}
-                        onPlayStreaming={onPlayStreaming}
-                        onOpenSeries={onOpenSeries}
-                        onToggleFavorite={onToggleFavorite}
-                        onToggleStreamingList={onToggleStreamingList}
-                        onEdit={onEdit}
-                      />
-                    </SearchSection>
-                  )}
-                  {streamingGroups.saturn.length > 0 && (
-                    <SearchSection title="Anime (AnimeSaturn)">
-                      <SearchGrid
-                        items={streamingGroups.saturn}
-                        onPlay={onPlay}
-                        onPlayStreaming={onPlayStreaming}
-                        onOpenSeries={onOpenSeries}
-                        onToggleFavorite={onToggleFavorite}
-                        onToggleStreamingList={onToggleStreamingList}
-                        onEdit={onEdit}
-                      />
-                    </SearchSection>
-                  )}
-                  {streamingGroups.other.length > 0 && (
-                    <SearchSection title="Altri cataloghi">
-                      <SearchGrid
-                        items={streamingGroups.other}
-                        onPlay={onPlay}
-                        onPlayStreaming={onPlayStreaming}
-                        onOpenSeries={onOpenSeries}
-                        onToggleFavorite={onToggleFavorite}
-                        onToggleStreamingList={onToggleStreamingList}
-                        onEdit={onEdit}
-                      />
-                    </SearchSection>
-                  )}
+                <SearchSection title="Risultati">
+                  <SearchGrid
+                    items={streamingBrowse}
+                    onPlay={onPlay}
+                    onPlayStreaming={onPlayStreaming}
+                    onOpenSeries={onOpenSeries}
+                    onToggleFavorite={onToggleFavorite}
+                    onToggleStreamingList={onToggleStreamingList}
+                    onEdit={onEdit}
+                  />
                   {streamingHasMore && (
                     <div ref={loadMoreRef} className="flex justify-center py-8">
                       <LoadingSpinner size="sm" className="border-t-accent" />
                     </div>
                   )}
-                </>
+                </SearchSection>
               )}
 
               {hasQuery && localBrowse.length > 0 && (
@@ -240,10 +235,10 @@ export function SearchOverlay({
                 </SearchSection>
               )}
 
-              {!showInitialLoader && !hasQuery && suggestionBrowse.length > 12 && (
+              {!showInitialLoader && !hasQuery && suggestionBrowse.length > 18 && (
                 <SearchSection title="Altri titoli">
                   <SearchGrid
-                    items={suggestionBrowse.slice(12, 36)}
+                    items={suggestionBrowse.slice(18, 42)}
                     onPlay={onPlay}
                     onPlayStreaming={onPlayStreaming}
                     onOpenSeries={onOpenSeries}
@@ -256,8 +251,8 @@ export function SearchOverlay({
 
               {!showInitialLoader && !hasQuery && suggestionBrowse.length === 0 && (
                 <p className="page-px py-10 text-[14px] text-text-muted">
-                  Inizia a digitare per cercare film e serie in streaming e nella
-                  tua libreria.
+                  Cerca per titolo, attore o regista. Puoi usare anche «film»,
+                  «serie» o «anime» nella query.
                 </p>
               )}
             </div>
@@ -276,11 +271,11 @@ function SearchSection({
   children: ReactNode;
 }) {
   return (
-    <section className="mt-3 sm:mt-6">
+    <section className="mt-4 pb-2 sm:mt-7 sm:pb-3">
       <h3 className="page-px font-display text-[15px] font-semibold tracking-[-0.02em] text-text-primary sm:text-lg">
         {title}
       </h3>
-      <div className="mt-3">{children}</div>
+      <div className="mt-3.5 sm:mt-4">{children}</div>
     </section>
   );
 }

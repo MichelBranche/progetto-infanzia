@@ -1,13 +1,14 @@
 {
   "name": "branchefy",
   "private": true,
-  "version": "0.2.11",
+  "version": "0.2.12",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "dev:api": "node tools/dev-api.mjs",
     "dev:stop": "node tools/stop-dev.mjs",
     "dev:browser": "npm run dev:stop && concurrently -k -n api,vite -c blue,green \"npm run dev:api\" \"node tools/wait-dev-api.mjs && vite --port 5173 --strictPort\"",
+    "catalog:export-seed": "cargo run --manifest-path src-tauri/Cargo.toml --bin export-sc-catalog-seed --release",
     "build:web": "npm run build --prefix web",
     "build:desktop": "tsc && vite build",
     "build": "npm run build --prefix web",

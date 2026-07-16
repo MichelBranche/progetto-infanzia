@@ -56,6 +56,7 @@ import { closeCloudWatchParty } from "../lib/cloudWatchParty";
 import { closeWatchParty } from "../lib/watchPartyApi";
 import { useWatchPartyHost } from "../context/WatchPartyHostContext";
 import { closeChatPopup } from "../lib/chatPopup";
+import { WatchPartyChatDock } from "./WatchPartyChatDock";
 import type { WatchPartySession } from "../types/watchParty";
 import { parseRemoteProxyId } from "../lib/cast";
 import {
@@ -194,11 +195,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const saveChainRef = useRef(Promise.resolve());
   const leavingRef = useRef(false);
   const partySessionRef = useRef<WatchPartySession | null>(null);
-  const remoteSyncTargetRef = useRef<{ playing: boolean; position: number } | null>(
-    null,
-  );
+  const remoteSyncTargetRef = useRef<{
+    playing: boolean;
+    position: number;
+    receivedAt: number;
+  } | null>(null);
   const pendingGuestSeekRef = useRef<number | null>(null);
   const applyingPartyRemoteRef = useRef(false);
+  const syncSeekInFlightRef = useRef(false);
   const hostLiveTimeRef = useRef(0);
   const notifyPartySeekRef = useRef<(position: number, nextPlaying?: boolean) => void>(
     () => {},
@@ -431,6 +435,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       if (actionPulseTimerRef.current != null) {
         window.clearTimeout(actionPulseTimerRef.current);
       }
+      clearTimeout(hideTimer.current);
     },
     [],
   );
@@ -671,21 +676,28 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   }, [streamUrl, isHls, partySession]);
 
   const handleRemoteSync = useCallback((nextPlaying: boolean, position: number) => {
-    remoteSyncTargetRef.current = { playing: nextPlaying, position };
+    const receivedAt = Date.now();
+    remoteSyncTargetRef.current = {
+      playing: nextPlaying,
+      position,
+      receivedAt,
+    };
     const video = videoRef.current;
     if (!video) return;
 
     applyingPartyRemoteRef.current = true;
 
     const drift = Math.abs(video.currentTime - position);
-    const pausedDriftLimit = 0.1;
-    const playingDriftLimit = DRIFT_THRESHOLD_SEC;
+    const pausedDriftLimit = 0.18;
+    // Host heartbeat ~800ms: non cercare troppo spesso mentre riproduce.
+    const playingDriftLimit = Math.max(DRIFT_THRESHOLD_SEC, 1.15);
     const shouldSeek =
       video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
         ? true
         : drift > (nextPlaying ? playingDriftLimit : pausedDriftLimit);
 
     if (shouldSeek) {
+      syncSeekInFlightRef.current = true;
       if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
         pendingGuestSeekRef.current = position;
       } else {
@@ -697,6 +709,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setCurrentTime(position);
         pendingGuestSeekRef.current = null;
       }
+      window.setTimeout(() => {
+        syncSeekInFlightRef.current = false;
+      }, 700);
     }
 
     if (nextPlaying) {
@@ -709,6 +724,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setPlaying(true);
       }
     } else {
+      if (video.playbackRate !== 1) video.playbackRate = 1;
       if (!video.paused) video.pause();
       setPlaying(false);
     }
@@ -722,8 +738,28 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     if (partySession?.role !== "guest") {
       remoteSyncTargetRef.current = null;
       pendingGuestSeekRef.current = null;
+      syncSeekInFlightRef.current = false;
+      const video = videoRef.current;
+      if (video && video.playbackRate !== 1) video.playbackRate = 1;
       return;
     }
+
+    const MAX_EXTRAPOLATE_SEC = 3;
+    // Oltre questo scarto si riallinea con un seek secco; sotto, si converge
+    // gradualmente variando la velocità di riproduzione (nessuno scatto visibile).
+    const HARD_SEEK_LIMIT_SEC = 1.0;
+    const RATE_CORRECT_MIN_SEC = 0.1;
+    const expectedTargetTime = (target: {
+      playing: boolean;
+      position: number;
+      receivedAt: number;
+    }) => {
+      if (!target.playing) return target.position;
+      // Estrapolazione con clock LOCALE del guest (receivedAt): immune allo
+      // sfasamento tra l'orologio dell'host e quello del guest.
+      const ageSec = (Date.now() - target.receivedAt) / 1000;
+      return target.position + Math.min(Math.max(ageSec, 0), MAX_EXTRAPOLATE_SEC);
+    };
 
     const id = window.setInterval(() => {
       const target = remoteSyncTargetRef.current;
@@ -732,22 +768,59 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         return;
       }
 
+      const expected = expectedTargetTime(target);
+
       if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
         if (pendingGuestSeekRef.current == null) {
-          pendingGuestSeekRef.current = target.position;
+          pendingGuestSeekRef.current = expected;
         }
         return;
       }
 
-      const drift = Math.abs(video.currentTime - target.position);
-      const limit = target.playing ? 0.22 : 0.08;
-      if (drift > limit) {
-        try {
-          video.currentTime = target.position;
-        } catch {
-          // ignore seek errors during buffering
+      // drift firmato: >0 => guest AVANTI rispetto all'host, <0 => INDIETRO.
+      const drift = video.currentTime - expected;
+      const absDrift = Math.abs(drift);
+
+      if (target.playing) {
+        if (absDrift > HARD_SEEK_LIMIT_SEC) {
+          // Scarto grande (buffering lungo, salto): riallinea con un seek secco.
+          syncSeekInFlightRef.current = true;
+          try {
+            video.currentTime = expected;
+          } catch {
+            // ignore seek errors during buffering
+          }
+          setCurrentTime(expected);
+          if (video.playbackRate !== 1) video.playbackRate = 1;
+          window.setTimeout(() => {
+            syncSeekInFlightRef.current = false;
+          }, 700);
+        } else if (absDrift > RATE_CORRECT_MIN_SEC) {
+          // Scarto piccolo: converge in modo impercettibile modulando la velocità
+          // (guest indietro => accelera, guest avanti => rallenta). Niente seek,
+          // quindi nessuno scatto né buffering tra un heartbeat e l'altro.
+          const rate = Math.min(1.1, Math.max(0.9, 1 - drift * 0.6));
+          if (Math.abs(video.playbackRate - rate) > 0.005) {
+            video.playbackRate = rate;
+          }
+        } else if (video.playbackRate !== 1) {
+          // Allineati: torna a velocità normale.
+          video.playbackRate = 1;
         }
-        setCurrentTime(target.position);
+      } else {
+        if (video.playbackRate !== 1) video.playbackRate = 1;
+        if (absDrift > 0.12) {
+          syncSeekInFlightRef.current = true;
+          try {
+            video.currentTime = expected;
+          } catch {
+            // ignore seek errors during buffering
+          }
+          setCurrentTime(expected);
+          window.setTimeout(() => {
+            syncSeekInFlightRef.current = false;
+          }, 700);
+        }
       }
 
       if (target.playing && video.paused) {
@@ -760,6 +833,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       if (pendingGuestSeekRef.current != null) {
         const pending = pendingGuestSeekRef.current;
+        syncSeekInFlightRef.current = true;
         try {
           video.currentTime = pending;
         } catch {
@@ -767,10 +841,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         }
         setCurrentTime(pending);
         pendingGuestSeekRef.current = null;
+        window.setTimeout(() => {
+          syncSeekInFlightRef.current = false;
+        }, 700);
       }
-    }, 220);
+    }, 400);
 
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearInterval(id);
+      const video = videoRef.current;
+      if (video && video.playbackRate !== 1) video.playbackRate = 1;
+    };
   }, [partySession?.role]);
 
   const {
@@ -788,9 +869,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     getHostPosition: () => hostLiveTimeRef.current,
     onRemoteSync: handleRemoteSync,
     onGuestContent: (url, guestHls) => {
-      setPartyStreamUrl(url);
+      setPartyStreamUrl((prev) => {
+        if (prev === url) return prev;
+        setLoading(true);
+        return url;
+      });
       setPartyIsHls(guestHls);
-      setLoading(true);
     },
   });
 
@@ -928,7 +1012,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     if (!video || castDevice) return;
 
     const onPause = () => {
-      if (applyingPartyRemoteRef.current) return;
+      if (applyingPartyRemoteRef.current || syncSeekInFlightRef.current) return;
       setPlaying(false);
       saveProgress(video.currentTime, video.duration);
       if (partySessionRef.current?.role === "host") {
@@ -937,8 +1021,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     };
 
     const onPlaying = () => {
-      if (applyingPartyRemoteRef.current) return;
+      // Sempre spegni lo spinner: i seek di sync non devono lasciare il loading acceso.
       setLoading(false);
+      if (applyingPartyRemoteRef.current || syncSeekInFlightRef.current) return;
       if (partySessionRef.current?.role === "host") {
         notifyPartySeekRef.current(video.currentTime, true);
       }
@@ -950,13 +1035,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const guestSession = partySessionRef.current;
       if (guestSession?.role === "guest") {
         const target = remoteSyncTargetRef.current;
-        const startAt =
-          target?.position ??
-          pendingGuestSeekRef.current ??
-          guestSession.room.positionSecs;
+        const startAt = (() => {
+          if (target) {
+            if (!target.playing) return target.position;
+            const ageSec = (Date.now() - target.receivedAt) / 1000;
+            return target.position + Math.min(Math.max(ageSec, 0), 3);
+          }
+          return (
+            pendingGuestSeekRef.current ?? guestSession.room.positionSecs
+          );
+        })();
         if (startAt > 0 && startAt < video.duration - 0.5) {
+          syncSeekInFlightRef.current = true;
           video.currentTime = startAt;
           setCurrentTime(startAt);
+          window.setTimeout(() => {
+            syncSeekInFlightRef.current = false;
+          }, 700);
         }
         const shouldPlay = target?.playing ?? guestSession.room.playing;
         setPlaying(shouldPlay);
@@ -1021,7 +1116,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       }
     };
 
-    const onWaiting = () => setLoading(true);
+    const onWaiting = () => {
+      // Non mostrare lo spinner per i seek di sincronizzazione watch party.
+      if (applyingPartyRemoteRef.current || syncSeekInFlightRef.current) return;
+      setLoading(true);
+    };
 
     video.addEventListener("loadedmetadata", onLoaded);
     video.addEventListener("pause", onPause);
@@ -1098,6 +1197,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Non intercettare le scorciatoie mentre si digita (es. chat stanza):
+      // altrimenti spazio/lettere metterebbero in pausa o muterebbero il video.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
       if (isPartyGuest) {
         const video = videoRef.current;
         if (!video) return;
@@ -1319,13 +1430,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       <PlayerActionFeedback pulse={actionPulse} />
 
       <div className="pointer-events-none absolute inset-0 z-[34]">
-        <div className="pointer-events-auto px-4 pb-2 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pt-5">
+        <div className="absolute left-0 top-0 px-4 pb-2 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pt-5">
           <PlayerChromeButton
             size="lg"
             onClick={handleBack}
             aria-label="Esci dal player"
             title="Indietro"
-            className="border-white/20 bg-black/55"
+            className="pointer-events-auto border-white/20 bg-black/55"
           >
             <ArrowLeft className="h-5 w-5 sm:h-[1.35rem] sm:w-[1.35rem]" strokeWidth={2} />
           </PlayerChromeButton>
@@ -1967,6 +2078,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           updatePartySession(session);
         }}
       />
+
+      {partySession && !showPartyPanel && (
+        <WatchPartyChatDock
+          session={partySession}
+          cloudUserId={cloudProfile?.id}
+        />
+      )}
     </div>
   );
 });

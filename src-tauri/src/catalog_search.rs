@@ -3,6 +3,7 @@ use crate::loonex_catalog;
 use crate::saturn_catalog;
 use crate::sc_catalog;
 use crate::sc_playback;
+use crate::smart_search::rank_previews_keep_unmatched;
 use crate::youtube_catalog;
 use crate::stremio::StremioMetaPreview;
 use std::collections::HashMap;
@@ -83,7 +84,7 @@ fn run_search(
         push_unique(youtube_catalog::search_titles(db, query));
     }
 
-    out
+    rank_previews_keep_unmatched(out, query)
 }
 
 fn cached_search(

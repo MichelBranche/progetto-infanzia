@@ -17,14 +17,28 @@ function previewCatalogKey(preview: StremioMetaPreview): string {
   return `${preview.catalogPrefix ?? "sc"}:${preview.type}:${preview.id}:${preview.slug ?? ""}`;
 }
 
-export function enrichContinuePreview(
+/**
+ * Indicizza il catalogo per chiave, mantenendo la prima occorrenza (stessa
+ * semantica di `Array.find`) così l'enrichment "Continua" evita scansioni
+ * O(continue × catalog).
+ */
+export function buildContinueCatalogMap(
+  catalog: StremioMetaPreview[],
+): Map<string, StremioMetaPreview> {
+  const map = new Map<string, StremioMetaPreview>();
+  for (const entry of catalog) {
+    const key = previewCatalogKey(entry);
+    if (!map.has(key)) map.set(key, entry);
+  }
+  return map;
+}
+
+export function enrichContinuePreviewWithMap(
   item: StreamingContinueItem,
-  catalog: StremioMetaPreview[] = [],
+  catalogMap: Map<string, StremioMetaPreview>,
 ): StremioMetaPreview {
   const preview = continueToPreview(item);
-  const match = catalog.find(
-    (entry) => previewCatalogKey(entry) === continueCatalogKey(item),
-  );
+  const match = catalogMap.get(continueCatalogKey(item));
   if (!match) return preview;
 
   return {
@@ -36,6 +50,13 @@ export function enrichContinuePreview(
       preview.background ??
       maximizeHeroUrl(match.background ?? match.poster),
   };
+}
+
+export function enrichContinuePreview(
+  item: StreamingContinueItem,
+  catalog: StremioMetaPreview[] = [],
+): StremioMetaPreview {
+  return enrichContinuePreviewWithMap(item, buildContinueCatalogMap(catalog));
 }
 
 export function streamingBrowseItem(preview: StremioMetaPreview): BrowseItem {
@@ -152,8 +173,8 @@ export function previewToMediaItem(preview: StremioMetaPreview): MediaItem {
     logoUrl: pickBestLogoUrl(preview.logo),
     isFavorite: preview.inMyList ?? false,
     kidFriendly: true,
-    streamingServices: [],
-    genres: [],
+    streamingServices: preview.streamingServices ?? [],
+    genres: preview.genres ?? [],
     gradient: STREAMING_GRADIENT,
     createdAt: new Date(0).toISOString(),
     watchPosition: preview.watchPosition,

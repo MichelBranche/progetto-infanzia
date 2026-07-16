@@ -12,6 +12,7 @@ export const STREAMING_SERVICES: StreamingService[] = [
   { id: "apple", label: "Apple TV+", shortLabel: "A", color: "#d6d6d6" },
   { id: "paramount", label: "Paramount+", shortLabel: "Pa", color: "#0064ff" },
   { id: "now", label: "NOW", shortLabel: "NOW", color: "#00c8aa" },
+  { id: "hbo", label: "Max", shortLabel: "Max", color: "#b535f6" },
 ];
 
 export function streamingSearchUrl(serviceId: string, title: string): string {
@@ -29,6 +30,8 @@ export function streamingSearchUrl(serviceId: string, title: string): string {
       return `https://www.paramountplus.com/search/?q=${q}`;
     case "now":
       return `https://www.nowtv.it/watch/search?q=${q}`;
+    case "hbo":
+      return `https://www.max.com/search?q=${q}`;
     default:
       return `https://www.google.com/search?q=${q}+streaming`;
   }

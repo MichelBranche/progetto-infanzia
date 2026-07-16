@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Shield } from "lucide-react";
+import { Shield } from "lucide-react";
+import { ListSkeleton } from "./Skeleton";
 import { useProfile } from "../context/ProfileContext";
 import { fetchWatchHistory } from "../lib/parentalApi";
 import type { WatchSession } from "../lib/parentalApi";
@@ -92,8 +93,8 @@ export function ParentalActivityPage() {
           </div>
 
           {loading ? (
-            <div className="flex min-h-[200px] items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+            <div className="max-w-3xl">
+              <ListSkeleton rows={6} variant="line" />
             </div>
           ) : sessions.length === 0 ? (
             <p className="text-[14px] text-text-muted">Nessuna visione registrata.</p>

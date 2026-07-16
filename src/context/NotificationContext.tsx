@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -239,6 +240,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     },
     [dismiss],
   );
+
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const timer of timers.values()) {
+        window.clearTimeout(timer);
+      }
+      timers.clear();
+    };
+  }, []);
 
   const value = useMemo(() => ({ notify }), [notify]);
   const visibleItems = [...items].reverse();

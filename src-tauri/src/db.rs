@@ -895,6 +895,9 @@ impl Database {
                         }
                     },
                     genres: Vec::new(),
+                    cast: Vec::new(),
+                    directors: Vec::new(),
+                    streaming_services: None,
                     source_row_key: None,
                     source_row_title: None,
                     resume_video_id: None,

@@ -16,6 +16,8 @@ interface ChatPanelProps {
   deletingChat?: boolean;
   canDeleteChat?: boolean;
   onBack?: () => void;
+  /** Notifica il numero di messaggi caricati (per badge "non letti" esterni). */
+  onActivity?: (count: number) => void;
 }
 
 export function ChatPanel({
@@ -29,6 +31,7 @@ export function ChatPanel({
   deletingChat = false,
   canDeleteChat = false,
   onBack,
+  onActivity,
 }: ChatPanelProps) {
   const { messages, loading, sending, error, send } = useConversationChat(
     conversationId,
@@ -41,6 +44,10 @@ export function ChatPanel({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, conversationId]);
+
+  useEffect(() => {
+    onActivity?.(messages.length);
+  }, [messages.length, onActivity]);
 
   const insertEmoji = (emoji: string) => {
     const input = inputRef.current;

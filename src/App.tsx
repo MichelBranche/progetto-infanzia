@@ -4,7 +4,7 @@ import { useStreamingSearch } from "./lib/useStreamingSearch";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { prefetchBootCatalog } from "./lib/bootCatalog";
 import { prefetchBootFriends } from "./lib/bootFriends";
-import { useDevBackendGate, withBootTimeout } from "./lib/devBackendGate";
+import { useDevBackendGate } from "./lib/devBackendGate";
 import { DevBackendOfflineScreen } from "./components/DevBackendOfflineScreen";
 import { ProfileSelectScreen } from "./components/ProfileSelectScreen";
 import { AppTopNav } from "./components/AppTopNav";
@@ -17,10 +17,12 @@ import { HeroBanner } from "./components/HeroBanner";
 import { MediaRow } from "./components/MediaRow";
 import { SectionBrowsePage } from "./components/SectionBrowsePage";
 import { CartoniBrowsePage } from "./components/CartoniBrowsePage";
-import { RowSkeleton } from "./components/RowSkeleton";
+import { HeroSkeleton, RowSkeleton } from "./components/Skeleton";
 import { MangaPromoBanner } from "./components/MangaPromoBanner";
 import { PlatformPromoBanner } from "./components/PlatformPromoBanner";
 import { ProfilePage, type ProfileTab } from "./components/ProfilePage";
+import { FriendProfilePage } from "./components/FriendProfilePage";
+import type { FriendProfileTarget } from "./components/chat/FriendProfileSheet";
 import { AppUpdaterProvider } from "./context/AppUpdaterContext";
 import { WebEssentialUpdateBanner } from "./components/WebEssentialUpdateBanner";
 import { GlobalBroadcastModal } from "./components/GlobalBroadcastModal";
@@ -300,6 +302,7 @@ function AppContent() {
   const [addonWatch, setAddonWatch] = useState<AddonWatchTarget | null>(null);
   const [detailSimilar, setDetailSimilar] = useState<BrowseItem[]>([]);
   const [partyGuestSession, setPartyGuestSession] = useState<WatchPartySession | null>(null);
+  const [friendProfile, setFriendProfile] = useState<FriendProfileTarget | null>(null);
   const handleJoinWatchPartyFromInvite = useCallback(
     async (session: WatchPartySession) => {
       if (session.relay === "cloud") {
@@ -351,7 +354,6 @@ function AppContent() {
   const [heroItems, setHeroItems] = useState<MediaItem[]>([]);
   const prevActiveNavRef = useRef(activeNav);
   const cartoniCatalogRefreshRef = useRef(false);
-  const filmCatalogRefreshRef = useRef(false);
   const mainScrollRef = useRef<HTMLElement>(null);
   const { hasStreaming } = useAddons();
   const {
@@ -429,6 +431,7 @@ function AppContent() {
 
   const {
     results: scSearchResults,
+    didYouMean: scSearchDidYouMean,
     loading: scSearchLoading,
     loadingMore: scSearchLoadingMore,
     hasMore: scSearchHasMore,
@@ -641,23 +644,33 @@ function AppContent() {
   );
 
 
+  const continueRefreshScheduledRef = useRef(false);
+  const scheduleContinueRefresh = useCallback(() => {
+    if (continueRefreshScheduledRef.current) return;
+    continueRefreshScheduledRef.current = true;
+    queueMicrotask(() => {
+      continueRefreshScheduledRef.current = false;
+      void refreshStreamingContinue();
+    });
+  }, [refreshStreamingContinue]);
+
   useEffect(() => {
     if (!watchingId && !addonWatch) {
-      void refreshStreamingContinue();
+      scheduleContinueRefresh();
     }
-  }, [watchingId, addonWatch, refreshStreamingContinue]);
+  }, [watchingId, addonWatch, scheduleContinueRefresh]);
 
   useEffect(() => {
     if (activeNav === "home" && activeProfile?.id) {
-      void refreshStreamingContinue();
+      scheduleContinueRefresh();
     }
-  }, [activeNav, activeProfile?.id, refreshStreamingContinue]);
+  }, [activeNav, activeProfile?.id, scheduleContinueRefresh]);
 
   useEffect(() => {
     if (!loading && activeProfile?.id) {
-      void refreshStreamingContinue();
+      scheduleContinueRefresh();
     }
-  }, [loading, activeProfile?.id, refreshStreamingContinue]);
+  }, [loading, activeProfile?.id, scheduleContinueRefresh]);
 
   const heroStreamingPreviews = useMemo(
     () =>
@@ -674,30 +687,34 @@ function AppContent() {
       activeNav === "home" && prevActiveNavRef.current !== "home";
     prevActiveNavRef.current = activeNav;
 
-    if (activeNav !== "home" || loading) return;
-    if (heroStreamingPreviews.length === 0) {
-      return;
-    }
+    if (activeNav !== "home") return;
+    if (heroStreamingPreviews.length === 0) return;
 
     let cancelled = false;
 
+    const toHeroMedia = (preview: StremioMetaPreview) =>
+      previewToMediaItem(
+        enrichListedPreview(mergePreviewForHero(preview, catalogIndex)),
+      );
+
+    // Fase 1: hero subito dai poster già in cache (senza attendere fetch logo).
+    setHeroItems((current) => {
+      if (!enteredHome && current.length > 0) return current;
+      return buildRandomHeroItems(
+        [],
+        heroStreamingPreviews,
+        toHeroMedia,
+        8,
+      );
+    });
+
+    // Fase 2: upgrade logo/background in background.
     void (async () => {
       const pool = await enrichHeroPreviewsWithLogos(heroStreamingPreviews);
       if (cancelled || pool.length === 0) return;
-
       setHeroItems((current) => {
         if (!enteredHome && current.length > 0) return current;
-        return buildRandomHeroItems(
-          [],
-          pool,
-          (preview) =>
-            previewToMediaItem(
-              enrichListedPreview(
-                mergePreviewForHero(preview, catalogIndex),
-              ),
-            ),
-          8,
-        );
+        return buildRandomHeroItems([], pool, toHeroMedia, 8);
       });
     })();
 
@@ -710,7 +727,6 @@ function AppContent() {
     heroStreamingPreviews,
     catalogIndex,
     enrichListedPreview,
-    loading,
   ]);
 
   const myListCount = useMemo(
@@ -857,7 +873,6 @@ function AppContent() {
     return rows.slice(splitAt);
   }, [homeCatalogRows]);
 
-  const homeContentReady = !loading;
   const homeStreamingPending =
     streamingLoading &&
     streamingRows.length === 0 &&
@@ -995,26 +1010,6 @@ function AppContent() {
     }
   }, [activeNav, streamingPreviews, syncingIndex, refreshCatalog]);
 
-  useEffect(() => {
-    if (activeNav !== "film") {
-      filmCatalogRefreshRef.current = false;
-      return;
-    }
-    if (filmCatalogRefreshRef.current || syncingIndex) return;
-    const hasGenreRows = streamingRows.some((row) =>
-      row.key.startsWith("sc-genre-"),
-    );
-    const taggedMovies = catalogIndex.filter(
-      (preview) =>
-        preview.type === "movie" &&
-        ((preview.genres?.length ?? 0) > 0 ||
-          preview.sourceRowKey?.startsWith("sc-genre-")),
-    ).length;
-    if (hasGenreRows || taggedMovies >= 30) return;
-    filmCatalogRefreshRef.current = true;
-    void refreshCatalog();
-  }, [activeNav, catalogIndex, streamingRows, syncingIndex, refreshCatalog]);
-
   const handlePlayStreaming = (preview: StremioMetaPreview) => {
     if (!ensureGuestCanPlay()) return;
     if (!STREMIO_ADDONS_ENABLED && !isBuiltinStreamingCatalog(preview.catalogPrefix)) {
@@ -1149,6 +1144,20 @@ function AppContent() {
     );
   }
 
+  if (friendProfile) {
+    return (
+      <FriendProfilePage
+        friend={friendProfile}
+        onBack={() => setFriendProfile(null)}
+        onPlayStreaming={(preview) => {
+          setFriendProfile(null);
+          handlePlayStreaming(preview);
+        }}
+        onOpenChat={() => setFriendProfile(null)}
+      />
+    );
+  }
+
   const sectionInfo = sectionMeta[activeNav];
 
   return (
@@ -1212,6 +1221,10 @@ function AppContent() {
           streamingResults={scSearchResults}
           streamingTotal={scSearchTotal}
           suggestions={searchSuggestions}
+          didYouMean={scSearchDidYouMean}
+          onApplySuggestion={(suggestion) => {
+            setSearchQuery(suggestion.name);
+          }}
           streamingLoading={scSearchLoading}
           streamingLoadingMore={scSearchLoadingMore}
           streamingHasMore={scSearchHasMore}
@@ -1227,6 +1240,8 @@ function AppContent() {
         <main
           ref={mainScrollRef}
           className={`lf-main-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden max-md:pb-[var(--mobile-nav-height)] ${
+            searchOpen ? "invisible pointer-events-none" : ""
+          } ${
             activeNav === "home" && !seriesKey ? "lf-home-scroll" : ""
           } ${
             (activeNav === "film" || activeNav === "serie") && !seriesKey
@@ -1234,12 +1249,7 @@ function AppContent() {
               : ""
           }`}
         >
-          {loading ? (
-            <div className="flex h-full items-center justify-center pt-20">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/10 border-t-accent" />
-            </div>
-          ) : (
-            <RouteFrame routeKey={seriesKey ?? activeNav}>
+          <RouteFrame routeKey={seriesKey ?? activeNav}>
                 {!(activeNav === "home" && !seriesKey) && (
                   <div
                     className="shrink-0"
@@ -1251,7 +1261,14 @@ function AppContent() {
                   <SuspenseRoute>
                     <AnimePage
                     seedPreviews={saturnSeedPreviews}
+                    streamingRows={streamingRows}
+                    continueItems={streamingContinue}
+                    myListPreviews={streamingList}
+                    catalogIndex={catalogIndex}
+                    onPlay={handlePlayNow}
                     onPlayStreaming={handlePlayStreaming}
+                    onOpenDetail={handleOpenBrowseDetail}
+                    onToggleStreamingList={handleToggleStreamingList}
                     enrichStreamingPreview={enrichListedPreview}
                     />
                   </SuspenseRoute>
@@ -1326,6 +1343,7 @@ function AppContent() {
                       onJoinSession={(session) => {
                         setPartyGuestSession(session);
                       }}
+                      onOpenFriendProfile={setFriendProfile}
                       pendingFriendRequests={pendingFriendRequests}
                     />
                   </div>
@@ -1376,22 +1394,7 @@ function AppContent() {
                 {!seriesKey && (activeNav === "home" || IS_TAURI_SHELL) && (
                   <TauriKeepAliveSlot enabled={IS_TAURI_SHELL} show={activeNav === "home"}>
                   <>
-                    {!homeContentReady && !continueHomeRow ? (
-                      <div className="pb-16">
-                        <div className="h-[100svh] min-h-[560px] shimmer-bg" />
-                        <RowSkeleton />
-                        <RowSkeleton />
-                        <RowSkeleton />
-                      </div>
-                    ) : (
-                      <>
-                    {homeStreamingPending && (
-                      <div className="page-px pb-2 pt-4">
-                        <RowSkeleton />
-                        <RowSkeleton />
-                      </div>
-                    )}
-                    {heroItems.length > 0 && (
+                    {heroItems.length > 0 ? (
                       <HeroBanner
                         fullPage
                         items={heroItems}
@@ -1407,6 +1410,14 @@ function AppContent() {
                         }}
                         onToggleStreamingList={handleToggleStreamingList}
                       />
+                    ) : (
+                      <HeroSkeleton />
+                    )}
+                    {homeStreamingPending && (
+                      <div className="page-px pb-2 pt-4">
+                        <RowSkeleton />
+                        <RowSkeleton />
+                      </div>
                     )}
                     {continueHomeRow && (
                       <div className="lf-home-continue-slot relative">
@@ -1539,8 +1550,6 @@ function AppContent() {
                         multimediale.
                       </p>
                     </footer>
-                      </>
-                    )}
                   </>
                   </TauriKeepAliveSlot>
                 )}
@@ -1597,7 +1606,6 @@ function AppContent() {
                   />
                 )}
             </RouteFrame>
-          )}
         </main>
       </div>
 
@@ -1654,7 +1662,17 @@ function AppGate() {
   }, [checkBackend]);
 
   useEffect(() => {
-    void withBootTimeout(prefetchBootCatalog()).finally(() => setCatalogReady(true));
+    let cancelled = false;
+    const fastBoot = window.setTimeout(() => {
+      if (!cancelled) setCatalogReady(true);
+    }, 2_200);
+    void prefetchBootCatalog().finally(() => {
+      if (!cancelled) setCatalogReady(true);
+    });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(fastBoot);
+    };
   }, []);
 
   useEffect(() => {

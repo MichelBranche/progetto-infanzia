@@ -46,13 +46,19 @@ export function HeroAmbientProvider({ children }: { children: ReactNode }) {
   const [active, setActiveState] = useState(false);
   const [backdropUrl, setBackdropUrlState] = useState<string | null>(null);
 
+  // Wake function installato dalla RAF loop: riavvia l'animazione quando è
+  // stata sospesa perché la palette era a regime.
+  const wakeRef = useRef<() => void>(() => {});
+
   const setPalette = useCallback((next: AmbientPalette) => {
     targetRef.current = boostAmbientPalette(next);
+    wakeRef.current();
   }, []);
 
   const setActive = useCallback((next: boolean) => {
     activeRef.current = next;
     setActiveState(next);
+    wakeRef.current();
   }, []);
 
   const setBackdropUrl = useCallback((next: string | null) => {
@@ -62,6 +68,7 @@ export function HeroAmbientProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onTheme = () => {
       targetRef.current = boostAmbientPalette(getUserAmbientPalette());
+      wakeRef.current();
     };
     window.addEventListener("branchefy:ambient-theme", onTheme);
     return () => window.removeEventListener("branchefy:ambient-theme", onTheme);
@@ -70,6 +77,10 @@ export function HeroAmbientProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let raf = 0;
     let lastSignature = "";
+    let stableFrames = 0;
+    // Numero di frame consecutivi senza variazioni dopo cui sospendiamo la
+    // loop: la palette è visivamente a regime, inutile continuare a girare.
+    const STABLE_FRAME_LIMIT = 8;
 
     const tick = () => {
       const amount = activeRef.current ? 0.14 : 0.07;
@@ -88,16 +99,32 @@ export function HeroAmbientProvider({ children }: { children: ReactNode }) {
 
       if (signature !== lastSignature) {
         lastSignature = signature;
+        stableFrames = 0;
         setAmbientDisplayPalette(displayRef.current);
         applyAmbientCssVars(displayRef.current, activeRef.current);
+      } else {
+        stableFrames += 1;
       }
 
+      if (stableFrames >= STABLE_FRAME_LIMIT) {
+        raf = 0;
+        return;
+      }
       raf = requestAnimationFrame(tick);
     };
 
+    const wake = () => {
+      stableFrames = 0;
+      if (raf === 0) {
+        raf = requestAnimationFrame(tick);
+      }
+    };
+    wakeRef.current = wake;
+
     raf = requestAnimationFrame(tick);
     return () => {
-      cancelAnimationFrame(raf);
+      if (raf !== 0) cancelAnimationFrame(raf);
+      wakeRef.current = () => {};
       clearAmbientCssVars();
     };
   }, []);

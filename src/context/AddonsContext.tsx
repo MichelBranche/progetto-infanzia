@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -59,12 +60,13 @@ export function AddonsProvider({
     void refreshAddons();
   }, [refreshAddons]);
 
+  const value = useMemo(
+    () => ({ addons, hasStreaming, loading, refreshAddons }),
+    [addons, hasStreaming, loading, refreshAddons],
+  );
+
   return (
-    <AddonsContext.Provider
-      value={{ addons, hasStreaming, loading, refreshAddons }}
-    >
-      {children}
-    </AddonsContext.Provider>
+    <AddonsContext.Provider value={value}>{children}</AddonsContext.Provider>
   );
 }
 

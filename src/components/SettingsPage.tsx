@@ -3,7 +3,6 @@ import { motion } from "framer-motion";
 import {
   Blocks,
   KeyRound,
-  Loader2,
   Lock,
   LayoutGrid,
   Shield,
@@ -19,6 +18,7 @@ import { DebridPanel } from "./DebridPanel";
 import { STREMIO_ADDONS_ENABLED } from "../lib/features";
 import type { AppSettings } from "../lib/settingsApi";
 import { AmbientThemePicker } from "./settings/AmbientThemePicker";
+import { SettingsSkeleton } from "./Skeleton";
 import {
   SettingsAlert,
   SettingsButton,
@@ -108,11 +108,7 @@ export function SettingsPage({ profileId }: SettingsPageProps) {
   };
 
   if (loading || !settings) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center pt-[var(--app-nav-height)]">
-        <Loader2 className="h-7 w-7 animate-spin text-text-muted" />
-      </div>
-    );
+    return <SettingsSkeleton />;
   }
 
   let motionIndex = 0;

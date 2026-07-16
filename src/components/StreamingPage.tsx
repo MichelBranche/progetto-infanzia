@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Loader2, Play, Search } from "lucide-react";
+import { BrowseGridSkeleton, DetailSkeleton } from "./Skeleton";
 import {
   fetchAddonCatalog,
   fetchAddonMeta,
@@ -163,9 +164,7 @@ export function StreamingPage({
   return (
     <div className="px-6 pb-16 pt-24">
       {loading ? (
-        <div className="flex justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
-        </div>
+        <BrowseGridSkeleton className="!px-0 !pt-0" count={12} />
       ) : catalogSources.length === 0 ? (
         <div className="mx-auto max-w-lg rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
           <p className="text-[15px] text-text-primary">Nessun catalogo disponibile</p>
@@ -187,7 +186,7 @@ export function StreamingPage({
           </button>
 
           {detailLoading ? (
-            <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+            <DetailSkeleton />
           ) : (
             <div className="flex flex-col gap-6 lg:flex-row">
               {detail.poster && (

@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef, useState } from "react";
+import { useStaggerInView } from "../hooks/useStaggerInView";
 import { motion } from "framer-motion";
 import {
   ChevronLeft,
@@ -339,6 +340,7 @@ export function CartoniBrowsePage({
   const [filter, setFilter] = useState<CartoniGridFilter>("all");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const gridRef = useRef<HTMLDivElement | null>(null);
 
   const stats = useMemo(() => cartoniBrowseStats(items), [items]);
   const layout = useMemo(() => buildCartoniBrowseLayout(items), [items]);
@@ -352,6 +354,8 @@ export function CartoniBrowsePage({
     () => paginateCartoniGrid(filteredGrid, page),
     [filteredGrid, page],
   );
+
+  useStaggerInView(gridRef, ".stagger-card", true, [paged.items.length, page, filter, search]);
 
   const handlers = { onPlay, onPlayStreaming, onOpenDetail, onOpenSeries };
   const openItem = (item: BrowseItem) => openBrowseItem(item, handlers);
@@ -522,17 +526,21 @@ export function CartoniBrowsePage({
               Nessun risultato per questa ricerca o filtro.
             </SettingsInset>
           ) : (
-            <div className="lf-discovery-grid lf-discovery-grid--browse">
+            <div
+              ref={gridRef}
+              className="lf-discovery-grid lf-discovery-grid--browse"
+            >
               {paged.items.map((item) => (
-                <LordFlixPosterCard
-                  key={`grid-${browseItemTitle(item)}`}
-                  browse={item}
-                  layout="grid"
-                  onPlay={onPlay}
-                  onPlayStreaming={onPlayStreaming}
-                  onOpenDetail={onOpenDetail}
-                  onOpenSeries={onOpenSeries}
-                />
+                <div key={`grid-${browseItemTitle(item)}`} className="stagger-card">
+                  <LordFlixPosterCard
+                    browse={item}
+                    layout="grid"
+                    onPlay={onPlay}
+                    onPlayStreaming={onPlayStreaming}
+                    onOpenDetail={onOpenDetail}
+                    onOpenSeries={onOpenSeries}
+                  />
+                </div>
               ))}
             </div>
           )}

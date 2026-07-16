@@ -409,8 +409,19 @@ function EpisodeList({
       )}
 
       {(loading || seasonLoading) && filteredEpisodes.length === 0 ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+        <div className="space-y-3 py-4" aria-busy="true">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex gap-3">
+              <div
+                className="aspect-video w-36 shrink-0 shimmer rounded-lg"
+                style={{ animationDelay: `${i * 60}ms` }}
+              />
+              <div className="flex-1 space-y-2 py-1">
+                <div className="h-3.5 w-1/2 shimmer rounded" />
+                <div className="h-3 w-3/4 shimmer rounded" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : seasonLoadError && filteredEpisodes.length === 0 ? (
         <p className="lf-title-detail__empty">{seasonLoadError}</p>

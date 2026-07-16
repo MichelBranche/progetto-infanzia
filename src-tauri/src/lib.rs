@@ -2,7 +2,8 @@ mod addon_proxy;
 mod achievements;
 mod cast;
 mod catalog_search;
-mod db;
+mod smart_search;
+pub mod db;
 mod debrid;
 mod dev_admin;
 mod html_text;
@@ -23,7 +24,7 @@ mod youtube_catalog;
 mod youtube_playback;
 mod saturn_catalog;
 mod saturn_playback;
-mod sc_catalog;
+pub mod sc_catalog;
 mod sc_playback;
 mod vix_embed;
 mod scanner;
@@ -958,11 +959,6 @@ async fn fetch_sc_catalog_cmd(
             loonex.index,
             loonex.synced_at,
         );
-        if loonex.total_count < 120 || loonex_catalog::index_needs_refresh(state.db.as_ref()) {
-            response.needs_background_sync = true;
-        }
-    } else if loonex_enabled {
-        response.needs_background_sync = true;
     }
     if let Some(youtube) = youtube {
         merge_external_catalog(
@@ -971,6 +967,11 @@ async fn fetch_sc_catalog_cmd(
             youtube.index,
             youtube.synced_at,
         );
+    }
+
+    if sc_enabled {
+        let db_meta = Arc::clone(&state.db);
+        sc_catalog::spawn_catalog_boot_maintenance(db_meta);
     }
 
     Ok(response)
@@ -1007,6 +1008,64 @@ async fn browse_saturn_anime_with_timeout(
         Ok(Ok(result)) => result,
         Ok(Err(e)) => Err(format!("Errore browse anime: {e}")),
         Err(_) => Err("Timeout caricamento anime".into()),
+    }
+}
+
+#[tauri::command]
+async fn fetch_saturn_home_cmd(
+    state: State<'_, AppState>,
+) -> Result<saturn_catalog::SaturnHomeResponse, String> {
+    if !saturn_catalog::enabled(&state.db) {
+        return Ok(saturn_catalog::SaturnHomeResponse {
+            rows: Vec::new(),
+            genres: Vec::new(),
+        });
+    }
+    let db = Arc::clone(&state.db);
+    let task = tokio::task::spawn_blocking(move || saturn_catalog::fetch_home(db.as_ref()));
+    match tokio::time::timeout(std::time::Duration::from_secs(30), task).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => Err(format!("Errore home anime: {e}")),
+        Err(_) => Err("Timeout home anime".into()),
+    }
+}
+
+#[tauri::command]
+async fn fetch_saturn_genres_cmd(
+    state: State<'_, AppState>,
+) -> Result<Vec<saturn_catalog::SaturnGenre>, String> {
+    if !saturn_catalog::enabled(&state.db) {
+        return Ok(Vec::new());
+    }
+    let db = Arc::clone(&state.db);
+    let task = tokio::task::spawn_blocking(move || saturn_catalog::fetch_genres(db.as_ref()));
+    task.await.map_err(|e| format!("Errore generi anime: {e}"))
+}
+
+#[tauri::command]
+async fn browse_saturn_genre_cmd(
+    state: State<'_, AppState>,
+    genre_id: String,
+    offset: usize,
+    limit: Option<usize>,
+) -> Result<saturn_catalog::SaturnBrowsePage, String> {
+    if !saturn_catalog::enabled(&state.db) {
+        return Ok(saturn_catalog::SaturnBrowsePage {
+            items: Vec::new(),
+            total: 0,
+            offset,
+            has_more: false,
+        });
+    }
+    let db = Arc::clone(&state.db);
+    let page_limit = limit.unwrap_or(48).clamp(1, 96);
+    let task = tokio::task::spawn_blocking(move || {
+        saturn_catalog::browse_genre(db.as_ref(), &genre_id, offset, page_limit)
+    });
+    match tokio::time::timeout(std::time::Duration::from_secs(20), task).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => Err(format!("Errore genere anime: {e}")),
+        Err(_) => Err("Timeout genere anime".into()),
     }
 }
 
@@ -1077,6 +1136,11 @@ async fn refresh_sc_catalog_cmd(
     })
     .await
     .map_err(|e| format!("Errore aggiornamento catalogo: {e}"))??;
+
+    if sc_enabled {
+        let db_meta = Arc::clone(&state.db);
+        sc_catalog::spawn_continuous_metadata_enrichment(db_meta);
+    }
 
     if saturn_enabled {
         let db_bg = Arc::clone(&state.db);
@@ -2275,6 +2339,9 @@ pub fn run() {
             search_sc_catalog_page_cmd,
             resolve_saturn_poster_cmd,
             browse_saturn_anime_cmd,
+            fetch_saturn_home_cmd,
+            fetch_saturn_genres_cmd,
+            browse_saturn_genre_cmd,
             fetch_saturn_meta_cmd,
             resolve_saturn_stream_cmd,
             fetch_loonex_meta_cmd,

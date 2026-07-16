@@ -520,6 +520,9 @@ fn card_to_preview(db: &Database, card: &LoonexCard) -> StremioMetaPreview {
         catalog_prefix: Some("loonex".to_string()),
         slug: Some(card.slug.clone()),
         genres: vec!["Animazione".to_string(), "Cartoni".to_string()],
+        cast: Vec::new(),
+        directors: Vec::new(),
+        streaming_services: None,
         source_row_key: Some("loonex-cartoni".to_string()),
         source_row_title: Some("Loonex Archivio Cartoni".to_string()),
         resume_video_id: None,
@@ -1001,24 +1004,12 @@ fn merge_index(index: &mut Vec<StremioMetaPreview>, rows: &[ScCatalogRow]) {
 }
 
 pub fn search_titles(db: &Database, query: &str) -> Vec<StremioMetaPreview> {
-    let q = query.trim().to_lowercase();
+    let q = query.trim();
     if q.len() < 2 {
         return Vec::new();
     }
     let index = load_cached_index(db).unwrap_or_default();
-    index
-        .into_iter()
-        .filter(|item| {
-            item.name.to_lowercase().contains(&q)
-                || item
-                    .slug
-                    .as_deref()
-                    .unwrap_or("")
-                    .to_lowercase()
-                    .contains(&q)
-        })
-        .take(80)
-        .collect()
+    crate::smart_search::filter_and_rank_previews(index, q, 80)
 }
 
 pub fn fetch_catalog(db: &Database) -> Result<LoonexCatalogResponse, String> {

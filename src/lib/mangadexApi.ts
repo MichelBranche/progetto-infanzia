@@ -62,7 +62,11 @@ async function mdFetch<T>(path: string, query?: Record<string, string | number |
       },
       MANGADEX_TIMEOUT_MS,
     );
-    return JSON.parse(body) as T;
+    try {
+      return JSON.parse(body) as T;
+    } catch {
+      throw new MangaDexApiError("MangaDex: risposta non valida");
+    }
   }
 
   const suffix = qs ? `?${qs}` : "";

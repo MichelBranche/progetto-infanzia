@@ -5,6 +5,7 @@ import {
   Circle,
   EyeOff,
   Loader2,
+  LogOut,
   MessageSquare,
   Moon,
   Radio,
@@ -17,7 +18,10 @@ import { useChatPopup } from "../context/ChatPopupContext";
 import { useNotifications } from "../context/NotificationContext";
 import type { CloudProfile } from "../types/cloud";
 import { ensureWatchPartyChat, openDirectChat } from "../lib/cloudChat";
-import { joinCloudWatchParty } from "../lib/cloudWatchParty";
+import { closeCloudWatchParty, joinCloudWatchParty } from "../lib/cloudWatchParty";
+import { closeWatchParty } from "../lib/watchPartyApi";
+import { useWatchPartyHost } from "../context/WatchPartyHostContext";
+import { useProfile } from "../context/ProfileContext";
 import { isLanFeaturesEnabled } from "../lib/platform";
 import { isPrivateOrLanHost } from "../lib/watchPartyNetwork";
 import {
@@ -84,8 +88,32 @@ export function AppTopNavFriendsMenuPanel({
   const chatPopup = useChatPopup();
   const partyJoinRef = useRef<HTMLDivElement>(null);
   const { hostSession, sendInviteToFriend } = useWatchPartyInviteActions();
+  const { setHostSession } = useWatchPartyHost();
+  const { activeProfile } = useProfile();
   const [invitingKey, setInvitingKey] = useState<string | null>(null);
   const [friendFilter, setFriendFilter] = useState<"all" | "online">("all");
+  const [closingRoom, setClosingRoom] = useState(false);
+
+  const handleCloseRoom = useCallback(async () => {
+    if (!hostSession || closingRoom) return;
+    setClosingRoom(true);
+    try {
+      if (hostSession.relay === "cloud" && cloudProfile) {
+        await closeCloudWatchParty(hostSession.room.code, cloudProfile.id);
+      } else if (hostSession.relay === "lan" && activeProfile) {
+        await closeWatchParty(activeProfile.id, hostSession.room.code);
+      }
+    } catch {
+      // chiudi comunque lato client: la stanza server potrebbe essere già chiusa
+    }
+    setHostSession(null);
+    setClosingRoom(false);
+    notify({
+      kind: "success",
+      title: "Stanza chiusa",
+      message: "Il watch party è terminato.",
+    });
+  }, [hostSession, closingRoom, cloudProfile, activeProfile, setHostSession, notify]);
 
   const [partyCode, setPartyCode] = useState("");
   const [partyHostIp, setPartyHostIp] = useState("");
@@ -568,6 +596,19 @@ export function AppTopNavFriendsMenuPanel({
               <p className="mt-1 text-[11px] text-text-muted">
                 Tocca l&apos;icona accanto a un amico per invitarlo.
               </p>
+              <button
+                type="button"
+                onClick={() => void handleCloseRoom()}
+                disabled={closingRoom}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-warm/30 px-3 py-2 text-[12px] font-medium text-warm transition-colors hover:bg-warm/10 disabled:opacity-60"
+              >
+                {closingRoom ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <LogOut className="h-3.5 w-3.5" />
+                )}
+                Chiudi stanza
+              </button>
             </div>
           )}
           <button

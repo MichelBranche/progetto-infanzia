@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent,
@@ -186,19 +187,34 @@ export function FriendsMenuProvider({
     onSheetDragStart: startSheetDrag,
   };
 
-  const value: FriendsMenuContextValue = {
-    open,
-    friends,
-    onlineCount,
-    refreshing,
-    status,
-    setStatus,
-    refreshAll,
-    openMenu,
-    closeMenu,
-    toggleMenu,
-    registerAnchor,
-  };
+  const value: FriendsMenuContextValue = useMemo(
+    () => ({
+      open,
+      friends,
+      onlineCount,
+      refreshing,
+      status,
+      setStatus,
+      refreshAll,
+      openMenu,
+      closeMenu,
+      toggleMenu,
+      registerAnchor,
+    }),
+    [
+      open,
+      friends,
+      onlineCount,
+      refreshing,
+      status,
+      setStatus,
+      refreshAll,
+      openMenu,
+      closeMenu,
+      toggleMenu,
+      registerAnchor,
+    ],
+  );
 
   return (
     <FriendsMenuContext.Provider value={value}>

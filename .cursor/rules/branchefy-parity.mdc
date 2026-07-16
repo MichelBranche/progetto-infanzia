@@ -1,0 +1,43 @@
+---
+description: Desktop e web condividono lo stesso codice React — regole di parità
+globs:
+  - src/**
+  - index.html
+  - public/**
+  - vite.config.ts
+  - web/client/vite.config.ts
+alwaysApply: true
+---
+
+# Parità desktop ↔ web Branchefy
+
+## Sorgente unica
+
+- **UI e logica frontend**: modifica solo `src/`, `index.html` e `public/` nella **root** del repo.
+- **Non** creare duplicati in `web/client/` (niente secondo `main.tsx` o `App.tsx`).
+- Il deploy Vercel compila lo stesso `src/` della desktop (`web/client/vite.config.ts` → root).
+
+## Backend
+
+| Piattaforma | Come chiamare Rust |
+|-------------|-------------------|
+| Desktop Tauri | `runtimeInvoke` → `invoke` nativo |
+| Web / dev browser | `runtimeInvoke` → `POST /api/invoke` |
+
+Usa `usesBackendApi()` e `runtimeInvoke()` — **non** `isTauri()` da solo se la feature deve funzionare anche su web.
+
+## Codice solo-desktop (ammesso)
+
+Libreria file locali, cast DLNA, updater, watch party LAN: ok con `isTauri()` / `IS_TAURI_SHELL`.
+Deve degradare con messaggio chiaro su web, non crashare.
+
+## Dev locale
+
+- **Browser (stessa UI della web app)**: `npm run dev:browser` → http://localhost:5173
+- **Desktop**: `npm run tauri dev` → finestra nativa
+
+## Dopo modifiche UI
+
+1. Verifica in `npm run dev:browser`
+2. Se tocchi API Rust, verifica anche `tauri dev`
+3. Push su `main` → Vercel deploya automaticamente la stessa `src/`

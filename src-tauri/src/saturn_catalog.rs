@@ -15,10 +15,13 @@ const META_SATURN_SITE_ROOT: &str = "saturn_site_root";
 const META_SATURN_CDN_ROOT: &str = "saturn_cdn_root";
 const META_SATURN_ENABLED: &str = "saturn_catalog_enabled";
 const META_SATURN_POSTER_CACHE: &str = "saturn_poster_cache";
+const META_SATURN_HOME: &str = "saturn_home_cache";
 const POSTER_ENRICH_LIMIT: usize = 400;
 const DEFAULT_APP_URL: &str = "https://www.animesaturn.net";
 const ROW_LIMIT: usize = 48;
 const HTTP_TIMEOUT_SECS: u64 = 60;
+/// TTL cache righe/generi homepage anime (rete lenta -> serve la cache).
+const HOME_CACHE_TTL_SECS: i64 = 1800;
 
 #[derive(Debug, Clone)]
 struct SaturnCard {
@@ -567,6 +570,9 @@ fn card_to_preview(db: &Database, card: &SaturnCard) -> StremioMetaPreview {
         catalog_prefix: Some("saturn".to_string()),
         slug: Some(card.slug.clone()),
         genres: Vec::new(),
+        cast: Vec::new(),
+        directors: Vec::new(),
+        streaming_services: None,
         source_row_key: None,
         source_row_title: None,
         resume_video_id: None,
@@ -956,6 +962,29 @@ struct BrowseState {
 
 static BROWSE_CACHE: Mutex<Option<BrowseState>> = Mutex::new(None);
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaturnGenre {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaturnHomeResponse {
+    pub rows: Vec<ScCatalogRow>,
+    pub genres: Vec<SaturnGenre>,
+}
+
+/// Cache in-memory (con timestamp) di righe + generi della homepage anime.
+static HOME_CACHE: Mutex<Option<(i64, SaturnHomeResponse)>> = Mutex::new(None);
+
+pub fn reset_home_cache() {
+    if let Ok(mut guard) = HOME_CACHE.lock() {
+        *guard = None;
+    }
+}
+
 pub fn reset_browse_cache() {
     if let Ok(mut guard) = BROWSE_CACHE.lock() {
         *guard = None;
@@ -1170,12 +1199,316 @@ pub fn refresh_catalog_index(db: &Database) -> Result<SaturnCatalogResponse, Str
     }
     save_cached_index(db, &index)?;
     reset_browse_cache();
+    reset_home_cache();
 
     Ok(SaturnCatalogResponse {
         total_count: index.len(),
         rows,
         index,
         synced_at: now_ts(),
+    })
+}
+
+/// Parser ordinato: preserva l'ordine del sito (classifiche, novita', ecc.),
+/// deduplica per slug tenendo la prima occorrenza. Non applica il sort A-Z.
+fn ordered_previews_from_html(
+    db: &Database,
+    html: &str,
+    limit: usize,
+    keep_upcoming: bool,
+) -> Vec<StremioMetaPreview> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for card in collect_cards_from_html(html) {
+        if !keep_upcoming && !is_browseable(&card) {
+            continue;
+        }
+        if card.slug.is_empty() || !seen.insert(card.slug.clone()) {
+            continue;
+        }
+        out.push(card_to_preview(db, &card));
+        if out.len() >= limit {
+            break;
+        }
+    }
+    out
+}
+
+fn fetch_ordered_row(
+    client: &Client,
+    db: &Database,
+    base: &str,
+    path: &str,
+    key: &str,
+    title: &str,
+    keep_upcoming: bool,
+) -> Option<ScCatalogRow> {
+    let html = fetch_online_html(client, base, path)?;
+    let items = ordered_previews_from_html(db, &html, ROW_LIMIT, keep_upcoming);
+    if items.is_empty() {
+        return None;
+    }
+    Some(ScCatalogRow {
+        key: key.to_string(),
+        title: title.to_string(),
+        subtitle: "AnimeSaturn".to_string(),
+        items,
+    })
+}
+
+fn parse_genres(html: &str) -> Vec<SaturnGenre> {
+    // Il nome del genere sta nell'header della card: <h2 class="genre-card__name">Nome</h2>.
+    let re = Regex::new(
+        r#"(?is)href="/filter\?categories=(\d+)"[\s\S]*?genre-card__name">\s*([^<]+?)\s*<"#,
+    )
+    .expect("saturn genres regex");
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for cap in re.captures_iter(html) {
+        let id = cap
+            .get(1)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let name = cap
+            .get(2)
+            .map(|m| decode_card_text(m.as_str()))
+            .unwrap_or_default();
+        if id.is_empty() || name.is_empty() || !seen.insert(id.clone()) {
+            continue;
+        }
+        out.push(SaturnGenre { id, name });
+    }
+    out
+}
+
+/// La classifica (`/toplist/*`) usa un markup dedicato (card ranking) diverso
+/// dalle card `ac`: ogni voce e' `<a href="/anime/slug">...<img src alt="Titolo">`.
+fn parse_toplist_cards(html: &str) -> Vec<SaturnCard> {
+    let anchor_re = Regex::new(r#"(?is)<a[^>]+href="/anime/([^"]+)"[^>]*>([\s\S]*?)</a>"#)
+        .expect("saturn toplist anchor regex");
+    let img_re = Regex::new(r#"(?is)<img[^>]+src="([^"]+)"[^>]+alt="([^"]*)""#)
+        .expect("saturn toplist img regex");
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for cap in anchor_re.captures_iter(html) {
+        let slug = cap
+            .get(1)
+            .map(|m| m.as_str().trim().to_string())
+            .unwrap_or_default();
+        let block = cap.get(2).map(|m| m.as_str()).unwrap_or_default();
+        if slug.is_empty() {
+            continue;
+        }
+        // Solo le voci con locandina sono card di classifica (gli altri sono bottoni hero).
+        let Some(img) = img_re.captures(block) else {
+            continue;
+        };
+        if !seen.insert(slug.clone()) {
+            continue;
+        }
+        let poster = img.get(1).map(|m| m.as_str().to_string());
+        let name = img
+            .get(2)
+            .map(|m| decode_card_text(m.as_str()))
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| slug_to_display_name(&slug));
+        out.push(SaturnCard {
+            name,
+            slug,
+            poster_src: poster,
+            subtitle: None,
+            is_dub: false,
+            episode_count: None,
+            is_upcoming: false,
+        });
+    }
+    out
+}
+
+fn build_saturn_home(db: &Database) -> SaturnHomeResponse {
+    let mut rows: Vec<ScCatalogRow> = Vec::new();
+    let mut genres: Vec<SaturnGenre> = Vec::new();
+
+    if let Ok(client) = http_client() {
+        let base = app_url(db);
+
+        // In corso (card `ac` standard).
+        if let Some(row) =
+            fetch_ordered_row(&client, db, &base, "/ongoing", "saturn-ongoing", "In corso", false)
+        {
+            rows.push(row);
+        }
+
+        // Popolari (classifica settimanale, markup ranking dedicato).
+        if let Some(html) = fetch_online_html(&client, &base, "/toplist/week") {
+            let items: Vec<_> = parse_toplist_cards(&html)
+                .into_iter()
+                .take(ROW_LIMIT)
+                .map(|card| card_to_preview(db, &card))
+                .collect();
+            if !items.is_empty() {
+                rows.push(ScCatalogRow {
+                    key: "saturn-toplist-week".to_string(),
+                    title: "Popolari della settimana".to_string(),
+                    subtitle: "AnimeSaturn".to_string(),
+                    items,
+                });
+            }
+        }
+
+        // Ultimi aggiunti + Prossimamente (card `ac`; upcoming senza filtro episodi).
+        if let Some(row) = fetch_ordered_row(
+            &client,
+            db,
+            &base,
+            "/newest",
+            "saturn-newest",
+            "Ultimi aggiunti",
+            false,
+        ) {
+            rows.push(row);
+        }
+        if let Some(row) = fetch_ordered_row(
+            &client,
+            db,
+            &base,
+            "/upcoming",
+            "saturn-upcoming",
+            "Prossimamente",
+            true,
+        ) {
+            rows.push(row);
+        }
+
+        if let Some(html) = fetch_online_html(&client, &base, "/genres") {
+            genres = parse_genres(&html);
+        }
+    }
+
+    // Sezioni native della homepage AnimeSaturn (gia' deduplicate).
+    let mut keys: HashSet<String> = rows.iter().map(|r| r.key.clone()).collect();
+    for row in load_home_rows(db) {
+        if keys.insert(row.key.clone()) {
+            rows.push(row);
+        }
+    }
+    rows.retain(|row| !row.items.is_empty());
+
+    SaturnHomeResponse { rows, genres }
+}
+
+fn load_home_cache(db: &Database) -> Option<SaturnHomeResponse> {
+    let json = db.get_meta(META_SATURN_HOME).ok().flatten()?;
+    serde_json::from_str(&json).ok()
+}
+
+fn save_home_cache(db: &Database, home: &SaturnHomeResponse) -> Result<(), String> {
+    let json = serde_json::to_string(home).map_err(|e| e.to_string())?;
+    db.set_meta(META_SATURN_HOME, &json)
+}
+
+pub fn fetch_home(db: &Database) -> Result<SaturnHomeResponse, String> {
+    if !enabled(db) {
+        return Ok(SaturnHomeResponse {
+            rows: Vec::new(),
+            genres: Vec::new(),
+        });
+    }
+
+    // 1. Cache in-memory con TTL.
+    if let Ok(guard) = HOME_CACHE.lock() {
+        if let Some((ts, cached)) = guard.as_ref() {
+            if now_ts() - ts < HOME_CACHE_TTL_SECS && !cached.rows.is_empty() {
+                return Ok(cached.clone());
+            }
+        }
+    }
+
+    // 2. Costruzione da rete.
+    let built = build_saturn_home(db);
+    if !built.rows.is_empty() {
+        if let Ok(mut guard) = HOME_CACHE.lock() {
+            *guard = Some((now_ts(), built.clone()));
+        }
+        let _ = save_home_cache(db, &built);
+        return Ok(built);
+    }
+
+    // 3. Fallback: ultima cache persistita (rete non disponibile).
+    if let Some(cached) = load_home_cache(db) {
+        return Ok(cached);
+    }
+
+    Ok(built)
+}
+
+pub fn fetch_genres(db: &Database) -> Vec<SaturnGenre> {
+    fetch_home(db).map(|home| home.genres).unwrap_or_default()
+}
+
+/// Cache in-memory dell'ultimo genere sfogliato, per non rifare fetch a ogni pagina.
+static GENRE_CACHE: Mutex<Option<(String, i64, Vec<StremioMetaPreview>)>> = Mutex::new(None);
+
+pub fn browse_genre(
+    db: &Database,
+    genre_id: &str,
+    offset: usize,
+    limit: usize,
+) -> Result<SaturnBrowsePage, String> {
+    let genre_id = genre_id.trim();
+    if !enabled(db) || genre_id.is_empty() {
+        return Ok(SaturnBrowsePage {
+            items: Vec::new(),
+            total: 0,
+            offset,
+            has_more: false,
+        });
+    }
+    let limit = limit.clamp(1, 96);
+
+    // Riusa i risultati in cache se stesso genere e ancora freschi.
+    let cached_items = {
+        let guard = GENRE_CACHE.lock().ok();
+        guard.and_then(|g| {
+            g.as_ref().and_then(|(id, ts, items)| {
+                if id == genre_id && now_ts() - ts < HOME_CACHE_TTL_SECS {
+                    Some(items.clone())
+                } else {
+                    None
+                }
+            })
+        })
+    };
+
+    let items_all = if let Some(items) = cached_items {
+        items
+    } else {
+        let client = http_client()?;
+        let base = app_url(db);
+        let path = format!("/filter?categories={genre_id}");
+        let html = fetch_online_html(&client, &base, &path)
+            .ok_or_else(|| "Genere non disponibile".to_string())?;
+        let items = ordered_previews_from_html(db, &html, 1000, false);
+        if let Ok(mut guard) = GENRE_CACHE.lock() {
+            *guard = Some((genre_id.to_string(), now_ts(), items.clone()));
+        }
+        items
+    };
+
+    let total = items_all.len();
+    let end = offset.saturating_add(limit).min(total);
+    let items = if offset < total {
+        items_all[offset..end].to_vec()
+    } else {
+        Vec::new()
+    };
+    let has_more = end < total;
+
+    Ok(SaturnBrowsePage {
+        items,
+        total,
+        offset,
+        has_more,
     })
 }
 
@@ -1271,30 +1604,12 @@ fn enrich_index_missing_posters(db: &Database, index: &mut [StremioMetaPreview],
 }
 
 pub fn search_titles(db: &Database, query: &str) -> Vec<StremioMetaPreview> {
-    let q = query.trim().to_lowercase();
+    let q = query.trim();
     if q.len() < 2 {
         return Vec::new();
     }
     let index = load_cached_index(db).unwrap_or_default();
-    let mut results: Vec<StremioMetaPreview> = index
-        .into_iter()
-        .filter(|p| {
-            let name = if p.name.trim().is_empty() {
-                p.slug
-                    .as_deref()
-                    .map(slug_to_display_name)
-                    .unwrap_or_else(|| p.id.clone())
-            } else {
-                p.name.clone()
-            };
-            let slug = p
-                .slug
-                .as_deref()
-                .map(slug_to_display_name)
-                .unwrap_or_default();
-            name.to_lowercase().contains(&q) || slug.to_lowercase().contains(&q)
-        })
-        .collect();
+    let mut results = crate::smart_search::filter_and_rank_previews(index, q, 80);
 
     if results.len() < 24 {
         let online = search_titles_online(db, query);
@@ -1308,6 +1623,7 @@ pub fn search_titles(db: &Database, query: &str) -> Vec<StremioMetaPreview> {
                 results.push(preview);
             }
         }
+        results = crate::smart_search::rank_previews_keep_unmatched(results, q);
     }
 
     results

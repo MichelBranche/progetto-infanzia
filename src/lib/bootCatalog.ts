@@ -12,18 +12,11 @@ export interface BootCatalogPayload {
 }
 
 const MIN_CATALOG_COUNT = 800;
-const CATALOG_TTL_MS = 2 * 3600 * 1000;
+const COMPLETE_MOVIE_MIN = 8_000;
 
 let cache: BootCatalogPayload | null = null;
 let inflight: Promise<BootCatalogPayload> | null = null;
 let refreshInflight: Promise<BootCatalogPayload | null> | null = null;
-
-function isCacheFresh(payload: BootCatalogPayload): boolean {
-  if (payload.error) return false;
-  if (payload.totalCount < MIN_CATALOG_COUNT) return false;
-  if (payload.syncedAt <= 0) return false;
-  return Date.now() - payload.syncedAt * 1000 <= CATALOG_TTL_MS;
-}
 
 export function hasUsableCatalog(payload: BootCatalogPayload | null): boolean {
   return Boolean(payload && (payload.rows.length > 0 || payload.index.length > 0));
@@ -123,9 +116,20 @@ export function scheduleCatalogRefresh(): Promise<BootCatalogPayload | null> {
   return refreshInflight;
 }
 
+function indexNeedsFullSync(index: StremioMetaPreview[]): boolean {
+  const scItems = index.filter(
+    (item) => !item.catalogPrefix || item.catalogPrefix === "sc",
+  );
+  if (scItems.length < MIN_CATALOG_COUNT) return true;
+  const movies = scItems.filter((item) => item.type === "movie");
+  return movies.length < COMPLETE_MOVIE_MIN;
+}
+
 function indexNeedsGenreMetadata(index: StremioMetaPreview[]): boolean {
   if (index.length < 100) return false;
   const movies = index.filter((item) => item.type === "movie");
+  // Seed completo: i generi si arricchiscono in background senza ripollare 7MB.
+  if (movies.length >= COMPLETE_MOVIE_MIN) return false;
   if (movies.length < 50) return false;
   const tagged = movies.filter((item) => {
     if ((item.genres?.length ?? 0) > 0) return true;
@@ -135,17 +139,57 @@ function indexNeedsGenreMetadata(index: StremioMetaPreview[]): boolean {
   return tagged < Math.min(80, Math.floor(movies.length * 0.08));
 }
 
-function loonexCount(index: StremioMetaPreview[]): number {
-  return index.filter((item) => item.catalogPrefix === "loonex").length;
+function indexNeedsProviderMetadata(index: StremioMetaPreview[]): boolean {
+  if (index.length < 100) return false;
+  const scItems = index.filter(
+    (item) => !item.catalogPrefix || item.catalogPrefix === "sc",
+  );
+  if (scItems.length >= COMPLETE_MOVIE_MIN) return false;
+  if (scItems.length < 80) return false;
+  const known = scItems.filter((item) => item.streamingServices !== undefined).length;
+  return known < Math.min(120, Math.floor(scItems.length * 0.2));
 }
 
+/**
+ * Full refreshScCatalog lato frontend: solo se non c'è un catalogo SC usabile.
+ * Loonex/Saturn incompleti non devono bloccare homepage/Film con un crawl SC.
+ */
 export function needsCatalogRefresh(payload: BootCatalogPayload | null): boolean {
   if (!payload) return true;
+  if (payload.error && !hasUsableCatalog(payload)) return true;
+  return indexNeedsFullSync(payload.index);
+}
+
+/** Poll mentre il catalogo SC cresce o i metadati si arricchiscono. */
+export function needsMetadataPoll(payload: BootCatalogPayload | null): boolean {
+  if (!payload || payload.index.length < 40) return false;
   if (payload.needsBackgroundSync) return true;
-  if (payload.error) return true;
-  if (indexNeedsGenreMetadata(payload.index)) return true;
-  if (loonexCount(payload.index) < 120) return true;
-  return !isCacheFresh(payload);
+  if (indexNeedsFullSync(payload.index)) return true;
+  return (
+    indexNeedsGenreMetadata(payload.index) ||
+    indexNeedsProviderMetadata(payload.index)
+  );
+}
+
+/** Rilegge fetch_sc_catalog solo se il totale cresce o manca ancora metadata critica. */
+export async function pollCatalogMetadata(): Promise<BootCatalogPayload | null> {
+  try {
+    const previousTotal = cache?.totalCount ?? 0;
+    const response = await fetchScCatalog();
+    const payload = payloadFromResponse(response);
+    // Evita di “svuotare” la UI se una risposta parziale arriva durante il poll.
+    if (
+      hasUsableCatalog(cache) &&
+      payload.index.length + 50 < previousTotal &&
+      payload.totalCount + 50 < previousTotal
+    ) {
+      return cache;
+    }
+    mergeCache(payload);
+    return cache ?? payload;
+  } catch {
+    return cache;
+  }
 }
 
 export function ingestCatalogPayload(incoming: BootCatalogPayload): BootCatalogPayload {

@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -63,19 +64,30 @@ export function PreviewAudioProvider({ children }: { children: ReactNode }) {
     [previewAudio, focusedCardId, playbackActive],
   );
 
+  const value = useMemo(
+    () => ({
+      previewAudio,
+      togglePreviewAudio,
+      focusedCardId,
+      playbackActive,
+      setPlaybackActive,
+      claimCardPreviewFocus,
+      releaseCardPreviewFocus,
+      isPreviewMuted,
+    }),
+    [
+      previewAudio,
+      togglePreviewAudio,
+      focusedCardId,
+      playbackActive,
+      claimCardPreviewFocus,
+      releaseCardPreviewFocus,
+      isPreviewMuted,
+    ],
+  );
+
   return (
-    <PreviewAudioContext.Provider
-      value={{
-        previewAudio,
-        togglePreviewAudio,
-        focusedCardId,
-        playbackActive,
-        setPlaybackActive,
-        claimCardPreviewFocus,
-        releaseCardPreviewFocus,
-        isPreviewMuted,
-      }}
-    >
+    <PreviewAudioContext.Provider value={value}>
       {children}
     </PreviewAudioContext.Provider>
   );

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Library, Loader2, Search } from "lucide-react";
+import { Library, Search } from "lucide-react";
 import type { WelibBook } from "../types/welib";
 import { fetchPopularBooks, searchBooks } from "../lib/welibApi";
 import { BookCard } from "./BookCard";
-import { LoadingSpinner } from "./LoadingSpinner";
+import { ListSkeleton } from "./Skeleton";
 
 interface BooksPageProps {
   onOpenBook: (item: WelibBook) => void;
@@ -130,11 +130,10 @@ export function BooksPage({ onOpenBook }: BooksPageProps) {
         <h2 className="text-[13px] font-semibold uppercase tracking-wide text-text-muted">
           {showSearch ? `Risultati per “${debouncedQuery}”` : "Popolari ultime 24h"}
         </h2>
-        {(loading || searching) && <Loader2 className="h-4 w-4 animate-spin text-amber-400" />}
       </div>
 
-      {loading && !showSearch ? (
-        <LoadingSpinner />
+      {(loading && !showSearch) || (searching && showSearch && items.length === 0) ? (
+        <ListSkeleton rows={8} variant="card" />
       ) : items.length === 0 ? (
         <p className="py-12 text-center text-[14px] text-text-muted">
           {showSearch ? "Nessun libro trovato." : "Nessun titolo disponibile al momento."}

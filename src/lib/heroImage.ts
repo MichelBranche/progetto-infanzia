@@ -114,16 +114,27 @@ export function buildHeroStreamingPreviews(
   }
   for (const preview of streamingPreviews) merge(preview);
 
-  const merged = filterHeroPreviews(
-    [...byKey.values()].filter(
-      (preview) => preview.logo && (preview.background || preview.poster),
-    ),
-  );
+  const merged = [...byKey.values()].filter((preview) => {
+    const prefix = preview.catalogPrefix?.toLowerCase() ?? "sc";
+    if (prefix !== "sc") return false;
+    return isHeroEligiblePreview(preview);
+  });
 
-  if (merged.length > 0) return merged;
+  const withLogo = merged.filter(isScHeroWithLogo);
+  if (withLogo.length >= 4) return withLogo;
+
+  if (merged.length > 0) {
+    const logoKeys = new Set(withLogo.map((p) => `${p.type}:${p.id}`));
+    const rest = merged.filter((p) => !logoKeys.has(`${p.type}:${p.id}`));
+    return [...withLogo, ...rest].slice(0, 48);
+  }
 
   if (streamingPreviews.length > 0) {
-    return filterHeroPreviews(streamingPreviews);
+    return streamingPreviews.filter(
+      (preview) =>
+        (preview.catalogPrefix?.toLowerCase() ?? "sc") === "sc" &&
+        isHeroEligiblePreview(preview),
+    );
   }
 
   const fallback: StremioMetaPreview[] = [];
@@ -133,10 +144,68 @@ export function buildHeroStreamingPreviews(
       const key = `${item.type}:${item.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      if (isScHeroWithLogo(item)) fallback.push(item);
+      if (
+        (item.catalogPrefix?.toLowerCase() ?? "sc") === "sc" &&
+        isHeroEligiblePreview(item)
+      ) {
+        fallback.push(item);
+      }
     }
   }
   return fallback;
+}
+
+/**
+ * Hero anime: primi item (con poster) delle righe curate AnimeSaturn.
+ * I preview saturn non hanno background/logo: l'hero mostra il titolo testuale
+ * finche' l'arricchimento lazy non recupera un background.
+ */
+export function buildAnimeHeroPreviews(
+  rows: { items: StremioMetaPreview[] }[],
+  limit = 8,
+): StremioMetaPreview[] {
+  const seen = new Set<string>();
+  const out: StremioMetaPreview[] = [];
+  for (const row of rows) {
+    for (const item of row.items) {
+      if ((item.catalogPrefix?.toLowerCase() ?? "") !== "saturn") continue;
+      if (!item.poster) continue;
+      const key = `${item.type}:${item.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
+}
+
+/** Arricchisce i primi hero anime con background/descrizione via fetchSaturnMeta. */
+export async function enrichAnimeHeroPreviews(
+  previews: StremioMetaPreview[],
+  limit = 6,
+): Promise<StremioMetaPreview[]> {
+  const head = await Promise.all(
+    previews.slice(0, limit).map(async (preview) => {
+      if (preview.background) return preview;
+      const slug = preview.slug ?? preview.id;
+      if (!slug) return preview;
+      try {
+        const meta = await fetchSaturnMeta(slug);
+        return {
+          ...preview,
+          background:
+            pickBestHeroUrl(meta.background, preview.background, preview.poster) ??
+            preview.background,
+          poster: maximizePosterUrl(preview.poster ?? meta.poster),
+          description: preview.description ?? meta.description,
+        };
+      } catch {
+        return preview;
+      }
+    }),
+  );
+  return [...head, ...previews.slice(limit)];
 }
 
 function cacheHeroImage(id: string, url: string | undefined): string | undefined {

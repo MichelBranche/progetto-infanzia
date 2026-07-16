@@ -12,6 +12,7 @@ const child = spawn(
   "cargo",
   [
     "run",
+    "--release",
     "--manifest-path",
     path.join(root, "src-tauri", "Cargo.toml"),
     "--bin",

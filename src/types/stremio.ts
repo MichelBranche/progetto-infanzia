@@ -40,6 +40,21 @@ export interface SaturnBrowsePage {
   hasMore: boolean;
 }
 
+export interface SaturnGenre {
+  id: string;
+  name: string;
+}
+
+export interface SaturnHomeResponse {
+  rows: {
+    key: string;
+    title: string;
+    subtitle: string;
+    items: StremioMetaPreview[];
+  }[];
+  genres: SaturnGenre[];
+}
+
 export interface SearchCatalogPage {
   items: StremioMetaPreview[];
   total: number;
@@ -62,6 +77,14 @@ export interface StremioMetaPreview {
   /** film | serie | cartone — assegnato in unificazione catalogo */
   mediaType?: string;
   genres?: string[];
+  /** Attori principali — usati per ricerca smart */
+  cast?: string[];
+  directors?: string[];
+  /**
+   * Servizi ufficiali del titolo (netflix, prime, disney, apple, …).
+   * Assente = non ancora arricchito dalla pagina dettaglio SC.
+   */
+  streamingServices?: string[];
   sourceRowKey?: string;
   sourceRowTitle?: string;
   watchPosition?: number;

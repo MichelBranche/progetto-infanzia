@@ -1,23 +1,45 @@
 import type { StremioMetaPreview } from "../types/stremio";
+import {
+  buildSearchIndex,
+  filterAndRankSearchIndex,
+  filterAndRankSearchItems,
+  rankSearchResults,
+  suggestDidYouMean,
+  type SearchIndexEntry,
+} from "./smartSearch";
 
 export function filterCatalogPreviews(
   catalog: StremioMetaPreview[],
   query: string,
 ): StremioMetaPreview[] {
-  const q = query.trim().toLowerCase();
-  if (q.length < 2) return [];
+  return filterAndRankSearchItems(catalog, query, 96);
+}
 
-  return catalog.filter((preview) => {
-    const name = preview.name?.toLowerCase() ?? "";
-    const slug = preview.slug?.toLowerCase().replace(/-/g, " ") ?? "";
-    return name.includes(q) || slug.includes(q);
-  });
+export function buildCatalogSearchIndex(
+  catalog: StremioMetaPreview[],
+): SearchIndexEntry<StremioMetaPreview>[] {
+  return buildSearchIndex(catalog);
+}
+
+export function filterCatalogIndex(
+  index: SearchIndexEntry<StremioMetaPreview>[],
+  query: string,
+): StremioMetaPreview[] {
+  return filterAndRankSearchIndex(index, query, 96);
+}
+
+export function suggestCatalogDidYouMean(
+  catalog: StremioMetaPreview[],
+  query: string,
+): StremioMetaPreview | null {
+  return suggestDidYouMean(catalog, query);
 }
 
 export function mergeSearchPreviews(
   apiResults: StremioMetaPreview[],
   localMatches: StremioMetaPreview[],
   catalog: StremioMetaPreview[],
+  query?: string,
 ): StremioMetaPreview[] {
   const knownByKey = new Map<string, StremioMetaPreview>();
   for (const preview of catalog) {
@@ -39,11 +61,20 @@ export function mergeSearchPreviews(
       poster: preview.poster ?? known?.poster,
       slug: preview.slug ?? known?.slug,
       catalogPrefix: preview.catalogPrefix ?? known?.catalogPrefix,
+      genres: preview.genres?.length ? preview.genres : known?.genres,
+      cast: preview.cast?.length ? preview.cast : known?.cast,
+      directors: preview.directors?.length ? preview.directors : known?.directors,
+      releaseInfo: preview.releaseInfo ?? known?.releaseInfo,
     });
   };
 
-  for (const preview of apiResults) push(preview);
+  // Local ranked matches first (already smart-sorted), then API, then re-rank all.
   for (const preview of localMatches) push(preview);
+  for (const preview of apiResults) push(preview);
+
+  if (query?.trim()) {
+    return rankSearchResults(merged, query);
+  }
   return merged;
 }
 

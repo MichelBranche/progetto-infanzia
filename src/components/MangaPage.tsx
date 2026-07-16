@@ -12,6 +12,7 @@ import { readSavedManga, toggleSavedManga } from "../lib/mangaLibrary";
 import { MangaCard } from "./MangaCard";
 import { MangaHomeRow } from "./MangaHomeRow";
 import { LoadingSpinner } from "./LoadingSpinner";
+import { BrowseGridSkeleton } from "./Skeleton";
 
 const ADULT_FILTER_KEY = "branchefy-manga-adult-filter";
 const PAGE_SIZE = 18;
@@ -328,9 +329,7 @@ export function MangaPage({
         ) : (
           <div className="mt-8">
             {browseLoading && browseItems.length === 0 ? (
-              <div className="flex justify-center py-20">
-                <LoadingSpinner size="md" className="border-t-[#ff6740]" />
-              </div>
+              <BrowseGridSkeleton withHeader={false} count={12} className="!px-0 !pt-0" />
             ) : browseError && browseItems.length === 0 ? (
               <p className="py-16 text-center text-[13px] text-red-400/90">
                 {browseError}

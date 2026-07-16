@@ -62,6 +62,7 @@ export function PosterImage({
   const rawUrl = srcOverride ?? rawPosterUrlFor(item, variant);
   const [failed, setFailed] = useState(false);
   const [srcIndex, setSrcIndex] = useState(0);
+  const [loaded, setLoaded] = useState(false);
   const [upgradedSrc, setUpgradedSrc] = useState<string | undefined>();
   const loadStartedAt = useRef<number | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -86,14 +87,18 @@ export function PosterImage({
   }, [rawUrl, tier, variant]);
 
   const activeSrc = upgradedSrc ?? candidates[srcIndex];
+  // Le card della griglia (browse) caricano in lazy: lo scroll non scatena piu'
+  // una raffica di decodifiche simultanee. Hero/continue/priority restano eager.
   const eager =
-    priority || variant === "hero" || variant === "browse" || variant === "continue";
+    priority || variant === "hero" || variant === "continue";
 
   const handleImageReady = useCallback(
     (image: HTMLImageElement) => {
       const src = image.currentSrc || image.src;
       if (!src || reportedLoadFor.current === src) return;
       reportedLoadFor.current = src;
+
+      setLoaded(true);
 
       const startedAt = loadStartedAt.current;
       if (startedAt) {
@@ -114,6 +119,7 @@ export function PosterImage({
   useEffect(() => {
     loadStartedAt.current = activeSrc ? Date.now() : null;
     reportedLoadFor.current = null;
+    setLoaded(false);
   }, [activeSrc]);
 
   useEffect(() => {
@@ -171,6 +177,11 @@ export function PosterImage({
         setFailed(true);
       }}
       onLoad={(event) => handleImageReady(event.currentTarget)}
+      style={
+        eager
+          ? undefined
+          : { opacity: loaded ? 1 : 0, transition: "opacity 0.4s ease" }
+      }
       className={`absolute inset-0 h-full w-full ${fitClass} ${className}`}
     />
   );

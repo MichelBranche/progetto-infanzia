@@ -8,6 +8,8 @@ import type {
   StremioMeta,
   StremioMetaPreview,
   SaturnBrowsePage,
+  SaturnGenre,
+  SaturnHomeResponse,
   SearchCatalogPage,
   StreamingContinueItem,
   StreamingEpisodeProgress,
@@ -108,12 +110,25 @@ export async function resolveAddonStreams(
   });
 }
 
+/** Fetch rapido (cache/slider); lascia margine per merge cataloghi esterni. */
+const CATALOG_FETCH_TIMEOUT_MS = 120_000;
+/** Sync completa archivio SC + Saturn/Loonex: può richiedere diversi minuti. */
+const CATALOG_REFRESH_TIMEOUT_MS = 600_000;
+
 export async function fetchScCatalog(): Promise<ScCatalogResponse> {
-  return invoke<ScCatalogResponse>("fetch_sc_catalog_cmd");
+  return invoke<ScCatalogResponse>(
+    "fetch_sc_catalog_cmd",
+    {},
+    CATALOG_FETCH_TIMEOUT_MS,
+  );
 }
 
 export async function refreshScCatalog(): Promise<ScCatalogResponse> {
-  return invoke<ScCatalogResponse>("refresh_sc_catalog_cmd");
+  return invoke<ScCatalogResponse>(
+    "refresh_sc_catalog_cmd",
+    {},
+    CATALOG_REFRESH_TIMEOUT_MS,
+  );
 }
 
 export async function fetchScMeta(
@@ -200,6 +215,26 @@ export async function fetchSaturnAnimePage(
   limit = 48,
 ): Promise<SaturnBrowsePage> {
   return invoke<SaturnBrowsePage>("browse_saturn_anime_cmd", { offset, limit });
+}
+
+export async function fetchSaturnHome(): Promise<SaturnHomeResponse> {
+  return invoke<SaturnHomeResponse>("fetch_saturn_home_cmd", {});
+}
+
+export async function fetchSaturnGenres(): Promise<SaturnGenre[]> {
+  return invoke<SaturnGenre[]>("fetch_saturn_genres_cmd", {});
+}
+
+export async function fetchSaturnGenrePage(
+  genreId: string,
+  offset: number,
+  limit = 48,
+): Promise<SaturnBrowsePage> {
+  return invoke<SaturnBrowsePage>("browse_saturn_genre_cmd", {
+    genreId,
+    offset,
+    limit,
+  });
 }
 
 export async function resolveSaturnStream(

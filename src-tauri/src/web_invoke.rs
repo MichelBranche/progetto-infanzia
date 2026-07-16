@@ -168,9 +168,8 @@ pub async fn dispatch_web_command(
             state.db.update_settings(&parsed.input)?;
             ok(state.db.get_settings(state.media_root.read().as_path())?)
         }
-        "fetch_sc_catalog_cmd" | "refresh_sc_catalog_cmd" => {
-            ok(fetch_sc_catalog_web(state).await?)
-        }
+        "fetch_sc_catalog_cmd" => ok(fetch_sc_catalog_web(state).await?),
+        "refresh_sc_catalog_cmd" => ok(refresh_sc_catalog_web(state).await?),
         "fetch_sc_meta_cmd" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
@@ -304,6 +303,54 @@ pub async fn dispatch_web_command(
                 crate::saturn_catalog::browse_anime_page(db.as_ref(), parsed.offset, limit)
             });
             ok(task.await.map_err(|e| format!("Errore anime: {e}"))??)
+        }
+        "fetch_saturn_home_cmd" => {
+            if !crate::saturn_catalog::enabled(&state.db) {
+                return ok(crate::saturn_catalog::SaturnHomeResponse {
+                    rows: Vec::new(),
+                    genres: Vec::new(),
+                });
+            }
+            let db = state.db.clone();
+            let task =
+                tokio::task::spawn_blocking(move || crate::saturn_catalog::fetch_home(db.as_ref()));
+            ok(task.await.map_err(|e| format!("Errore home anime: {e}"))??)
+        }
+        "fetch_saturn_genres_cmd" => {
+            if !crate::saturn_catalog::enabled(&state.db) {
+                return ok(Vec::<crate::saturn_catalog::SaturnGenre>::new());
+            }
+            let db = state.db.clone();
+            let task = tokio::task::spawn_blocking(move || {
+                crate::saturn_catalog::fetch_genres(db.as_ref())
+            });
+            ok(task.await.map_err(|e| format!("Errore generi anime: {e}"))?)
+        }
+        "browse_saturn_genre_cmd" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                genre_id: String,
+                offset: usize,
+                limit: Option<usize>,
+            }
+            let parsed: Args = parse_args(args)?;
+            if !crate::saturn_catalog::enabled(&state.db) {
+                return ok(crate::saturn_catalog::SaturnBrowsePage {
+                    items: Vec::new(),
+                    total: 0,
+                    offset: parsed.offset,
+                    has_more: false,
+                });
+            }
+            let db = state.db.clone();
+            let limit = parsed.limit.unwrap_or(48).clamp(1, 96);
+            let genre_id = parsed.genre_id;
+            let offset = parsed.offset;
+            let task = tokio::task::spawn_blocking(move || {
+                crate::saturn_catalog::browse_genre(db.as_ref(), &genre_id, offset, limit)
+            });
+            ok(task.await.map_err(|e| format!("Errore genere anime: {e}"))??)
         }
         "fetch_saturn_meta_cmd" => {
             #[derive(Deserialize)]
@@ -812,7 +859,7 @@ async fn fetch_sc_catalog_web(
         }
         let db = db.clone();
         let task = tokio::task::spawn_blocking(move || crate::saturn_catalog::fetch_catalog(db.as_ref()));
-        match tokio::time::timeout(std::time::Duration::from_secs(12), task).await {
+        match tokio::time::timeout(std::time::Duration::from_secs(4), task).await {
             Ok(Ok(Ok(response))) => Some(response),
             _ => None,
         }
@@ -824,7 +871,7 @@ async fn fetch_sc_catalog_web(
         }
         let db = db.clone();
         let task = tokio::task::spawn_blocking(move || crate::loonex_catalog::fetch_catalog(db.as_ref()));
-        match tokio::time::timeout(std::time::Duration::from_secs(20), task).await {
+        match tokio::time::timeout(std::time::Duration::from_secs(5), task).await {
             Ok(Ok(Ok(response))) => Some(response),
             _ => None,
         }
@@ -836,7 +883,7 @@ async fn fetch_sc_catalog_web(
         }
         let db = db.clone();
         let task = tokio::task::spawn_blocking(move || crate::youtube_catalog::fetch_catalog(db.as_ref()));
-        match tokio::time::timeout(std::time::Duration::from_secs(30), task).await {
+        match tokio::time::timeout(std::time::Duration::from_secs(5), task).await {
             Ok(Ok(Ok(response))) => Some(response),
             _ => None,
         }
@@ -851,14 +898,124 @@ async fn fetch_sc_catalog_web(
     }
     if let Some(loonex) = loonex {
         merge_catalog(&mut response, loonex.rows, loonex.index, loonex.synced_at);
-        if loonex.total_count < 120 || crate::loonex_catalog::index_needs_refresh(state.db.as_ref()) {
-            response.needs_background_sync = true;
-        }
-    } else if loonex_enabled {
-        response.needs_background_sync = true;
+        // Loonex incompleto non deve forzare sync/poll SC (blocca il boot).
     }
     if let Some(youtube) = youtube {
         merge_catalog(&mut response, youtube.rows, youtube.index, youtube.synced_at);
+    }
+
+    if sc_enabled {
+        let db_meta = state.db.clone();
+        crate::sc_catalog::spawn_catalog_boot_maintenance(db_meta);
+    }
+
+    Ok(response)
+}
+
+async fn refresh_sc_catalog_web(
+    state: &AppState,
+) -> Result<crate::sc_catalog::ScCatalogResponse, String> {
+    let sc_enabled = crate::sc_catalog::catalog_enabled(&state.db);
+    let saturn_enabled = crate::saturn_catalog::enabled(&state.db);
+    let loonex_enabled = crate::loonex_catalog::enabled(&state.db);
+    let youtube_enabled = crate::youtube_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled {
+        return Ok(crate::sc_catalog::ScCatalogResponse {
+            rows: Vec::new(),
+            index: Vec::new(),
+            synced_at: 0,
+            total_count: 0,
+            needs_background_sync: false,
+        });
+    }
+
+    let cdn = crate::sc_catalog::cdn_url(&state.db);
+    let locale = crate::sc_catalog::lang(&state.db);
+    let db = state.db.clone();
+
+    // Sync SC completa (archivio). I cataloghi esterni usano fetch rapido per non
+    // bloccare la risposta per diversi minuti.
+    let mut response = if sc_enabled {
+        let db_sc = db.clone();
+        let cdn_sc = cdn.clone();
+        let locale_sc = locale.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::sc_catalog::refresh_catalog_index(db_sc.as_ref(), "", &cdn_sc, &locale_sc)
+        })
+        .await
+        .map_err(|e| format!("Errore aggiornamento catalogo: {e}"))??
+    } else {
+        crate::sc_catalog::ScCatalogResponse {
+            rows: Vec::new(),
+            index: Vec::new(),
+            synced_at: 0,
+            total_count: 0,
+            needs_background_sync: false,
+        }
+    };
+
+    if saturn_enabled {
+        let db_s = db.clone();
+        if let Ok(Ok(Ok(saturn))) = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            tokio::task::spawn_blocking(move || crate::saturn_catalog::fetch_catalog(db_s.as_ref())),
+        )
+        .await
+        {
+            merge_catalog(
+                &mut response,
+                saturn.rows,
+                saturn.index,
+                saturn.synced_at,
+            );
+        }
+    }
+
+    if loonex_enabled {
+        let db_l = db.clone();
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(25),
+            tokio::task::spawn_blocking(move || crate::loonex_catalog::fetch_catalog(db_l.as_ref())),
+        )
+        .await
+        {
+            Ok(Ok(Ok(loonex))) => {
+                merge_catalog(
+                    &mut response,
+                    loonex.rows,
+                    loonex.index,
+                    loonex.synced_at,
+                );
+                if loonex.total_count < 120 {
+                    response.needs_background_sync = true;
+                }
+            }
+            _ => {
+                response.needs_background_sync = true;
+            }
+        }
+    }
+
+    if youtube_enabled {
+        let db_y = db.clone();
+        if let Ok(Ok(Ok(youtube))) = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            tokio::task::spawn_blocking(move || crate::youtube_catalog::fetch_catalog(db_y.as_ref())),
+        )
+        .await
+        {
+            merge_catalog(
+                &mut response,
+                youtube.rows,
+                youtube.index,
+                youtube.synced_at,
+            );
+        }
+    }
+
+    if sc_enabled {
+        let db_meta = state.db.clone();
+        crate::sc_catalog::spawn_continuous_metadata_enrichment(db_meta);
     }
 
     Ok(response)

@@ -5,6 +5,7 @@ import type { Profile } from "../types/profile";
 import type { StremioMetaPreview } from "../types/stremio";
 import { MediaGrid } from "./MediaGrid";
 import { FriendsPage } from "./FriendsPage";
+import type { FriendProfileTarget } from "./chat/FriendProfileSheet";
 import { ProfileHero } from "./profile/ProfileHero";
 import { ProfileEmptyState, ProfileTabBar } from "./profile/ProfileUi";
 import { getStreamingWatchHistory } from "../lib/addonsApi";
@@ -42,6 +43,7 @@ interface ProfilePageProps {
   onPlayStreaming: (preview: StremioMetaPreview) => void;
   onToggleStreamingList?: (preview: StremioMetaPreview) => void;
   onJoinSession?: (session: WatchPartySession) => void;
+  onOpenFriendProfile?: (friend: FriendProfileTarget) => void;
   pendingFriendRequests?: number;
 }
 
@@ -62,6 +64,7 @@ export function ProfilePage({
   onPlayStreaming,
   onToggleStreamingList,
   onJoinSession,
+  onOpenFriendProfile,
   pendingFriendRequests = 0,
 }: ProfilePageProps) {
   const { refreshProfiles } = useProfile();
@@ -214,6 +217,7 @@ export function ProfilePage({
               profileId={profileId}
               profileName={profile.name}
               onJoinSession={onJoinSession}
+              onOpenFriendProfile={onOpenFriendProfile}
               cloudOnline={cloudPresence.onlineFriends}
               cloudOffline={cloudPresence.offlineFriends}
               cloudPresenceLoading={cloudPresence.loading}

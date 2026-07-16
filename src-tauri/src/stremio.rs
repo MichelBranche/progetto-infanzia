@@ -62,6 +62,14 @@ pub struct StremioMetaPreview {
     pub slug: Option<String>,
     #[serde(default)]
     pub genres: Vec<String>,
+    /// Attori principali (es. da Streaming Community `main_actors`) — usati in ricerca.
+    #[serde(default)]
+    pub cast: Vec<String>,
+    #[serde(default)]
+    pub directors: Vec<String>,
+    /// Servizi ufficiali (netflix, prime, disney, …). `None` = non ancora arricchito.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub streaming_services: Option<Vec<String>>,
     #[serde(default)]
     pub source_row_key: Option<String>,
     #[serde(default)]

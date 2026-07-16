@@ -1,18 +1,28 @@
-# Branchefy v0.2.11
+# Branchefy v0.2.12
 
-## Fix build
+## Watch Party
 
-- Corretti errori TypeScript che bloccavano la build desktop macOS/Windows su CI
+- **Sync perfetto**: eliminati i desync tra host e ospiti (correzione dello sfasamento di clock)
+- **Convergenza fluida**: le piccole differenze si allineano regolando dolcemente la velocità, senza salti
+- **Chat in stanza**: pannello a tendina in basso a destra con badge messaggi non letti
+- **Chiudi stanza**: nuovo tasto per terminare la stanza dal menu amici in alto
 
-## Incluso da v0.2.10
+## Amici
 
-- **Indietro istantaneo** nel player (nessuna attesa sul salvataggio progresso)
+- **Profilo amico a tutta pagina**: foto, presenza e titoli visti di recente al posto della finestra compatta
 
-## Incluso da v0.2.9
+## Sezione Anime
 
-- Modalità ospite (1h/giorno, timer, blocco 24h, popup hot singles)
-- Player mobile, salvataggio foto profilo, fix manga web
-- Annunci globali, poster e miglioramenti catalogo
+- Nuova homepage dedicata con hero, righe curate (in corso, popolari, novità) e filtri per genere/audio
+
+## Fix
+
+- **Avvisi globali** ripristinati (richiede l'applicazione della migration DB `app_broadcasts`)
+- Player: risolto lo schermo nero dopo la creazione di una stanza
+
+## Prestazioni
+
+- Scroll e caricamento più fluidi: rendering pigro delle righe/griglie fuori schermo, immagini lazy, ricerca indicizzata
 
 ## Piattaforme
 

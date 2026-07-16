@@ -1,20 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { searchScCatalogPage } from "./addonsApi";
 import {
   appendUniquePreviews,
-  filterCatalogPreviews,
+  buildCatalogSearchIndex,
+  filterCatalogIndex,
   mergeSearchPreviews,
+  suggestCatalogDidYouMean,
 } from "./searchCatalog";
+import { rankSearchResults } from "./smartSearch";
 import type { StremioMetaPreview } from "../types/stremio";
 
 const PAGE_SIZE = 48;
-const DEBOUNCE_MS = 300;
+const DEBOUNCE_MS = 280;
 
 export function useStreamingSearch(
   query: string,
   catalog: StremioMetaPreview[],
 ) {
   const [results, setResults] = useState<StremioMetaPreview[]>([]);
+  const [didYouMean, setDidYouMean] = useState<StremioMetaPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -25,12 +29,19 @@ export function useStreamingSearch(
   const catalogRef = useRef(catalog);
   catalogRef.current = catalog;
 
+  // Indice precomputato una volta per catalogo: sposta la normalizzazione
+  // costosa (accenti/slug/cast) fuori dal percorso di digitazione.
+  const searchIndex = useMemo(() => buildCatalogSearchIndex(catalog), [catalog]);
+  const searchIndexRef = useRef(searchIndex);
+  searchIndexRef.current = searchIndex;
+
   useEffect(() => {
     const q = query.trim();
     const requestId = ++requestIdRef.current;
     offsetRef.current = 0;
     setHasMore(false);
     setTotal(0);
+    setDidYouMean(null);
     inflightRef.current = false;
 
     if (!q) {
@@ -42,7 +53,7 @@ export function useStreamingSearch(
 
     const catalogSnapshot = catalogRef.current;
     const local =
-      q.length >= 2 ? filterCatalogPreviews(catalogSnapshot, q) : [];
+      q.length >= 2 ? filterCatalogIndex(searchIndexRef.current, q) : [];
     setResults(local);
     setLoading(true);
 
@@ -54,17 +65,28 @@ export function useStreamingSearch(
             page.items,
             local,
             catalogSnapshot,
+            q,
           );
           setResults(merged);
           setTotal(Math.max(page.total, merged.length));
           setHasMore(page.hasMore);
           offsetRef.current = page.items.length;
+          if (merged.length === 0) {
+            setDidYouMean(suggestCatalogDidYouMean(catalogSnapshot, q));
+          } else {
+            setDidYouMean(null);
+          }
         })
         .catch(() => {
           if (requestId !== requestIdRef.current) return;
           setResults(local);
           setHasMore(false);
           setTotal(local.length);
+          setDidYouMean(
+            local.length === 0
+              ? suggestCatalogDidYouMean(catalogSnapshot, q)
+              : null,
+          );
         })
         .finally(() => {
           if (requestId === requestIdRef.current) {
@@ -87,7 +109,9 @@ export function useStreamingSearch(
 
     void searchScCatalogPage(q, offsetRef.current, PAGE_SIZE)
       .then((page) => {
-        setResults((prev) => appendUniquePreviews(prev, page.items));
+        setResults((prev) =>
+          rankSearchResults(appendUniquePreviews(prev, page.items), q),
+        );
         setTotal(page.total);
         setHasMore(page.hasMore);
         offsetRef.current += page.items.length;
@@ -100,6 +124,7 @@ export function useStreamingSearch(
 
   return {
     results,
+    didYouMean,
     loading,
     loadingMore,
     hasMore,

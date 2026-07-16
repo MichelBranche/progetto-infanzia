@@ -382,6 +382,9 @@ fn series_to_preview(series: &YoutubeSeriesCache) -> StremioMetaPreview {
         catalog_prefix: Some("youtube".to_string()),
         slug: Some(series.playlist_id.clone()),
         genres: vec!["Animazione".to_string(), "Educational".to_string(), "Cartoni".to_string()],
+        cast: Vec::new(),
+        directors: Vec::new(),
+        streaming_services: None,
         source_row_key: Some("youtube-classics".to_string()),
         source_row_title: Some("Classici su YouTube".to_string()),
         resume_video_id: None,
@@ -548,24 +551,12 @@ pub fn refresh_catalog(db: &Database) -> Result<YoutubeCatalogResponse, String> 
 }
 
 pub fn search_titles(db: &Database, query: &str) -> Vec<StremioMetaPreview> {
-    let q = query.trim().to_lowercase();
+    let q = query.trim();
     if q.len() < 2 {
         return Vec::new();
     }
     let index = fetch_catalog(db).map(|r| r.index).unwrap_or_default();
-    index
-        .into_iter()
-        .filter(|item| {
-            item.name.to_lowercase().contains(&q)
-                || item
-                    .description
-                    .as_deref()
-                    .unwrap_or("")
-                    .to_lowercase()
-                    .contains(&q)
-        })
-        .take(40)
-        .collect()
+    crate::smart_search::filter_and_rank_previews(index, q, 40)
 }
 
 #[cfg(test)]

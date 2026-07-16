@@ -1,11 +1,28 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Shuffle } from "lucide-react";
+import { ChevronDown, Shuffle } from "lucide-react";
 import type { BrowseItem } from "../lib/browse";
-import { browseItemMedia } from "../lib/browse";
+import { browseItemId, browseItemMedia } from "../lib/browse";
 import type { StremioMetaPreview } from "../types/stremio";
 import type { StreamingRow } from "../lib/useStreamingCatalogs";
+import {
+  BROWSE_SORT_OPTIONS,
+  DEFAULT_BROWSE_FILTERS,
+  browseFilterChipLabel,
+  collectProviderOptions,
+  collectYearOptions,
+  filterAndSortBrowseItems,
+  genreFilterOptions,
+  isBrowseFilterActive,
+  type BrowseFilterOption,
+  type BrowseFilterState,
+  type BrowseSortId,
+} from "../lib/browseFilters";
+import { serviceById } from "../data/streaming";
+import { useStaggerInView } from "../hooks/useStaggerInView";
 import { LordFlixPosterCard } from "./LordFlixPosterCard";
+import { LoadingSpinner } from "./LoadingSpinner";
+import { BrowseGridSkeleton } from "./Skeleton";
 
 interface SectionBrowsePageProps {
   sectionId: string;
@@ -26,12 +43,9 @@ interface SectionBrowsePageProps {
   onEdit?: (id: string) => void;
 }
 
-const FILTER_LABELS = [
-  "Tutti i generi",
-  "Tutti gli anni",
-  "Popolari",
-  "Tutti i provider",
-] as const;
+type FilterMenuId = "genre" | "year" | "sort" | "provider";
+
+const GRID_PAGE_SIZE = 48;
 
 function isLordFlixBrowseSection(sectionId: string): boolean {
   return sectionId === "film" || sectionId === "serie";
@@ -61,6 +75,110 @@ function openBrowseItem(
   }
 }
 
+/** Testo bianco o nero a seconda della luminanza del colore del badge. */
+function badgeTextColor(hex: string): string {
+  const normalized = hex.replace("#", "");
+  if (normalized.length !== 6) return "#fff";
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? "#111" : "#fff";
+}
+
+function ProviderBadge({ serviceId }: { serviceId: string }) {
+  const service = serviceById(serviceId);
+  if (!service) return null;
+  return (
+    <span
+      className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold"
+      style={{
+        backgroundColor: service.color,
+        color: badgeTextColor(service.color),
+      }}
+      aria-hidden
+    >
+      {service.shortLabel.charAt(0)}
+    </span>
+  );
+}
+
+function FilterChipMenu({
+  id,
+  label,
+  active,
+  open,
+  options,
+  selectedId,
+  onToggle,
+  onSelect,
+}: {
+  id: FilterMenuId;
+  label: string;
+  active: boolean;
+  open: boolean;
+  options: BrowseFilterOption[];
+  selectedId: string;
+  onToggle: () => void;
+  onSelect: (optionId: string) => void;
+}) {
+  return (
+    <div className="lf-filter-chip-wrap">
+      <button
+        type="button"
+        className={`lf-filter-chip ${active || open ? "lf-filter-chip--active" : ""}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={`lf-filter-menu-${id}`}
+        onClick={onToggle}
+      >
+        {id === "sort" && active && (
+          <Shuffle className="h-3.5 w-3.5" strokeWidth={2} />
+        )}
+        {label}
+        <ChevronDown
+          className={`h-3.5 w-3.5 opacity-70 transition-transform ${open ? "rotate-180" : ""}`}
+          strokeWidth={2}
+        />
+      </button>
+      {open && (
+        <div
+          id={`lf-filter-menu-${id}`}
+          className="lf-filter-menu"
+          role="listbox"
+          aria-label={label}
+        >
+          {options.map((option) => {
+            const selected = option.id === selectedId;
+            const showProviderBadge = id === "provider" && option.id !== "";
+            return (
+              <button
+                key={option.id || `${id}-all`}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                className={`lf-filter-menu__item ${selected ? "lf-filter-menu__item--active" : ""}`}
+                onClick={() => onSelect(option.id)}
+              >
+                {showProviderBadge ? (
+                  <span className="flex items-center gap-2">
+                    <ProviderBadge serviceId={option.id} />
+                    <span className="min-w-0 flex-1 truncate">
+                      {option.label}
+                    </span>
+                  </span>
+                ) : (
+                  option.label
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SectionBrowsePage(props: SectionBrowsePageProps) {
   const {
     title,
@@ -69,6 +187,8 @@ export function SectionBrowsePage(props: SectionBrowsePageProps) {
     loading,
     items,
     sectionId,
+    streamingRows = [],
+    catalogIndex = [],
     onPlay,
     onPlayStreaming,
     onOpenDetail,
@@ -76,13 +196,120 @@ export function SectionBrowsePage(props: SectionBrowsePageProps) {
   } = props;
 
   const lordFlixBrowse = isLordFlixBrowseSection(sectionId);
+  const [visibleCount, setVisibleCount] = useState(GRID_PAGE_SIZE);
+  const [filters, setFilters] = useState<BrowseFilterState>(DEFAULT_BROWSE_FILTERS);
+  const [openMenu, setOpenMenu] = useState<FilterMenuId | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const filterBarRef = useRef<HTMLDivElement | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const loadingMoreRef = useRef(false);
 
-  const sortedItems = useMemo(() => {
+  const baseItems = useMemo(() => {
     if (lordFlixBrowse) return items;
     return [...items].sort((a, b) =>
       browseItemMedia(a).title.localeCompare(browseItemMedia(b).title, "it"),
     );
   }, [items, lordFlixBrowse]);
+
+  const filteredItems = useMemo(() => {
+    if (!lordFlixBrowse) return baseItems;
+    return filterAndSortBrowseItems(
+      baseItems,
+      filters,
+      streamingRows,
+      catalogIndex,
+    );
+  }, [baseItems, catalogIndex, filters, lordFlixBrowse, streamingRows]);
+
+  const genreOptions = useMemo(
+    () => genreFilterOptions(baseItems),
+    [baseItems],
+  );
+  const yearOptions = useMemo(
+    () => collectYearOptions(baseItems),
+    [baseItems],
+  );
+  const providerOptions = useMemo(
+    () => collectProviderOptions(baseItems),
+    [baseItems],
+  );
+
+  useEffect(() => {
+    setVisibleCount(GRID_PAGE_SIZE);
+    setFilters(DEFAULT_BROWSE_FILTERS);
+    setOpenMenu(null);
+  }, [sectionId]);
+
+  useEffect(() => {
+    setVisibleCount(GRID_PAGE_SIZE);
+  }, [filters]);
+
+  useEffect(() => {
+    setVisibleCount((current) => {
+      if (filteredItems.length === 0) return GRID_PAGE_SIZE;
+      if (current < GRID_PAGE_SIZE) return GRID_PAGE_SIZE;
+      return Math.min(current, Math.max(GRID_PAGE_SIZE, filteredItems.length));
+    });
+  }, [filteredItems.length]);
+
+  useEffect(() => {
+    if (!openMenu) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      const root = filterBarRef.current;
+      if (!root) return;
+      if (event.target instanceof Node && !root.contains(event.target)) {
+        setOpenMenu(null);
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenMenu(null);
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [openMenu]);
+
+  const displayItems = useMemo(
+    () => filteredItems.slice(0, visibleCount),
+    [filteredItems, visibleCount],
+  );
+  const hasMore = visibleCount < filteredItems.length;
+
+  useStaggerInView(
+    gridRef,
+    ".stagger-card",
+    lordFlixBrowse,
+    [displayItems.length, filters],
+  );
+
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || !hasMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        if (loadingMoreRef.current) return;
+        loadingMoreRef.current = true;
+        setVisibleCount((count) =>
+          Math.min(count + GRID_PAGE_SIZE, filteredItems.length),
+        );
+        window.requestAnimationFrame(() => {
+          loadingMoreRef.current = false;
+        });
+      },
+      { rootMargin: "480px" },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, filteredItems.length, displayItems.length]);
 
   const handleOpen = (browse: BrowseItem) => {
     openBrowseItem(browse, {
@@ -93,22 +320,21 @@ export function SectionBrowsePage(props: SectionBrowsePageProps) {
     });
   };
 
+  const toggleMenu = (id: FilterMenuId) => {
+    setOpenMenu((current) => (current === id ? null : id));
+  };
+
+  const applyFilter = (patch: Partial<BrowseFilterState>) => {
+    setFilters((current) => ({ ...current, ...patch }));
+    setOpenMenu(null);
+  };
+
   if (loading && items.length === 0) {
-    const lordFlixBrowse = isLordFlixBrowseSection(sectionId);
     return (
-      <div className={`page-px pb-16 ${lordFlixBrowse ? "pt-6" : "pt-24"}`}>
-        <div
-          className={`lf-discovery-header ${lordFlixBrowse ? "lf-discovery-header--browse" : ""}`}
-        >
-          <div className="h-9 w-40 shimmer rounded-lg" />
-          <div className="mt-3 h-4 w-64 shimmer rounded" />
-        </div>
-        <div className="lf-discovery-grid mt-4">
-          {Array.from({ length: 18 }).map((_, i) => (
-            <div key={i} className="aspect-[2/3] shimmer rounded-2xl" />
-          ))}
-        </div>
-      </div>
+      <BrowseGridSkeleton
+        className={lordFlixBrowse ? "" : "pt-24"}
+        count={18}
+      />
     );
   }
 
@@ -121,14 +347,29 @@ export function SectionBrowsePage(props: SectionBrowsePageProps) {
           className="max-w-md text-center"
         >
           <p className="lf-discovery-header__title">{title}</p>
-          <p className="mt-3 text-[14px] text-text-muted">
-            Nessun contenuto trovato in questa sezione.
-            {syncing ? " Il catalogo si sta ancora aggiornando." : ""}
-          </p>
+          {syncing ? (
+            <>
+              <BrowseGridSkeleton withHeader={false} count={12} className="!pt-0 !pb-0" />
+              <p className="mt-6 text-[14px] text-text-muted">
+                Sto preparando il catalogo…
+              </p>
+            </>
+          ) : (
+            <p className="mt-3 text-[14px] text-text-muted">
+              Nessun contenuto trovato in questa sezione.
+            </p>
+          )}
         </motion.div>
       </div>
     );
   }
+
+  const catalogCountLabel = `${filteredItems.length.toLocaleString("it-IT")} titoli`;
+  const filtersActive =
+    filters.genre != null ||
+    filters.year != null ||
+    filters.provider != null ||
+    filters.sort !== "popular";
 
   return (
     <motion.div
@@ -144,7 +385,9 @@ export function SectionBrowsePage(props: SectionBrowsePageProps) {
           <div className="lf-discovery-header__copy">
             <h1 className="lf-discovery-header__title">{title}</h1>
             <p className="lf-discovery-header__subtitle">
-              {subtitle ?? `Scopri ${title.toLowerCase()} da guardare`}
+              {lordFlixBrowse
+                ? `${catalogCountLabel} · ${subtitle ?? `Scopri ${title.toLowerCase()} da guardare`}`
+                : (subtitle ?? `Scopri ${title.toLowerCase()} da guardare`)}
               {syncing && !lordFlixBrowse && (
                 <span className="text-white/40"> · Aggiornamento catalogo…</span>
               )}
@@ -154,40 +397,131 @@ export function SectionBrowsePage(props: SectionBrowsePageProps) {
             )}
           </div>
 
-          <div className="lf-filter-bar" role="toolbar" aria-label="Filtri catalogo">
-            {FILTER_LABELS.map((label) => {
-              const active = label === "Popolari";
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  className={`lf-filter-chip ${active ? "lf-filter-chip--active" : ""}`}
-                >
-                  {active && <Shuffle className="h-3.5 w-3.5" strokeWidth={2} />}
-                  {label}
-                </button>
-              );
-            })}
-          </div>
+          {lordFlixBrowse && (
+            <div
+              ref={filterBarRef}
+              className="lf-filter-bar"
+              role="toolbar"
+              aria-label="Filtri catalogo"
+            >
+              <FilterChipMenu
+                id="genre"
+                label={browseFilterChipLabel("genre", filters)}
+                active={isBrowseFilterActive("genre", filters)}
+                open={openMenu === "genre"}
+                options={genreOptions}
+                selectedId={filters.genre ?? ""}
+                onToggle={() => toggleMenu("genre")}
+                onSelect={(optionId) =>
+                  applyFilter({ genre: optionId || null })
+                }
+              />
+              <FilterChipMenu
+                id="year"
+                label={browseFilterChipLabel("year", filters)}
+                active={isBrowseFilterActive("year", filters)}
+                open={openMenu === "year"}
+                options={yearOptions}
+                selectedId={filters.year != null ? String(filters.year) : ""}
+                onToggle={() => toggleMenu("year")}
+                onSelect={(optionId) => {
+                  const year = optionId ? Number.parseInt(optionId, 10) : null;
+                  applyFilter({
+                    year: year != null && Number.isFinite(year) ? year : null,
+                  });
+                }}
+              />
+              <FilterChipMenu
+                id="sort"
+                label={browseFilterChipLabel("sort", filters)}
+                active={
+                  isBrowseFilterActive("sort", filters) ||
+                  filters.sort === "popular"
+                }
+                open={openMenu === "sort"}
+                options={BROWSE_SORT_OPTIONS}
+                selectedId={filters.sort}
+                onToggle={() => toggleMenu("sort")}
+                onSelect={(optionId) =>
+                  applyFilter({ sort: optionId as BrowseSortId })
+                }
+              />
+              <FilterChipMenu
+                id="provider"
+                label={browseFilterChipLabel("provider", filters)}
+                active={isBrowseFilterActive("provider", filters)}
+                open={openMenu === "provider"}
+                options={providerOptions}
+                selectedId={filters.provider ?? ""}
+                onToggle={() => toggleMenu("provider")}
+                onSelect={(optionId) =>
+                  applyFilter({ provider: optionId || null })
+                }
+              />
+            </div>
+          )}
         </div>
 
         {!lordFlixBrowse && (
-          <p className="mt-4 text-[12px] text-white/40">
-            {items.length.toLocaleString("it-IT")} titoli
-          </p>
+          <p className="mt-4 text-[12px] text-white/40">{catalogCountLabel}</p>
         )}
       </header>
 
-      <div className={`lf-discovery-grid ${lordFlixBrowse ? "lf-discovery-grid--browse" : ""}`}>
-        {sortedItems.map((browse) => (
-          <LordFlixPosterCard
-            key={browseItemMedia(browse).id}
-            browse={browse}
-            layout="grid"
-            onOpen={handleOpen}
-          />
-        ))}
-      </div>
+      {lordFlixBrowse && filteredItems.length === 0 ? (
+        <div className="flex min-h-[40vh] flex-col items-center justify-center py-16 text-center">
+          <p className="text-[15px] font-medium text-white/85">
+            Nessun titolo con questi filtri
+          </p>
+          <p className="mt-2 max-w-sm text-[13px] text-white/45">
+            Prova a cambiare genere, anno o provider
+            {filtersActive ? ", oppure ripristina i filtri." : "."}
+          </p>
+          {filtersActive && (
+            <button
+              type="button"
+              className="lf-filter-chip mt-5 lf-filter-chip--active"
+              onClick={() => {
+                setFilters(DEFAULT_BROWSE_FILTERS);
+                setOpenMenu(null);
+              }}
+            >
+              Ripristina filtri
+            </button>
+          )}
+        </div>
+      ) : (
+        <>
+          <div
+            ref={gridRef}
+            className={`lf-discovery-grid ${lordFlixBrowse ? "lf-discovery-grid--browse" : ""}`}
+          >
+            {displayItems.map((browse) =>
+              lordFlixBrowse ? (
+                <div key={browseItemId(browse)} className="stagger-card">
+                  <LordFlixPosterCard
+                    browse={browse}
+                    layout="grid"
+                    onOpen={handleOpen}
+                  />
+                </div>
+              ) : (
+                <LordFlixPosterCard
+                  key={browseItemId(browse)}
+                  browse={browse}
+                  layout="grid"
+                  onOpen={handleOpen}
+                />
+              ),
+            )}
+          </div>
+
+          {hasMore && (
+            <div ref={loadMoreRef} className="flex justify-center py-10">
+              <LoadingSpinner size="sm" className="border-t-accent" />
+            </div>
+          )}
+        </>
+      )}
     </motion.div>
   );
 }
