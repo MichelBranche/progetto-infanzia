@@ -1,16 +1,8 @@
-# Branchefy v0.2.13
+# Branchefy v0.2.14
 
-## Web app
+## Cast alla TV
 
-- **Link condivisibili**: aprendo un contenuto l'URL diventa `/titolo/nome-film` e le sezioni hanno il proprio indirizzo (`/film`, `/serie`, `/anime`, …)
-- Il tasto **Indietro/Avanti** del browser ora naviga tra i contenuti
-- Un link incollato a freddo (o inviato a un amico) apre direttamente il titolo giusto
-
-## StreamingCommunity
-
-- **Proxy opzionale** (desktop): chi ha l'IP bloccato può instradare il solo traffico SC tramite un proxy/VPN (HTTP o SOCKS5) dalle Impostazioni, senza cambiare nulla per gli altri utenti
-- **Traffico più gentile**: l'aggiornamento del catalogo in background è più lento e con ritmo variabile, per non farsi scambiare per un bot
-- Recupero automatico via server per l'account autorizzato quando l'IP di casa è bloccato
+- **Fix trasmissione con VPN attiva**: con una VPN full-tunnel (es. NordVPN) l'app mandava alla TV un indirizzo della VPN, irraggiungibile dalla rete di casa (la TV mostrava "connettiti alla rete/internet"). Ora sceglie sempre l'IP reale Wi-Fi/Ethernet, scartando le interfacce VPN/virtuali (NordLynx, WireGuard, OpenVPN, TAP, Proton, Mullvad, Tailscale, ZeroTier).
 
 ## Piattaforme
 

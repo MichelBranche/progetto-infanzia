@@ -36,8 +36,34 @@ fn usable_lan_v4(ip: &Ipv4Addr) -> bool {
     !ip.is_loopback() && (ip.is_private() || ip.is_link_local())
 }
 
+/// Priorità VPN/virtuale (deprioritizzata): la TV di casa non raggiunge questi IP.
+const IFACE_PRIORITY_VPN: u8 = 9;
+
+fn is_vpn_iface_name(lower: &str) -> bool {
+    lower.contains("vpn")
+        || lower.contains("virtual")
+        || lower.contains("vether")
+        || lower.contains("hyper-v")
+        || lower.contains("wsl")
+        // VPN comuni (es. NordVPN usa NordLynx/WireGuard): il loro IP non è
+        // raggiungibile dalla TV sulla rete di casa.
+        || lower.contains("nord")
+        || lower.contains("wireguard")
+        || lower.contains("wg-")
+        || lower.contains("openvpn")
+        || lower.contains("tap-windows")
+        || lower.contains("tunnel")
+        || lower.contains("proton")
+        || lower.contains("mullvad")
+        || lower.contains("tailscale")
+        || lower.contains("zerotier")
+}
+
 fn interface_priority(name: &str) -> u8 {
     let lower = name.to_ascii_lowercase();
+    if is_vpn_iface_name(&lower) {
+        return IFACE_PRIORITY_VPN;
+    }
     if lower.contains("ethernet") || lower.starts_with("eth") {
         return 0;
     }
@@ -48,15 +74,23 @@ fn interface_priority(name: &str) -> u8 {
     {
         return 1;
     }
-    if lower.contains("vpn")
-        || lower.contains("virtual")
-        || lower.contains("vether")
-        || lower.contains("hyper-v")
-        || lower.contains("wsl")
-    {
-        return 9;
-    }
     3
+}
+
+/// Nome dell'interfaccia che possiede questo IPv4, se enumerabile.
+fn iface_name_for_ip(ip: &Ipv4Addr) -> Option<String> {
+    let ifaces = get_if_addrs().ok()?;
+    ifaces.into_iter().find_map(|iface| match iface.addr {
+        IfAddr::V4(v4) if v4.ip == *ip => Some(iface.name),
+        _ => None,
+    })
+}
+
+/// True se l'IP appartiene a un'interfaccia VPN/virtuale (irraggiungibile dalla TV).
+fn is_vpn_or_virtual_ip(ip: &Ipv4Addr) -> bool {
+    iface_name_for_ip(ip)
+        .map(|name| interface_priority(&name) >= IFACE_PRIORITY_VPN)
+        .unwrap_or(false)
 }
 
 fn ip_priority(ip: &Ipv4Addr) -> u8 {
@@ -73,11 +107,13 @@ fn ip_priority(ip: &Ipv4Addr) -> u8 {
 }
 
 pub fn best_lan_ipv4() -> Option<Ipv4Addr> {
-    if let Ok(ip) = local_ip() {
-        if let std::net::IpAddr::V4(v4) = ip {
-            if usable_lan_v4(&v4) {
-                return Some(v4);
-            }
+    // `local_ip()` = IP dell'interfaccia con la rotta di default. Di norma è
+    // quella giusta, ma con una VPN full-tunnel (es. NordVPN) restituisce l'IP
+    // della VPN: la TV sulla rete di casa non lo raggiunge. Lo accettiamo solo
+    // se NON appartiene a un'interfaccia VPN/virtuale.
+    if let Ok(std::net::IpAddr::V4(v4)) = local_ip() {
+        if usable_lan_v4(&v4) && !is_vpn_or_virtual_ip(&v4) {
+            return Some(v4);
         }
     }
 
@@ -97,7 +133,16 @@ pub fn best_lan_ipv4() -> Option<Ipv4Addr> {
     }
 
     candidates.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
-    candidates.first().map(|(_, _, ip)| *ip)
+    if let Some((_, _, ip)) = candidates.first() {
+        return Some(*ip);
+    }
+
+    // Ultima spiaggia: se non riusciamo a enumerare le interfacce, meglio l'IP
+    // di default (anche se VPN) che niente.
+    match local_ip() {
+        Ok(std::net::IpAddr::V4(v4)) if usable_lan_v4(&v4) => Some(v4),
+        _ => None,
+    }
 }
 
 pub fn lan_stream_url(media_id: &str) -> Option<String> {
