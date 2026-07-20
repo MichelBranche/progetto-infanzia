@@ -1,6 +1,6 @@
 [package]
 name = "tauri-app"
-version = "0.2.15"
+version = "0.2.16"
 description = "Branchefy - streaming locale per famiglia"
 authors = ["miche"]
 edition = "2021"
@@ -8,15 +8,17 @@ default-run = "tauri-app"
 
 [features]
 web-api = []
+export-seed = []
 
 [[bin]]
 name = "branchefy-web-api"
-path = "src/bin/branchefy_web_api.rs"
+path = "bins/branchefy_web_api.rs"
 required-features = ["web-api"]
 
 [[bin]]
 name = "export-sc-catalog-seed"
-path = "src/bin/export_sc_catalog_seed.rs"
+path = "bins/export_sc_catalog_seed.rs"
+required-features = ["export-seed"]
 
 [lib]
 name = "tauri_app_lib"

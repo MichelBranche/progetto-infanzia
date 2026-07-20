@@ -1,14 +1,12 @@
-# Branchefy v0.2.15
+# Branchefy v0.2.16
 
-## Performance e fluidità
+## Fix release desktop
 
-- **Homepage più reattiva**: keep-alive della home, virtualizzazione delle row orizzontali e delle griglie Film/Serie, ricerca deferred, prefetch dettaglio al passaggio del mouse, poster progressivi con shimmer.
-- **Boot reale dopo l'intro**: il loading resta finché catalogo e homepage sono pronti (hero + slider), così non si apre su skeleton; aurora di preparing in CSS (non si congela più).
-- **Top 10 di nuovo in home**: solo titoli Streaming Community (ricostruito da trending se manca lo slider SC).
+- **macOS universal build**: i bin di sviluppo (`export-sc-catalog-seed`, web-api) non vengono più inclusi nel bundle Tauri. Prima il bundler cercava `export-sc-catalog-seed` nel target universal e falliva.
 
-## Manga
+## Da v0.2.15 (inclusa)
 
-- **Libro 3D ripristinato su desktop**: sfoglio fronte/retro con `rotateY`; su mobile resta lo swipe Kindle.
+- Performance home/boot, Top 10 Streaming Community, libro manga 3D su desktop
 
 ## Piattaforme
 

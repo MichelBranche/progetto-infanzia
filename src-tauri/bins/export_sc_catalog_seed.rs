@@ -1,8 +1,8 @@
 //! Scarica il catalogo SC completo e lo salva come seed gzip per la release.
 //!
 //! Uso:
-//!   cargo run --bin export-sc-catalog-seed --release
-//!   cargo run --bin export-sc-catalog-seed --release -- path/to/out.json.gz
+//!   cargo run --bin export-sc-catalog-seed --features export-seed --release
+//!   cargo run --bin export-sc-catalog-seed --features export-seed --release -- path/to/out.json.gz
 
 use std::path::PathBuf;
 use std::time::Instant;
