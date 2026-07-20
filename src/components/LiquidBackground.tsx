@@ -225,22 +225,20 @@ export function LiquidBackground() {
   return <LiquidBackgroundCanvas />;
 }
 /**
- * Variante standalone (senza HeroAmbientContext) per schermate di boot:
- * usa sempre la palette LordFlix di riferimento, a piena visibilità.
+ * Variante standalone per schermate di boot: aurora CSS (non WebGL).
+ * Così resta fluida anche mentre sotto il loader la homepage si idrata.
  */
-function BootLiquidBackgroundCanvas({ className = "" }: { className?: string }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const activeRef = useRef(false);
-
-  useLiquidCanvas(canvasRef, activeRef);
-
+export function BootLiquidBackground({ className = "" }: { className?: string }) {
   return (
-    <div className={`liquid-bg liquid-bg--boot ${className}`.trim()} aria-hidden>
-      <canvas ref={canvasRef} className="liquid-bg__canvas" />
+    <div
+      className={`liquid-bg liquid-bg--boot liquid-bg--boot-css ${className}`.trim()}
+      aria-hidden
+    >
+      <div className="liquid-bg__boot-aurora">
+        <span className="liquid-bg__boot-blob liquid-bg__boot-blob--a" />
+        <span className="liquid-bg__boot-blob liquid-bg__boot-blob--b" />
+        <span className="liquid-bg__boot-blob liquid-bg__boot-blob--c" />
+      </div>
     </div>
   );
-}
-
-export function BootLiquidBackground({ className = "" }: { className?: string }) {
-  return <BootLiquidBackgroundCanvas className={className} />;
 }

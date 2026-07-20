@@ -68,23 +68,31 @@ export function PosterImage({
   const imgRef = useRef<HTMLImageElement | null>(null);
   const reportedLoadFor = useRef<string | null>(null);
 
+  // Browse non-priority: parte in low-res e fa upgrade al tier di contesto
+  // (meno byte al primo paint, stessa qualita' finale).
+  const paintTier: PosterQualityTier =
+    variant === "browse" && !priority ? "low" : tier;
+
   const candidates = useMemo(
-    () => (rawUrl ? posterUrlFallbacks(rawUrl, tier) : []),
-    [rawUrl, tier],
+    () => (rawUrl ? posterUrlFallbacks(rawUrl, paintTier) : []),
+    [rawUrl, paintTier],
   );
 
   const upgradeUrl = useMemo(() => {
-    if (!rawUrl || tier === "low") return undefined;
-    const high =
+    if (!rawUrl) return undefined;
+    const nextTier: PosterQualityTier | undefined =
+      paintTier !== tier ? tier : tier === "high" ? undefined : "high";
+    if (!nextTier) return undefined;
+    const next =
       variant === "hero"
-        ? adaptHeroUrl(rawUrl, "high")
-        : adaptPosterUrl(rawUrl, "high");
+        ? adaptHeroUrl(rawUrl, nextTier)
+        : adaptPosterUrl(rawUrl, nextTier);
     const current =
       variant === "hero"
-        ? adaptHeroUrl(rawUrl, tier)
-        : adaptPosterUrl(rawUrl, tier);
-    return high && high !== current ? high : undefined;
-  }, [rawUrl, tier, variant]);
+        ? adaptHeroUrl(rawUrl, paintTier)
+        : adaptPosterUrl(rawUrl, paintTier);
+    return next && next !== current ? next : undefined;
+  }, [rawUrl, paintTier, tier, variant]);
 
   const activeSrc = upgradedSrc ?? candidates[srcIndex];
   // Le card della griglia (browse) caricano in lazy: lo scroll non scatena piu'
@@ -114,13 +122,18 @@ export function PosterImage({
     setFailed(false);
     setUpgradedSrc(undefined);
     reportedLoadFor.current = null;
-  }, [rawUrl, tier]);
+  }, [rawUrl, paintTier]);
 
   useEffect(() => {
     loadStartedAt.current = activeSrc ? Date.now() : null;
     reportedLoadFor.current = null;
+    // Upgrade di qualita': l'URL e' gia' in cache (preload), niente shimmer.
+    if (upgradedSrc && activeSrc === upgradedSrc) {
+      setLoaded(true);
+      return;
+    }
     setLoaded(false);
-  }, [activeSrc]);
+  }, [activeSrc, upgradedSrc]);
 
   useEffect(() => {
     const img = imgRef.current;
@@ -151,7 +164,18 @@ export function PosterImage({
       ? "object-contain object-center"
       : "object-cover object-center";
 
-  if (!activeSrc || failed) {
+  // Nessun URL: shimmer (come hero), non un riquadro vuoto.
+  if (!activeSrc) {
+    return (
+      <div
+        className={`absolute inset-0 shimmer ${className}`}
+        aria-busy="true"
+        aria-label="Caricamento poster"
+      />
+    );
+  }
+
+  if (failed) {
     return (
       <div
         className={`absolute inset-0 bg-gradient-to-br ${item.gradient} ${className}`}
@@ -160,30 +184,33 @@ export function PosterImage({
   }
 
   return (
-    <img
-      ref={imgRef}
-      key={activeSrc}
-      src={activeSrc}
-      alt={item.title}
-      loading={eager ? "eager" : "lazy"}
-      decoding="async"
-      fetchPriority={priority || variant === "hero" ? "high" : "auto"}
-      onError={() => {
-        if (srcIndex + 1 < candidates.length) {
-          setSrcIndex((index) => index + 1);
-          loadStartedAt.current = Date.now();
-          return;
-        }
-        setFailed(true);
-      }}
-      onLoad={(event) => handleImageReady(event.currentTarget)}
-      style={
-        eager
-          ? undefined
-          : { opacity: loaded ? 1 : 0, transition: "opacity 0.4s ease" }
-      }
-      className={`absolute inset-0 h-full w-full ${fitClass} ${className}`}
-    />
+    <div className="absolute inset-0" aria-busy={!loaded || undefined}>
+      {!loaded && (
+        <div className="absolute inset-0 shimmer" aria-hidden />
+      )}
+      <img
+        ref={imgRef}
+        src={activeSrc}
+        alt={item.title}
+        loading={eager ? "eager" : "lazy"}
+        decoding="async"
+        fetchPriority={priority || variant === "hero" ? "high" : "auto"}
+        onError={() => {
+          if (srcIndex + 1 < candidates.length) {
+            setSrcIndex((index) => index + 1);
+            loadStartedAt.current = Date.now();
+            return;
+          }
+          setFailed(true);
+        }}
+        onLoad={(event) => handleImageReady(event.currentTarget)}
+        style={{
+          opacity: loaded ? 1 : 0,
+          transition: "opacity 0.35s ease",
+        }}
+        className={`absolute inset-0 h-full w-full ${fitClass} ${className}`}
+      />
+    </div>
   );
 }
 

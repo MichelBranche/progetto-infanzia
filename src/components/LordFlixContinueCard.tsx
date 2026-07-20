@@ -1,4 +1,4 @@
-import { memo, type MouseEvent, type PointerEvent } from "react";
+import { memo, useEffect, useRef, type MouseEvent, type PointerEvent } from "react";
 import type { BrowseItem } from "../lib/browse";
 import { browseItemMedia, browseItemTitle } from "../lib/browse";
 import type { StremioMetaPreview } from "../types/stremio";
@@ -9,6 +9,7 @@ import {
   playCardNavigationSound,
   playCardOpenTitleSound,
 } from "../lib/cardNavigationSound";
+import { scheduleBrowseDetailPrefetch } from "../lib/prefetchAddonWatch";
 import { PosterImage } from "./PosterImage";
 
 export interface LordFlixContinueCardProps {
@@ -105,6 +106,14 @@ export const LordFlixContinueCard = memo(function LordFlixContinueCard({
   const media = browseItemMedia(browse);
   const progress = resolveProgress(browse, media);
   const remainingLabel = resolveRemainingLabel(browse, media);
+  const cancelPrefetchRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      cancelPrefetchRef.current?.();
+      cancelPrefetchRef.current = null;
+    };
+  }, []);
 
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
     if (isRowDragging()) {
@@ -126,13 +135,24 @@ export const LordFlixContinueCard = memo(function LordFlixContinueCard({
     }
   };
 
+  const handlePointerEnter = () => {
+    if (isRowDragging()) return;
+    playCardNavigationSound();
+    cancelPrefetchRef.current?.();
+    cancelPrefetchRef.current = scheduleBrowseDetailPrefetch(browse);
+  };
+
+  const handlePointerLeave = () => {
+    cancelPrefetchRef.current?.();
+    cancelPrefetchRef.current = null;
+  };
+
   return (
     <button
       type="button"
       className="lf-continue-card group/card"
-      onMouseEnter={() => {
-        if (!isRowDragging()) playCardNavigationSound();
-      }}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
       onClick={handleClick}
       onPointerDown={handlePointerDown}
       aria-label={title}

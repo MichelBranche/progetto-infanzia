@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type MouseEvent, type PointerEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { Play } from "lucide-react";
 import type { BrowseItem } from "../lib/browse";
 import { browseItemMedia, browseItemTitle } from "../lib/browse";
@@ -10,6 +10,7 @@ import {
   playCardNavigationSound,
   playCardOpenTitleSound,
 } from "../lib/cardNavigationSound";
+import { scheduleBrowseDetailPrefetch } from "../lib/prefetchAddonWatch";
 import { PosterImage, posterUrlFor } from "./PosterImage";
 
 export interface LordFlixPosterCardProps {
@@ -120,6 +121,14 @@ export const LordFlixPosterCard = memo(function LordFlixPosterCard({
   const [reflectionSrc, setReflectionSrc] = useState<string | undefined>(
     showReflection ? posterUrl : undefined,
   );
+  const cancelPrefetchRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      cancelPrefetchRef.current?.();
+      cancelPrefetchRef.current = null;
+    };
+  }, []);
 
   const handleImageLoad = (image: HTMLImageElement) => {
     if (!showReflection) return;
@@ -148,13 +157,24 @@ export const LordFlixPosterCard = memo(function LordFlixPosterCard({
     }
   };
 
+  const handlePointerEnter = () => {
+    if (isRowDragging()) return;
+    playCardNavigationSound();
+    cancelPrefetchRef.current?.();
+    cancelPrefetchRef.current = scheduleBrowseDetailPrefetch(browse);
+  };
+
+  const handlePointerLeave = () => {
+    cancelPrefetchRef.current?.();
+    cancelPrefetchRef.current = null;
+  };
+
   return (
     <button
       type="button"
       className={`lf-browse-card group/card ${isGrid ? "lf-browse-card--grid" : ""}`}
-      onMouseEnter={() => {
-        if (!isRowDragging()) playCardNavigationSound();
-      }}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
       onClick={handleClick}
       onPointerDown={handlePointerDown}
       aria-label={title}

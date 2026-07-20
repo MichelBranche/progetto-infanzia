@@ -465,6 +465,65 @@ html.lf-browse-ambient .liquid-bg__canvas {
   opacity: 0.9;
 }
 
+/* Aurora CSS per preparing: non dipende da WebGL/RAF, non si congela sotto carico */
+.liquid-bg--boot-css {
+  background-color: #05000d;
+}
+
+.liquid-bg__boot-aurora {
+  position: absolute;
+  inset: 0;
+}
+
+.liquid-bg__boot-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(110px);
+  will-change: transform;
+}
+
+.liquid-bg__boot-blob--a {
+  width: 58vw;
+  height: 58vw;
+  left: -14vw;
+  top: -20vw;
+  background: radial-gradient(circle, rgb(224 0 145 / 0.45), transparent 70%);
+  animation: lf-boot-blob-drift 16s ease-in-out infinite alternate;
+}
+
+.liquid-bg__boot-blob--b {
+  width: 50vw;
+  height: 50vw;
+  right: -16vw;
+  bottom: -18vw;
+  background: radial-gradient(circle, rgb(122 31 162 / 0.5), transparent 70%);
+  animation: lf-boot-blob-drift 19s ease-in-out infinite alternate-reverse;
+}
+
+.liquid-bg__boot-blob--c {
+  width: 36vw;
+  height: 36vw;
+  left: 36vw;
+  top: 48vh;
+  background: radial-gradient(circle, rgb(49 16 80 / 0.55), transparent 70%);
+  animation: lf-boot-blob-drift 22s ease-in-out infinite alternate;
+}
+
+@keyframes lf-boot-blob-drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(7vw, -5vh, 0) scale(1.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liquid-bg__boot-blob {
+    animation: none;
+  }
+}
+
 :root.lf-ambient-active .liquid-bg__canvas {
   opacity: 0.28;
 }
@@ -2345,6 +2404,19 @@ html.is-tauri .glass-header,
   color: rgb(255 255 255 / 0.4);
 }
 
+.lf-home-keepalive--parked {
+  /* Non usare display:none: al rientro forzerrebbe layout/paint di tutta la home. */
+  content-visibility: hidden;
+  contain: strict;
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  /* Placeholder alto: evita che contain:strict collassi a 0 e perda la cache. */
+  contain-intrinsic-size: auto 100vh;
+}
+
 .lf-home-row {
   margin-bottom: 1.75rem;
   /* Le righe fuori schermo saltano layout/paint: scroll piu' fluido su pagine lunghe.
@@ -2678,7 +2750,163 @@ html.is-tauri .glass-header,
   font-size: 0.65rem;
 }
 
-/* Manga Kindle-style page reader */
+/* Manga libro 3D (desktop) */
+.manga-book-scene {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  perspective: 1400px;
+  background:
+    radial-gradient(ellipse at center, rgb(255 103 64 / 0.06), transparent 65%),
+    #101014;
+}
+
+.manga-book__typo {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4vw;
+  pointer-events: none;
+  font-weight: 800;
+  font-size: clamp(2rem, 7vw, 6rem);
+  line-height: 0.9;
+  color: rgb(255 255 255 / 0.05);
+  text-transform: uppercase;
+  letter-spacing: -0.03em;
+  user-select: none;
+}
+
+.manga-book {
+  position: relative;
+  z-index: 10;
+  height: min(94%, calc((100vw - 160px) * 0.72));
+  aspect-ratio: 2 / 3;
+  transform: translateX(0);
+  transform-style: preserve-3d;
+  transition: transform 0.5s ease;
+}
+
+.manga-book.is-open {
+  transform: translateX(50%);
+}
+
+.manga-book__sheet {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transform: rotateY(0deg);
+  transform-style: preserve-3d;
+  background: #14141c;
+  box-shadow: 2px 2px 14px rgb(0 0 0 / 0.45);
+  transition: transform 0.55s cubic-bezier(0.4, 0.05, 0.2, 1);
+}
+
+.manga-book__sheet.is-flipped {
+  transform: rotateY(-180deg);
+}
+
+.manga-book__sheet.is-interactive {
+  cursor: pointer;
+}
+
+.manga-book__sheet img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #f6f2ea;
+  backface-visibility: hidden;
+}
+
+.manga-book__sheet .manga-book__back {
+  transform: rotateY(180deg) translateZ(1px);
+}
+
+.manga-book__blank {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #14141c;
+  color: rgb(255 255 255 / 0.35);
+  font-size: 14px;
+  backface-visibility: hidden;
+}
+
+.manga-book__placeholder {
+  position: absolute;
+  inset: 0;
+  background: #14141c;
+}
+
+.manga-book__nav {
+  position: absolute;
+  top: 50%;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  background: rgb(0 0 0 / 0.55);
+  color: rgb(255 255 255 / 0.85);
+  backdrop-filter: blur(4px);
+  transform: translateY(-50%);
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.manga-book__nav--prev {
+  left: 16px;
+}
+
+.manga-book__nav--next {
+  right: 16px;
+}
+
+.manga-book__nav:hover {
+  background: rgb(255 103 64 / 0.85);
+}
+
+.manga-book__nav:disabled {
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.manga-book__rewind {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 9999px;
+  background: rgb(0 0 0 / 0.55);
+  color: rgb(255 255 255 / 0.85);
+  font-size: 12px;
+  font-weight: 500;
+  backdrop-filter: blur(4px);
+  transform: translateX(-50%);
+  transition: background 0.2s, color 0.2s;
+}
+
+.manga-book__rewind:hover {
+  background: rgb(255 103 64 / 0.85);
+  color: #fff;
+}
+
+/* Manga Kindle-style page reader (mobile) */
 .manga-kindle {
   position: relative;
   display: flex;

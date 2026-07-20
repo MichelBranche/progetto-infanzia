@@ -19,9 +19,8 @@ import {
   type BrowseSortId,
 } from "../lib/browseFilters";
 import { serviceById } from "../data/streaming";
-import { useStaggerInView } from "../hooks/useStaggerInView";
+import { VirtualizedDiscoveryGrid } from "../hooks/useVerticalGridWindow";
 import { LordFlixPosterCard } from "./LordFlixPosterCard";
-import { LoadingSpinner } from "./LoadingSpinner";
 import { BrowseGridSkeleton } from "./Skeleton";
 
 interface SectionBrowsePageProps {
@@ -44,8 +43,6 @@ interface SectionBrowsePageProps {
 }
 
 type FilterMenuId = "genre" | "year" | "sort" | "provider";
-
-const GRID_PAGE_SIZE = 48;
 
 function isLordFlixBrowseSection(sectionId: string): boolean {
   return sectionId === "film" || sectionId === "serie";
@@ -196,13 +193,9 @@ export function SectionBrowsePage(props: SectionBrowsePageProps) {
   } = props;
 
   const lordFlixBrowse = isLordFlixBrowseSection(sectionId);
-  const [visibleCount, setVisibleCount] = useState(GRID_PAGE_SIZE);
   const [filters, setFilters] = useState<BrowseFilterState>(DEFAULT_BROWSE_FILTERS);
   const [openMenu, setOpenMenu] = useState<FilterMenuId | null>(null);
-  const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const filterBarRef = useRef<HTMLDivElement | null>(null);
-  const gridRef = useRef<HTMLDivElement | null>(null);
-  const loadingMoreRef = useRef(false);
 
   const baseItems = useMemo(() => {
     if (lordFlixBrowse) return items;
@@ -235,22 +228,9 @@ export function SectionBrowsePage(props: SectionBrowsePageProps) {
   );
 
   useEffect(() => {
-    setVisibleCount(GRID_PAGE_SIZE);
     setFilters(DEFAULT_BROWSE_FILTERS);
     setOpenMenu(null);
   }, [sectionId]);
-
-  useEffect(() => {
-    setVisibleCount(GRID_PAGE_SIZE);
-  }, [filters]);
-
-  useEffect(() => {
-    setVisibleCount((current) => {
-      if (filteredItems.length === 0) return GRID_PAGE_SIZE;
-      if (current < GRID_PAGE_SIZE) return GRID_PAGE_SIZE;
-      return Math.min(current, Math.max(GRID_PAGE_SIZE, filteredItems.length));
-    });
-  }, [filteredItems.length]);
 
   useEffect(() => {
     if (!openMenu) return;
@@ -274,42 +254,6 @@ export function SectionBrowsePage(props: SectionBrowsePageProps) {
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [openMenu]);
-
-  const displayItems = useMemo(
-    () => filteredItems.slice(0, visibleCount),
-    [filteredItems, visibleCount],
-  );
-  const hasMore = visibleCount < filteredItems.length;
-
-  useStaggerInView(
-    gridRef,
-    ".stagger-card",
-    lordFlixBrowse,
-    [displayItems.length, filters],
-  );
-
-  useEffect(() => {
-    const node = loadMoreRef.current;
-    if (!node || !hasMore) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        if (loadingMoreRef.current) return;
-        loadingMoreRef.current = true;
-        setVisibleCount((count) =>
-          Math.min(count + GRID_PAGE_SIZE, filteredItems.length),
-        );
-        window.requestAnimationFrame(() => {
-          loadingMoreRef.current = false;
-        });
-      },
-      { rootMargin: "480px" },
-    );
-
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [hasMore, filteredItems.length, displayItems.length]);
 
   const handleOpen = (browse: BrowseItem) => {
     openBrowseItem(browse, {
@@ -491,35 +435,18 @@ export function SectionBrowsePage(props: SectionBrowsePageProps) {
         </div>
       ) : (
         <>
-          <div
-            ref={gridRef}
+          <VirtualizedDiscoveryGrid
+            items={filteredItems}
             className={`lf-discovery-grid ${lordFlixBrowse ? "lf-discovery-grid--browse" : ""}`}
-          >
-            {displayItems.map((browse) =>
-              lordFlixBrowse ? (
-                <div key={browseItemId(browse)} className="stagger-card">
-                  <LordFlixPosterCard
-                    browse={browse}
-                    layout="grid"
-                    onOpen={handleOpen}
-                  />
-                </div>
-              ) : (
-                <LordFlixPosterCard
-                  key={browseItemId(browse)}
-                  browse={browse}
-                  layout="grid"
-                  onOpen={handleOpen}
-                />
-              ),
+            getKey={(browse) => browseItemId(browse)}
+            renderItem={(browse) => (
+              <LordFlixPosterCard
+                browse={browse}
+                layout="grid"
+                onOpen={handleOpen}
+              />
             )}
-          </div>
-
-          {hasMore && (
-            <div ref={loadMoreRef} className="flex justify-center py-10">
-              <LoadingSpinner size="sm" className="border-t-accent" />
-            </div>
-          )}
+          />
         </>
       )}
     </motion.div>

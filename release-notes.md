@@ -1,8 +1,14 @@
-# Branchefy v0.2.14
+# Branchefy v0.2.15
 
-## Cast alla TV
+## Performance e fluidità
 
-- **Fix trasmissione con VPN attiva**: con una VPN full-tunnel (es. NordVPN) l'app mandava alla TV un indirizzo della VPN, irraggiungibile dalla rete di casa (la TV mostrava "connettiti alla rete/internet"). Ora sceglie sempre l'IP reale Wi-Fi/Ethernet, scartando le interfacce VPN/virtuali (NordLynx, WireGuard, OpenVPN, TAP, Proton, Mullvad, Tailscale, ZeroTier).
+- **Homepage più reattiva**: keep-alive della home, virtualizzazione delle row orizzontali e delle griglie Film/Serie, ricerca deferred, prefetch dettaglio al passaggio del mouse, poster progressivi con shimmer.
+- **Boot reale dopo l'intro**: il loading resta finché catalogo e homepage sono pronti (hero + slider), così non si apre su skeleton; aurora di preparing in CSS (non si congela più).
+- **Top 10 di nuovo in home**: solo titoli Streaming Community (ricostruito da trending se manca lo slider SC).
+
+## Manga
+
+- **Libro 3D ripristinato su desktop**: sfoglio fronte/retro con `rotateY`; su mobile resta lo swipe Kindle.
 
 ## Piattaforme
 
