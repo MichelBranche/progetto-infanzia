@@ -98,6 +98,36 @@ export function prefetchBootCatalog(): Promise<BootCatalogPayload> {
   return inflight;
 }
 
+const BOOT_CATALOG_HARD_TIMEOUT_MS = 12_000;
+const BOOT_CATALOG_POLL_MS = 400;
+
+/**
+ * Attende un catalogo davvero usabile per la homepage (righe o indice).
+ * Se il fetch rapido è vuoto, avvia il refresh completo e fa poll fino al timeout.
+ */
+export async function waitForUsableBootCatalog(
+  timeoutMs = BOOT_CATALOG_HARD_TIMEOUT_MS,
+): Promise<boolean> {
+  if (hasUsableCatalog(cache)) return true;
+
+  const deadline = Date.now() + timeoutMs;
+  const payload = await prefetchBootCatalog();
+  if (hasUsableCatalog(payload) || hasUsableCatalog(cache)) return true;
+
+  void scheduleCatalogRefresh();
+
+  while (Date.now() < deadline) {
+    if (hasUsableCatalog(cache)) return true;
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, BOOT_CATALOG_POLL_MS);
+    });
+    await pollCatalogMetadata();
+    if (hasUsableCatalog(cache)) return true;
+  }
+
+  return hasUsableCatalog(cache);
+}
+
 /** Sincronizza l'indice completo in background (SC + Saturn). */
 export function scheduleCatalogRefresh(): Promise<BootCatalogPayload | null> {
   if (refreshInflight) return refreshInflight;

@@ -2,6 +2,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -9,6 +10,12 @@ import {
 import { ChevronLeft, ChevronRight, SkipBack } from "lucide-react";
 import { useMobileDevice } from "../context/MobileDeviceContext";
 
+/**
+ * Desktop: libro 3D con fogli fronte/retro (rotateY).
+ * Mobile: swipe stile Kindle (più affidabile al touch).
+ */
+
+const RENDER_WINDOW = 5;
 const SWIPE_THRESHOLD_RATIO = 0.18;
 const SWIPE_VELOCITY_THRESHOLD = 0.45;
 const PAGE_TURN_MS = 280;
@@ -19,8 +26,232 @@ interface MangaBookReaderProps {
   title: string;
   initialPage?: number;
   onPageChange?: (page: number) => void;
-  /** Manga = RTL (tap sinistra = avanti). Libri = LTR. */
+  /** Manga = RTL. Libri / EPUB = LTR. */
   readingDirection?: "ltr" | "rtl";
+}
+
+interface Sheet {
+  front: string;
+  back: string | null;
+}
+
+const BookSheet = memo(function BookSheet({
+  sheet,
+  index,
+  flippedCount,
+  totalSheets,
+  shouldRender,
+  rewindFrom,
+  onFlipForward,
+  onFlipBack,
+}: {
+  sheet: Sheet;
+  index: number;
+  flippedCount: number;
+  totalSheets: number;
+  shouldRender: boolean;
+  rewindFrom: number | null;
+  onFlipForward: () => void;
+  onFlipBack: () => void;
+}) {
+  const isFlipped = index < flippedCount;
+  const isNext = index === flippedCount;
+  const isPrev = index === flippedCount - 1;
+
+  const handleClick = useCallback(() => {
+    if (isNext) onFlipForward();
+    else if (isPrev) onFlipBack();
+  }, [isNext, isPrev, onFlipForward, onFlipBack]);
+
+  const zIndex = isFlipped ? 20 + index : 20 + (totalSheets - index);
+
+  const rewindDelay =
+    rewindFrom !== null && index < rewindFrom
+      ? `${(rewindFrom - 1 - index) * 70}ms`
+      : undefined;
+
+  return (
+    <div
+      className={`manga-book__sheet ${isFlipped ? "is-flipped" : ""} ${
+        isNext || isPrev ? "is-interactive" : ""
+      }`}
+      style={{ zIndex, transitionDelay: rewindDelay }}
+      onClick={handleClick}
+      role="button"
+      aria-label={isFlipped ? "Pagina precedente" : "Pagina successiva"}
+    >
+      {shouldRender ? (
+        <>
+          <img
+            src={sheet.front}
+            alt={`Pagina ${index * 2 + 1}`}
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+          />
+          {sheet.back ? (
+            <img
+              src={sheet.back}
+              alt={`Pagina ${index * 2 + 2}`}
+              loading="lazy"
+              decoding="async"
+              draggable={false}
+              className="manga-book__back"
+            />
+          ) : (
+            <div className="manga-book__back manga-book__blank">Fine</div>
+          )}
+        </>
+      ) : (
+        <div className="manga-book__placeholder" />
+      )}
+    </div>
+  );
+});
+
+function MangaBook3DReader({
+  pages,
+  title,
+  initialPage = 0,
+  onPageChange,
+}: Omit<MangaBookReaderProps, "readingDirection">) {
+  const sheets = useMemo<Sheet[]>(() => {
+    const out: Sheet[] = [];
+    for (let i = 0; i < pages.length; i += 2) {
+      out.push({ front: pages[i], back: pages[i + 1] ?? null });
+    }
+    return out;
+  }, [pages]);
+
+  const [flippedCount, setFlippedCount] = useState(() =>
+    Math.min(Math.floor(initialPage / 2), Math.max(sheets.length - 1, 0)),
+  );
+  const onPageChangeRef = useRef(onPageChange);
+  onPageChangeRef.current = onPageChange;
+
+  useEffect(() => {
+    setFlippedCount(
+      Math.min(Math.floor(initialPage / 2), Math.max(sheets.length - 1, 0)),
+    );
+  }, [initialPage, sheets.length]);
+
+  const flipForward = useCallback(() => {
+    setFlippedCount((prev) => Math.min(prev + 1, sheets.length));
+  }, [sheets.length]);
+
+  const flipBack = useCallback(() => {
+    setFlippedCount((prev) => Math.max(prev - 1, 0));
+  }, []);
+
+  const [rewindFrom, setRewindFrom] = useState<number | null>(null);
+  const rewindTimerRef = useRef<number | null>(null);
+  const rewindToStart = useCallback(() => {
+    setFlippedCount((prev) => {
+      if (prev === 0) return prev;
+      setRewindFrom(prev);
+      if (rewindTimerRef.current) window.clearTimeout(rewindTimerRef.current);
+      rewindTimerRef.current = window.setTimeout(
+        () => setRewindFrom(null),
+        prev * 70 + 700,
+      );
+      return 0;
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (rewindTimerRef.current) window.clearTimeout(rewindTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const page = Math.min(flippedCount * 2, Math.max(pages.length - 1, 0));
+    onPageChangeRef.current?.(page);
+  }, [flippedCount, pages.length]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight" || e.key === " ") {
+        e.preventDefault();
+        flipForward();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        flipBack();
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        rewindToStart();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [flipForward, flipBack, rewindToStart]);
+
+  const isOpen = flippedCount > 0 && flippedCount < sheets.length;
+  const [titleLeft, titleRight] = useMemo(() => {
+    const words = title.trim().split(/\s+/);
+    if (words.length < 2) return [title, ""] as const;
+    const mid = Math.ceil(words.length / 2);
+    return [words.slice(0, mid).join(" "), words.slice(mid).join(" ")] as const;
+  }, [title]);
+
+  return (
+    <div className="manga-book-scene">
+      <div className="manga-book__typo" aria-hidden>
+        <span>{titleLeft}</span>
+        <span>{titleRight}</span>
+      </div>
+
+      <div className={`manga-book ${isOpen ? "is-open" : ""}`}>
+        {sheets.map((sheet, index) => (
+          <BookSheet
+            key={index}
+            sheet={sheet}
+            index={index}
+            flippedCount={flippedCount}
+            totalSheets={sheets.length}
+            shouldRender={
+              Math.abs(index - flippedCount) <= RENDER_WINDOW ||
+              (rewindFrom !== null && index < rewindFrom)
+            }
+            rewindFrom={rewindFrom}
+            onFlipForward={flipForward}
+            onFlipBack={flipBack}
+          />
+        ))}
+      </div>
+
+      {flippedCount > 0 && (
+        <button
+          type="button"
+          className="manga-book__rewind"
+          onClick={rewindToStart}
+          aria-label="Torna all'inizio del capitolo"
+        >
+          <SkipBack className="h-4 w-4" />
+          Torna all'inizio
+        </button>
+      )}
+
+      <button
+        type="button"
+        className="manga-book__nav manga-book__nav--prev"
+        onClick={flipBack}
+        disabled={flippedCount === 0}
+        aria-label="Pagina precedente"
+      >
+        <ChevronLeft className="h-5 w-5" />
+      </button>
+      <button
+        type="button"
+        className="manga-book__nav manga-book__nav--next"
+        onClick={flipForward}
+        disabled={flippedCount >= sheets.length}
+        aria-label="Pagina successiva"
+      >
+        <ChevronRight className="h-5 w-5" />
+      </button>
+    </div>
+  );
 }
 
 const KindlePage = memo(function KindlePage({
@@ -49,7 +280,7 @@ const KindlePage = memo(function KindlePage({
   );
 });
 
-export function MangaBookReader({
+function MangaKindleReader({
   pages,
   title,
   initialPage = 0,
@@ -174,8 +405,7 @@ export function MangaBookReader({
       if (!isDragging || dragStartRef.current.pointerId !== event.pointerId) return;
       const rawDx = event.clientX - dragStartRef.current.x;
       if (Math.abs(rawDx) > 8) didDragRef.current = true;
-      const dx = clampDrag(rawDx);
-      setDragX(dx);
+      setDragX(clampDrag(rawDx));
     },
     [clampDrag, isDragging],
   );
@@ -205,7 +435,6 @@ export function MangaBookReader({
     },
     [isDragging],
   );
-
 
   const onViewportClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -293,7 +522,10 @@ export function MangaBookReader({
         </div>
 
         {isMobileDevice && (
-          <div className={`manga-kindle__hint${isLtr ? " manga-kindle__hint--ltr" : ""}`} aria-hidden>
+          <div
+            className={`manga-kindle__hint${isLtr ? " manga-kindle__hint--ltr" : ""}`}
+            aria-hidden
+          >
             <span>{isLtr ? "Indietro" : "Avanti"}</span>
             <span>{isLtr ? "Avanti" : "Indietro"}</span>
           </div>
@@ -345,4 +577,12 @@ export function MangaBookReader({
       </div>
     </div>
   );
+}
+
+export function MangaBookReader(props: MangaBookReaderProps) {
+  const { isMobileDevice } = useMobileDevice();
+  if (isMobileDevice) {
+    return <MangaKindleReader {...props} />;
+  }
+  return <MangaBook3DReader {...props} />;
 }

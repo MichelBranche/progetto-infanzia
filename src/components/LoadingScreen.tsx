@@ -17,7 +17,8 @@ const INTRO_SOUND_SRC = "/audio/netflix-intro.mp3";
 
 const PREPARE_LABELS = [
   "Caricamento catalogo…",
-  "Preparazione titoli in evidenza…",
+  "Preparazione homepage…",
+  "Hero e titoli in evidenza…",
   "Quasi pronto…",
 ];
 
@@ -26,6 +27,8 @@ interface LoadingScreenProps {
   ready: boolean;
   onIntroComplete: () => void;
   onComplete: () => void;
+  /** Solo fase preparing (niente intro): usato dopo la scelta profilo. */
+  skipIntro?: boolean;
 }
 
 export function LoadingScreen({
@@ -33,6 +36,7 @@ export function LoadingScreen({
   ready,
   onIntroComplete,
   onComplete,
+  skipIntro = false,
 }: LoadingScreenProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const introRootRef = useRef<HTMLDivElement | null>(null);
@@ -43,13 +47,8 @@ export function LoadingScreen({
   const [labelIdx, setLabelIdx] = useState(0);
 
   useEffect(() => {
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, []);
+    if (skipIntro) return;
 
-  useEffect(() => {
     const audio = new Audio(INTRO_SOUND_SRC);
     audio.preload = "auto";
     audio.volume = 0.92;
@@ -103,18 +102,26 @@ export function LoadingScreen({
       audio.pause();
       audioRef.current = null;
     };
-  }, []);
+  }, [skipIntro]);
 
   useEffect(() => {
+    if (skipIntro) {
+      if (!introCompleteRef.current) {
+        introCompleteRef.current = true;
+        onIntroComplete();
+      }
+      return;
+    }
+
     const holdTimer = window.setTimeout(
       () => setIntroExiting(true),
       INTRO_SOUND_DELAY_MS + INTRO_HOLD_MS + INTRO_TAIL_MS,
     );
     return () => window.clearTimeout(holdTimer);
-  }, []);
+  }, [skipIntro, onIntroComplete]);
 
   useEffect(() => {
-    if (!introExiting) return;
+    if (skipIntro || !introExiting) return;
 
     const audio = audioRef.current;
     if (audio) {
@@ -139,7 +146,7 @@ export function LoadingScreen({
     }, FADE_OUT_MS);
 
     return () => window.clearTimeout(doneTimer);
-  }, [introExiting, onIntroComplete]);
+  }, [introExiting, onIntroComplete, skipIntro]);
 
   useLayoutEffect(() => {
     if (!preparing || !ready || bootCompleteRef.current) return;
@@ -149,7 +156,7 @@ export function LoadingScreen({
 
   useEffect(() => {
     const resume = () => {
-      if (!introExiting && !preparing) {
+      if (!skipIntro && !introExiting && !preparing) {
         setIntroExiting(true);
       }
       if (preparing && ready && !bootCompleteRef.current) {
@@ -163,7 +170,7 @@ export function LoadingScreen({
       window.removeEventListener("focus", resume);
       document.removeEventListener("visibilitychange", resume);
     };
-  }, [introExiting, preparing, ready, onComplete]);
+  }, [introExiting, preparing, ready, onComplete, skipIntro]);
 
   useEffect(() => {
     if (!preparing || ready) return;
@@ -173,8 +180,8 @@ export function LoadingScreen({
     return () => window.clearInterval(timer);
   }, [preparing, ready]);
 
-  const showIntro = !preparing;
-  const showPrepare = preparing;
+  const showIntro = !skipIntro && !preparing;
+  const showPrepare = preparing || skipIntro;
 
   return (
     <div

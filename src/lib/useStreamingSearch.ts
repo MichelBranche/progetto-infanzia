@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { searchScCatalogPage } from "./addonsApi";
 import {
   appendUniquePreviews,
@@ -35,8 +43,12 @@ export function useStreamingSearch(
   const searchIndexRef = useRef(searchIndex);
   searchIndexRef.current = searchIndex;
 
+  // Digitare resta prioritario: il filtro locale segue in low-priority e non
+  // blocca il keystroke (stile Concurrent React / Netflix search).
+  const deferredQuery = useDeferredValue(query);
+
   useEffect(() => {
-    const q = query.trim();
+    const q = deferredQuery.trim();
     const requestId = ++requestIdRef.current;
     offsetRef.current = 0;
     setHasMore(false);
@@ -45,17 +57,22 @@ export function useStreamingSearch(
     inflightRef.current = false;
 
     if (!q) {
-      setResults([]);
-      setLoading(false);
-      setLoadingMore(false);
+      startTransition(() => {
+        setResults([]);
+        setLoading(false);
+        setLoadingMore(false);
+      });
       return;
     }
 
     const catalogSnapshot = catalogRef.current;
     const local =
       q.length >= 2 ? filterCatalogIndex(searchIndexRef.current, q) : [];
-    setResults(local);
-    setLoading(true);
+
+    startTransition(() => {
+      setResults(local);
+      setLoading(true);
+    });
 
     const timer = window.setTimeout(() => {
       void searchScCatalogPage(q, 0, PAGE_SIZE)
@@ -67,26 +84,30 @@ export function useStreamingSearch(
             catalogSnapshot,
             q,
           );
-          setResults(merged);
-          setTotal(Math.max(page.total, merged.length));
-          setHasMore(page.hasMore);
+          startTransition(() => {
+            setResults(merged);
+            setTotal(Math.max(page.total, merged.length));
+            setHasMore(page.hasMore);
+            if (merged.length === 0) {
+              setDidYouMean(suggestCatalogDidYouMean(catalogSnapshot, q));
+            } else {
+              setDidYouMean(null);
+            }
+          });
           offsetRef.current = page.items.length;
-          if (merged.length === 0) {
-            setDidYouMean(suggestCatalogDidYouMean(catalogSnapshot, q));
-          } else {
-            setDidYouMean(null);
-          }
         })
         .catch(() => {
           if (requestId !== requestIdRef.current) return;
-          setResults(local);
-          setHasMore(false);
-          setTotal(local.length);
-          setDidYouMean(
-            local.length === 0
-              ? suggestCatalogDidYouMean(catalogSnapshot, q)
-              : null,
-          );
+          startTransition(() => {
+            setResults(local);
+            setHasMore(false);
+            setTotal(local.length);
+            setDidYouMean(
+              local.length === 0
+                ? suggestCatalogDidYouMean(catalogSnapshot, q)
+                : null,
+            );
+          });
         })
         .finally(() => {
           if (requestId === requestIdRef.current) {
@@ -98,7 +119,7 @@ export function useStreamingSearch(
     return () => {
       window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [deferredQuery]);
 
   const loadMore = useCallback(() => {
     const q = query.trim();
@@ -109,11 +130,13 @@ export function useStreamingSearch(
 
     void searchScCatalogPage(q, offsetRef.current, PAGE_SIZE)
       .then((page) => {
-        setResults((prev) =>
-          rankSearchResults(appendUniquePreviews(prev, page.items), q),
-        );
-        setTotal(page.total);
-        setHasMore(page.hasMore);
+        startTransition(() => {
+          setResults((prev) =>
+            rankSearchResults(appendUniquePreviews(prev, page.items), q),
+          );
+          setTotal(page.total);
+          setHasMore(page.hasMore);
+        });
         offsetRef.current += page.items.length;
       })
       .finally(() => {

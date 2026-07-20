@@ -1,8 +1,11 @@
-import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense, type ReactNode } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense, startTransition, type ReactNode } from "react";
 import { useStreamingSearch } from "./lib/useStreamingSearch";
 import { LoadingScreen } from "./components/LoadingScreen";
-import { prefetchBootCatalog } from "./lib/bootCatalog";
+import {
+  getBootCatalogCache,
+  hasUsableCatalog,
+  waitForUsableBootCatalog,
+} from "./lib/bootCatalog";
 import { prefetchBootFriends } from "./lib/bootFriends";
 import { useDevBackendGate } from "./lib/devBackendGate";
 import { DevBackendOfflineScreen } from "./components/DevBackendOfflineScreen";
@@ -13,13 +16,9 @@ import { LiquidBackground } from "./components/LiquidBackground";
 import { HomeHeroBackdrop } from "./components/HomeHeroBackdrop";
 import { BrowseAmbientSetup } from "./components/BrowseAmbientSetup";
 import { HeroAmbientProvider, useHeroAmbientControls } from "./context/HeroAmbientContext";
-import { HeroBanner } from "./components/HeroBanner";
-import { MediaRow } from "./components/MediaRow";
+import { HomeKeepAliveView } from "./components/HomeKeepAliveView";
 import { SectionBrowsePage } from "./components/SectionBrowsePage";
 import { CartoniBrowsePage } from "./components/CartoniBrowsePage";
-import { HeroSkeleton, RowSkeleton } from "./components/Skeleton";
-import { MangaPromoBanner } from "./components/MangaPromoBanner";
-import { PlatformPromoBanner } from "./components/PlatformPromoBanner";
 import { ProfilePage, type ProfileTab } from "./components/ProfilePage";
 import { FriendProfilePage } from "./components/FriendProfilePage";
 import type { FriendProfileTarget } from "./components/chat/FriendProfileSheet";
@@ -57,7 +56,6 @@ import { GuestHotSinglesToast } from "./components/GuestHotSinglesToast";
 import { GuestLimitBlockedScreen } from "./components/GuestLimitBlockedScreen";
 import { PreviewAudioProvider } from "./context/PreviewAudioContext";
 import {
-  ARCHIVIO_CARTONI_LOGO,
   isArchivioCartoniRow,
 } from "./lib/brandAssets";
 import { sectionMeta } from "./data/nav";
@@ -170,11 +168,6 @@ const BookReaderPage = lazy(() =>
 const SearchOverlay = lazy(() =>
   import("./components/SearchOverlay").then((m) => ({ default: m.SearchOverlay })),
 );
-const NetflixTop10Row = lazy(() =>
-  import("./components/NetflixTop10Row").then((m) => ({
-    default: m.NetflixTop10Row,
-  })),
-);
 const AddonWatchPage = lazy(() =>
   import("./components/AddonWatchPage").then((m) => ({
     default: m.AddonWatchPage,
@@ -201,79 +194,70 @@ function AppFrame({ children }: { children: ReactNode }) {
 }
 
 function RouteFrame({
-  routeKey,
   children,
 }: {
-  routeKey: string;
+  routeKey?: string;
   children: ReactNode;
 }) {
-  // WebView2: key sulla route rimonta tutto l'albero e può lasciare schermo nero.
-  if (IS_TAURI_SHELL) {
-    return <>{children}</>;
-  }
-  return (
-    <AnimatePresence mode="wait">
-      <motion.div
-        key={routeKey}
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -6 }}
-        transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
-      >
-        {children}
-      </motion.div>
-    </AnimatePresence>
-  );
+  // Niente remount su cambio sezione: HomeKeepAliveSlot deve restare nel DOM
+  // (web e desktop) cosi' scroll/ritorno home restano istantanei.
+  return <>{children}</>;
 }
 
-/** WebView2: spegne solo backdrop hero fuori home; aurora e palette restano attivi. */
+/** Spegne backdrop hero fuori home (e sotto overlay watch). */
 function TauriHeroAmbientBridge({
   activeNav,
   seriesKey,
+  overlayOpen,
 }: {
   activeNav: string;
   seriesKey: string | null;
+  overlayOpen: boolean;
 }) {
   const { setActive, setBackdropUrl } = useHeroAmbientControls();
 
   useEffect(() => {
     if (!IS_TAURI_SHELL) return;
-    const onHome = activeNav === "home" && !seriesKey;
+    const onHome = activeNav === "home" && !seriesKey && !overlayOpen;
     if (onHome) {
       setActive(true);
       return;
     }
     setActive(false);
     setBackdropUrl(null);
-  }, [activeNav, seriesKey, setActive, setBackdropUrl]);
+  }, [activeNav, seriesKey, overlayOpen, setActive, setBackdropUrl]);
 
   return null;
 }
 
-/**
- * WebView2: mantiene la home nel DOM (nascosta) quando si naviga altrove,
- * così aurora/WebGL/hero ambient non vengono smontati e il compositor resta stabile.
- */
-function TauriKeepAliveSlot({
-  enabled,
-  show,
-  children,
-}: {
-  enabled: boolean;
-  show: boolean;
-  children: ReactNode;
-}) {
-  if (!enabled) {
-    return show ? <>{children}</> : null;
-  }
-  return (
-    <div className={show ? "relative z-[1]" : "hidden"} aria-hidden={!show}>
-      {children}
-    </div>
+function seedHeroItemsFromBoot(): MediaItem[] {
+  const boot = getBootCatalogCache();
+  if (!hasUsableCatalog(boot)) return [];
+  const previews = buildHeroStreamingPreviews(
+    boot!.index,
+    boot!.index,
+    boot!.rows,
+  );
+  if (previews.length === 0) return [];
+  return buildRandomHeroItems(
+    [],
+    previews,
+    (preview) =>
+      previewToMediaItem(
+        enrichStreamingPreview(mergePreviewForHero(preview, boot!.index)),
+      ),
+    8,
   );
 }
 
-function AppContent() {
+function AppContent({
+  onHomeReady,
+  deferAmbient = false,
+}: {
+  onHomeReady?: () => void;
+  /** Evita un secondo WebGL sotto il boot loader (altrimenti l'aurora si congela). */
+  deferAmbient?: boolean;
+}) {
   const { isCompactShell } = useCompactShell();
   const platformPromoVariant = homePlatformPromoVariant(isCompactShell);
   const { activeProfile, clearProfile, isParent } = useProfile();
@@ -359,9 +343,11 @@ function AppContent() {
     book: WelibBook;
     kind: "read" | "listen";
   } | null>(null);
-  const [heroItems, setHeroItems] = useState<MediaItem[]>([]);
+  const [heroItems, setHeroItems] = useState<MediaItem[]>(seedHeroItemsFromBoot);
+  const homeReadyReportedRef = useRef(false);
   const prevActiveNavRef = useRef(activeNav);
   const firstUrlSyncRef = useRef(true);
+  const homeEntranceDoneRef = useRef(false);
   const cartoniCatalogRefreshRef = useRef(false);
   const mainScrollRef = useRef<HTMLElement>(null);
   const { hasStreaming } = useAddons();
@@ -453,6 +439,15 @@ function AppContent() {
       setActiveNav("home");
     }
   }, [isParent, activeNav]);
+
+  useEffect(() => {
+    if (activeNav !== "home") return;
+    // Dopo la prima visita, niente stagger al rientro (costa frame).
+    const timer = window.setTimeout(() => {
+      homeEntranceDoneRef.current = true;
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [activeNav]);
 
   // Deep link web: riflette "sezione + titolo aperto" nell'URL. Il primo giro
   // normalizza il path (replaceState, niente entry in cronologia); i successivi
@@ -562,7 +557,7 @@ function AppContent() {
 
   if (!activeProfile) return null;
 
-  const handlePlay = (id: string) => {
+  const handlePlay = useCallback((id: string) => {
     if (!ensureGuestCanPlay()) return;
     const target = parseStreamingMediaId(id);
     if (!target) return;
@@ -573,9 +568,9 @@ function AppContent() {
       ...target,
       videoId: target.videoId,
     });
-  };
+  }, [ensureGuestCanPlay]);
 
-  const handlePlayNow = (id: string) => {
+  const handlePlayNow = useCallback((id: string) => {
     if (!ensureGuestCanPlay()) return;
     const target = parseStreamingMediaId(id);
     if (!target) return;
@@ -586,15 +581,15 @@ function AppContent() {
       ...target,
       videoId: target.videoId,
     });
-  };
+  }, [ensureGuestCanPlay]);
 
-  const handleBackFromWatch = () => {
+  const handleBackFromWatch = useCallback(() => {
     setWatchingId(null);
     setWatchAutoplay(false);
     setDetailSimilar([]);
     void refresh();
     void refreshStreamingContinue();
-  };
+  }, [refresh, refreshStreamingContinue]);
 
   const handleNav = (id: string) => {
     if (id === "invite") {
@@ -605,7 +600,7 @@ function AppContent() {
       setBookReader(null);
       setSearchOpen(false);
       setSearchQuery("");
-      setActiveNav("invite");
+      startTransition(() => setActiveNav("invite"));
       return;
     }
     if ((id === "add" || id === "manage" || id === "settings" || id === "activity") && !isParent) return;
@@ -619,14 +614,14 @@ function AppContent() {
       setProfileTab("list");
       setSearchOpen(false);
       setSearchQuery("");
-      setActiveNav("profile");
+      startTransition(() => setActiveNav("profile"));
       return;
     }
     if (id === "friends") {
       setProfileTab("friends");
       setSearchOpen(false);
       setSearchQuery("");
-      setActiveNav("profile");
+      startTransition(() => setActiveNav("profile"));
       return;
     }
     if (id === "profile") {
@@ -634,12 +629,12 @@ function AppContent() {
     }
     if (id === "search") {
       setSearchOpen(true);
-      setActiveNav("search");
+      startTransition(() => setActiveNav("search"));
       return;
     }
     setSearchOpen(false);
     setSearchQuery("");
-    setActiveNav(id);
+    startTransition(() => setActiveNav(id));
   };
 
   const handleOpenSearch = () => {
@@ -715,9 +710,12 @@ function AppContent() {
   }, [watchingId, addonWatch, scheduleContinueRefresh]);
 
   useEffect(() => {
-    if (activeNav === "home" && activeProfile?.id) {
+    if (activeNav !== "home" || !activeProfile?.id) return;
+    // Dopo il paint del rientro: evita continue+re-render nello stesso frame.
+    const timer = window.setTimeout(() => {
       scheduleContinueRefresh();
-    }
+    }, 400);
+    return () => window.clearTimeout(timer);
   }, [activeNav, activeProfile?.id, scheduleContinueRefresh]);
 
   useEffect(() => {
@@ -737,8 +735,6 @@ function AppContent() {
   );
 
   useEffect(() => {
-    const enteredHome =
-      activeNav === "home" && prevActiveNavRef.current !== "home";
     prevActiveNavRef.current = activeNav;
 
     if (activeNav !== "home") return;
@@ -751,9 +747,9 @@ function AppContent() {
         enrichListedPreview(mergePreviewForHero(preview, catalogIndex)),
       );
 
-    // Fase 1: hero subito dai poster già in cache (senza attendere fetch logo).
+    // Non ricostruire l'hero se e' gia' pronto (rientro sezione = freeze).
     setHeroItems((current) => {
-      if (!enteredHome && current.length > 0) return current;
+      if (current.length > 0) return current;
       return buildRandomHeroItems(
         [],
         heroStreamingPreviews,
@@ -762,12 +758,21 @@ function AppContent() {
       );
     });
 
-    // Fase 2: upgrade logo/background in background.
+    // Arricchimento logo solo se l'hero e' ancora "povero" (niente background).
     void (async () => {
+      await new Promise((r) => window.setTimeout(r, 80));
+      if (cancelled) return;
+
       const pool = await enrichHeroPreviewsWithLogos(heroStreamingPreviews);
       if (cancelled || pool.length === 0) return;
       setHeroItems((current) => {
-        if (!enteredHome && current.length > 0) return current;
+        if (current.length === 0) {
+          return buildRandomHeroItems([], pool, toHeroMedia, 8);
+        }
+        // Gia' arricchito in un giro precedente: non reshuffle al rientro.
+        if (current.some((item) => item.backgroundUrl || item.logoUrl)) {
+          return current;
+        }
         return buildRandomHeroItems([], pool, toHeroMedia, 8);
       });
     })();
@@ -800,8 +805,8 @@ function AppContent() {
   );
 
   const { top10Row, otherRows: streamingRowsWithoutTop10 } = useMemo(
-    () => splitTop10Row(streamingRows, streamingPreviews),
-    [streamingRows, streamingPreviews],
+    () => splitTop10Row(streamingRows, catalogIndex),
+    [streamingRows, catalogIndex],
   );
 
   const searchSuggestions = useMemo(() => {
@@ -935,6 +940,46 @@ function AppContent() {
     !cartoniHomeRow &&
     !continueHomeRow;
 
+  /** Home davvero usabile: hero + almeno due slider, niente skeleton di pending. */
+  const homeSurfaceReady =
+    !homeStreamingPending &&
+    heroItems.length > 0 &&
+    homeCatalogRows.length >= 2 &&
+    streamingRows.length > 0;
+
+  useEffect(() => {
+    if (!homeSurfaceReady || homeReadyReportedRef.current) return;
+    let cancelled = false;
+    let settleTimer = 0;
+    const start = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (cancelled) return;
+        // Lascia partire il primo paint delle card prima di togliere il loader.
+        settleTimer = window.setTimeout(() => {
+          if (cancelled || homeReadyReportedRef.current) return;
+          homeReadyReportedRef.current = true;
+          onHomeReady?.();
+        }, 500);
+      });
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(start);
+      if (settleTimer) window.clearTimeout(settleTimer);
+    };
+  }, [homeSurfaceReady, onHomeReady]);
+
+  // Fallback: non lasciare l'utente bloccato sul loader se il catalogo fallisce.
+  useEffect(() => {
+    if (homeReadyReportedRef.current) return;
+    const timer = window.setTimeout(() => {
+      if (homeReadyReportedRef.current) return;
+      homeReadyReportedRef.current = true;
+      onHomeReady?.();
+    }, 16_000);
+    return () => window.clearTimeout(timer);
+  }, [onHomeReady]);
+
   const saturnSeedPreviews = useMemo(() => {
     const seen = new Set<string>();
     const out: StremioMetaPreview[] = [];
@@ -1064,7 +1109,7 @@ function AppContent() {
     }
   }, [activeNav, streamingPreviews, syncingIndex, refreshCatalog]);
 
-  const handlePlayStreaming = (preview: StremioMetaPreview) => {
+  const handlePlayStreaming = useCallback((preview: StremioMetaPreview) => {
     if (!ensureGuestCanPlay()) return;
     if (!STREMIO_ADDONS_ENABLED && !isBuiltinStreamingCatalog(preview.catalogPrefix)) {
       return;
@@ -1083,134 +1128,12 @@ function AppContent() {
       return;
     }
     setAddonWatch(target);
-  };
+  }, [ensureGuestCanPlay]);
 
-  if (partyGuestSession) {
-    const guestContent = partyGuestSession.room.content;
-    const streamingTarget =
-      guestContent.contentKind === "streaming"
-        ? parseStreamingMediaId(guestContent.mediaId)
-        : null;
-
-    if (streamingTarget) {
-      return (
-        <SuspenseRoute>
-          <AddonWatchPage
-          profileId={activeProfile.id}
-          contentType={streamingTarget.contentType}
-          metaId={streamingTarget.metaId}
-          videoId={streamingTarget.videoId}
-          slug={streamingTarget.slug}
-          catalogPrefix={streamingTarget.catalogPrefix}
-          watchPartySession={partyGuestSession}
-          onWatchPartySessionChange={setPartyGuestSession}
-          onBack={async () => {
-            setPartyGuestSession(null);
-            await refreshStreamingContinue();
-          }}
-          onRefreshContinue={refreshStreamingContinue}
-          />
-        </SuspenseRoute>
-      );
-    }
-
-    const guestMedia: MediaItem = {
-      id: guestContent.mediaId || `party:${partyGuestSession.room.code}`,
-      title: guestContent.title,
-      mediaType: "film",
-      filePath: "",
-      fileName: "",
-      posterUrl: guestContent.posterUrl,
-      isFavorite: false,
-      kidFriendly: true,
-      streamingServices: [],
-      genres: [],
-      gradient: "from-indigo-950 via-slate-900 to-violet-950",
-      createdAt: new Date(0).toISOString(),
-    };
-
-    return (
-      <SuspenseRoute>
-        <VideoPlayer
-        streamUrl={guestContent.streamUrl}
-        media={guestMedia}
-        isHls={guestContent.isHls}
-        watchPartySession={partyGuestSession}
-        onWatchPartySessionChange={setPartyGuestSession}
-        onBack={async () => {
-          setPartyGuestSession(null);
-          await refreshStreamingContinue();
-        }}
-        />
-      </SuspenseRoute>
-    );
-  }
-
-  if (addonWatch) {
-    const handleBackFromAddon = () => {
-      setAddonWatch(null);
-      setDetailSimilar([]);
-      void refreshStreamingContinue();
-      refreshFriendAlerts();
-    };
-
-    return (
-      <div className="h-full overflow-y-auto overflow-x-hidden bg-void">
-        <SuspenseRoute>
-          <AddonWatchPage
-          key={`${addonWatch.catalogPrefix ?? "sc"}:${addonWatch.metaId}:${addonWatch.slug ?? ""}:${addonWatch.videoId ?? ""}:${addonWatch.preferredVideoId ?? ""}`}
-          profileId={activeProfile.id}
-          contentType={addonWatch.contentType}
-          metaId={addonWatch.metaId}
-          videoId={addonWatch.videoId}
-          preferredVideoId={addonWatch.preferredVideoId}
-          slug={addonWatch.slug}
-          catalogPrefix={addonWatch.catalogPrefix}
-          onBack={handleBackFromAddon}
-          onRefreshContinue={refreshStreamingContinue}
-          relatedItems={detailSimilar}
-          onOpenDetail={handleOpenBrowseDetail}
-          onPlayRelated={handlePlay}
-          onPlayStreamingRelated={handlePlayStreaming}
-          onOpenSeries={handleOpenSeries}
-          onToggleStreamingList={handleToggleStreamingList}
-          />
-        </SuspenseRoute>
-      </div>
-    );
-  }
-
-  if (watchingId) {
-    return (
-      <SuspenseRoute>
-        <WatchPage
-        mediaId={watchingId}
-        autoplay={watchAutoplay}
-        relatedItems={detailSimilar}
-        onBack={handleBackFromWatch}
-        onPlayEpisode={handlePlayNow}
-        onOpenDetail={handleOpenBrowseDetail}
-        onPlayStreaming={handlePlayStreaming}
-        onOpenSeries={handleOpenSeries}
-        onToggleStreamingList={handleToggleStreamingList}
-        />
-      </SuspenseRoute>
-    );
-  }
-
-  if (friendProfile) {
-    return (
-      <FriendProfilePage
-        friend={friendProfile}
-        onBack={() => setFriendProfile(null)}
-        onPlayStreaming={(preview) => {
-          setFriendProfile(null);
-          handlePlayStreaming(preview);
-        }}
-        onOpenChat={() => setFriendProfile(null)}
-      />
-    );
-  }
+  const watchOverlayOpen = Boolean(
+    partyGuestSession || addonWatch || watchingId || friendProfile,
+  );
+  const homeAnimateEntrance = !homeEntranceDoneRef.current;
 
   const sectionInfo = sectionMeta[activeNav];
 
@@ -1224,13 +1147,22 @@ function AppContent() {
       }}
     >
     <HeroAmbientProvider>
-    <TauriHeroAmbientBridge activeNav={activeNav} seriesKey={seriesKey} />
+    <TauriHeroAmbientBridge
+      activeNav={activeNav}
+      seriesKey={seriesKey}
+      overlayOpen={watchOverlayOpen}
+    />
     <AppFrame>
       <BrowseAmbientSetup activeNav={activeNav} seriesKey={seriesKey} />
-      <LiquidBackground />
+      {!deferAmbient && <LiquidBackground />}
       <HomeHeroBackdrop />
       <div className="noise-overlay pointer-events-none fixed inset-0 z-[2] opacity-[0.04]" />
 
+      {/* Shell resta montata sotto gli overlay watch: ritorno istantaneo. */}
+      <div
+        className={watchOverlayOpen ? "pointer-events-none invisible" : undefined}
+        aria-hidden={watchOverlayOpen || undefined}
+      >
       <AppTopNav
         activeId={searchOpen ? "search" : activeNav}
         profile={activeProfile}
@@ -1250,6 +1182,7 @@ function AppContent() {
         }}
         onLogout={() => void handleLogout()}
       />
+      </div>
 
       <AppMobileNavBar
         activeId={searchOpen ? "search" : activeNav}
@@ -1257,10 +1190,15 @@ function AppContent() {
         devMode={devMode}
         onNavigate={handleNav}
         onOpenSearch={handleOpenSearch}
-        hidden={searchOpen}
+        hidden={searchOpen || watchOverlayOpen}
       />
 
-      <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div
+        className={`relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${
+          watchOverlayOpen ? "invisible pointer-events-none" : ""
+        }`}
+        aria-hidden={watchOverlayOpen || undefined}
+      >
         <GuestUsageWidget onRegister={handleGuestRegister} />
         {isGuest && guestAccessBlocked && (
           <GuestLimitBlockedScreen onRegister={handleGuestRegister} />
@@ -1445,167 +1383,33 @@ function AppContent() {
                   </SuspenseRoute>
                 )}
 
-                {!seriesKey && (activeNav === "home" || IS_TAURI_SHELL) && (
-                  <TauriKeepAliveSlot enabled={IS_TAURI_SHELL} show={activeNav === "home"}>
-                  <>
-                    {heroItems.length > 0 ? (
-                      <HeroBanner
-                        fullPage
-                        items={heroItems}
-                        scrollContainerRef={mainScrollRef}
-                        onPlay={handlePlayNow}
-                        onOpenDetail={handleOpenBrowseDetail}
-                        onOpenSeries={(media) => {
-                          if (media.seriesTitle) {
-                            handleOpenSeries(
-                              `${media.mediaType}::${media.seriesTitle}`,
-                            );
-                          }
-                        }}
-                        onToggleStreamingList={handleToggleStreamingList}
-                      />
-                    ) : (
-                      <HeroSkeleton />
-                    )}
-                    {homeStreamingPending && (
-                      <div className="page-px pb-2 pt-4">
-                        <RowSkeleton />
-                        <RowSkeleton />
-                      </div>
-                    )}
-                    {continueHomeRow && (
-                      <div className="lf-home-continue-slot relative">
-                        <MediaRow
-                          key={continueHomeRow.key}
-                          index="01"
-                          title={continueHomeRow.title}
-                          subtitle={continueHomeRow.subtitle}
-                          items={continueHomeRow.items}
-                          layout="continue"
-                          animateEntrance
-                          onPlay={handlePlayNow}
-                          onPlayStreaming={handlePlayStreaming}
-                          onOpenSeries={handleOpenSeries}
-                          onToggleStreamingList={handleToggleStreamingList}
-                        />
-                      </div>
-                    )}
-                    <PlatformPromoBanner variant={platformPromoVariant} />
-                    {top10Row && (
-                      <div className="lf-home-top10-slot relative">
-                        <SuspenseRoute>
-                          <NetflixTop10Row
-                          title={top10Row.title}
-                          items={top10Row.items}
-                          onPlayStreaming={handlePlayStreaming}
-                          onOpenDetail={handleOpenBrowseDetail}
-                          />
-                        </SuspenseRoute>
-                      </div>
-                    )}
-                    <div className="lf-home-content relative">
-                    {(homeCatalogRows.length > 0 || streamingError) && (
-                      <div className="relative space-y-1 overflow-visible">
-                        {homeCatalogRowsBeforeManga.map((row, i) => (
-                            <MediaRow
-                              key={row.key}
-                              index={String(i + 1).padStart(2, "0")}
-                              title={row.title}
-                              titleLogo={
-                                isArchivioCartoniRow(row.key, row.title)
-                                  ? ARCHIVIO_CARTONI_LOGO
-                                  : undefined
-                              }
-                              subtitle={row.subtitle}
-                              items={row.items}
-                              animateEntrance
-                              onPlay={handlePlayNow}
-                              onPlayStreaming={handlePlayStreaming}
-                              onOpenDetail={handleOpenBrowseDetail}
-                              onOpenSeries={handleOpenSeries}
-                              onToggleStreamingList={handleToggleStreamingList}
-                              actionLabel={
-                                row.key === "favorites"
-                                  ? "Vedi tutto"
-                                  : row.key === "home-cartoni"
-                                    ? "Esplora"
-                                    : undefined
-                              }
-                              onActionClick={
-                                row.key === "favorites"
-                                  ? () => {
-                                      setProfileTab("list");
-                                      setActiveNav("profile");
-                                    }
-                                  : row.key === "home-cartoni"
-                                    ? () => handleNav("cartoni")
-                                    : undefined
-                              }
-                            />
-                          ))}
-                        <MangaPromoBanner onExplore={() => handleNav("manga")} />
-                        {homeCatalogRowsAfterManga.map((row, i) => (
-                            <MediaRow
-                              key={row.key}
-                              index={String(
-                                homeCatalogRowsBeforeManga.length + i + 1,
-                              ).padStart(2, "0")}
-                              title={row.title}
-                              titleLogo={
-                                isArchivioCartoniRow(row.key, row.title)
-                                  ? ARCHIVIO_CARTONI_LOGO
-                                  : undefined
-                              }
-                              subtitle={row.subtitle}
-                              items={row.items}
-                              animateEntrance
-                              onPlay={handlePlayNow}
-                              onPlayStreaming={handlePlayStreaming}
-                              onOpenDetail={handleOpenBrowseDetail}
-                              onOpenSeries={handleOpenSeries}
-                              onToggleStreamingList={handleToggleStreamingList}
-                              actionLabel={
-                                row.key === "favorites"
-                                  ? "Vedi tutto"
-                                  : row.key === "home-cartoni"
-                                    ? "Esplora"
-                                    : undefined
-                              }
-                              onActionClick={
-                                row.key === "favorites"
-                                  ? () => {
-                                      setProfileTab("list");
-                                      setActiveNav("profile");
-                                    }
-                                  : row.key === "home-cartoni"
-                                    ? () => handleNav("cartoni")
-                                    : undefined
-                              }
-                            />
-                          ))}
-                      </div>
-                    )}
-
-                    {hasStreaming &&
-                      streamingError &&
-                      homeCatalogRows.length === 0 && (
-                        <p className="page-px py-8 text-center text-[13px] text-text-muted">
-                          {streamingError}
-                        </p>
-                      )}
-                    </div>
-                    <footer className="lf-home-footer page-px">
-                      <span className="chromatic-logo chromatic-logo--skew lf-home-footer__logo">
-                        B
-                      </span>
-                      <p className="lf-home-footer__text">
-                        I contenuti sono forniti da cataloghi di terze parti.
-                        L&apos;app non ospita né distribuisce alcun file
-                        multimediale.
-                      </p>
-                    </footer>
-                  </>
-                  </TauriKeepAliveSlot>
+                {!seriesKey && (
+                  <HomeKeepAliveView
+                    show={activeNav === "home"}
+                    heroItems={heroItems}
+                    homeStreamingPending={homeStreamingPending}
+                    continueHomeRow={continueHomeRow}
+                    top10Row={top10Row}
+                    homeCatalogRows={homeCatalogRows}
+                    homeCatalogRowsBeforeManga={homeCatalogRowsBeforeManga}
+                    homeCatalogRowsAfterManga={homeCatalogRowsAfterManga}
+                    streamingError={streamingError}
+                    hasStreaming={hasStreaming}
+                    platformPromoVariant={platformPromoVariant}
+                    animateEntrance={homeAnimateEntrance}
+                    scrollContainerRef={mainScrollRef}
+                    onPlay={handlePlayNow}
+                    onPlayStreaming={handlePlayStreaming}
+                    onOpenDetail={handleOpenBrowseDetail}
+                    onOpenSeries={handleOpenSeries}
+                    onToggleStreamingList={handleToggleStreamingList}
+                    onOpenMyList={() => {
+                      setProfileTab("list");
+                      startTransition(() => setActiveNav("profile"));
+                    }}
+                    onOpenCartoni={() => handleNav("cartoni")}
+                    onOpenManga={() => handleNav("manga")}
+                  />
                 )}
 
                 {!seriesKey &&
@@ -1663,6 +1467,133 @@ function AppContent() {
         </main>
       </div>
 
+      {partyGuestSession && (() => {
+        const guestContent = partyGuestSession.room.content;
+        const streamingTarget =
+          guestContent.contentKind === "streaming"
+            ? parseStreamingMediaId(guestContent.mediaId)
+            : null;
+
+        if (streamingTarget) {
+          return (
+            <div className="fixed inset-0 z-[70] bg-void">
+              <SuspenseRoute>
+                <AddonWatchPage
+                  profileId={activeProfile.id}
+                  contentType={streamingTarget.contentType}
+                  metaId={streamingTarget.metaId}
+                  videoId={streamingTarget.videoId}
+                  slug={streamingTarget.slug}
+                  catalogPrefix={streamingTarget.catalogPrefix}
+                  watchPartySession={partyGuestSession}
+                  onWatchPartySessionChange={setPartyGuestSession}
+                  onBack={async () => {
+                    setPartyGuestSession(null);
+                    await refreshStreamingContinue();
+                  }}
+                  onRefreshContinue={refreshStreamingContinue}
+                />
+              </SuspenseRoute>
+            </div>
+          );
+        }
+
+        const guestMedia: MediaItem = {
+          id: guestContent.mediaId || `party:${partyGuestSession.room.code}`,
+          title: guestContent.title,
+          mediaType: "film",
+          filePath: "",
+          fileName: "",
+          posterUrl: guestContent.posterUrl,
+          isFavorite: false,
+          kidFriendly: true,
+          streamingServices: [],
+          genres: [],
+          gradient: "from-indigo-950 via-slate-900 to-violet-950",
+          createdAt: new Date(0).toISOString(),
+        };
+
+        return (
+          <div className="fixed inset-0 z-[70] bg-void">
+            <SuspenseRoute>
+              <VideoPlayer
+                streamUrl={guestContent.streamUrl}
+                media={guestMedia}
+                isHls={guestContent.isHls}
+                watchPartySession={partyGuestSession}
+                onWatchPartySessionChange={setPartyGuestSession}
+                onBack={async () => {
+                  setPartyGuestSession(null);
+                  await refreshStreamingContinue();
+                }}
+              />
+            </SuspenseRoute>
+          </div>
+        );
+      })()}
+
+      {!partyGuestSession && addonWatch && (
+        <div className="fixed inset-0 z-[70] overflow-y-auto overflow-x-hidden bg-void">
+          <SuspenseRoute>
+            <AddonWatchPage
+              key={`${addonWatch.catalogPrefix ?? "sc"}:${addonWatch.metaId}:${addonWatch.slug ?? ""}:${addonWatch.videoId ?? ""}:${addonWatch.preferredVideoId ?? ""}`}
+              profileId={activeProfile.id}
+              contentType={addonWatch.contentType}
+              metaId={addonWatch.metaId}
+              videoId={addonWatch.videoId}
+              preferredVideoId={addonWatch.preferredVideoId}
+              slug={addonWatch.slug}
+              catalogPrefix={addonWatch.catalogPrefix}
+              onBack={() => {
+                setAddonWatch(null);
+                setDetailSimilar([]);
+                void refreshStreamingContinue();
+                refreshFriendAlerts();
+              }}
+              onRefreshContinue={refreshStreamingContinue}
+              relatedItems={detailSimilar}
+              onOpenDetail={handleOpenBrowseDetail}
+              onPlayRelated={handlePlay}
+              onPlayStreamingRelated={handlePlayStreaming}
+              onOpenSeries={handleOpenSeries}
+              onToggleStreamingList={handleToggleStreamingList}
+            />
+          </SuspenseRoute>
+        </div>
+      )}
+
+      {!partyGuestSession && !addonWatch && watchingId && (
+        <div className="fixed inset-0 z-[70] bg-void">
+          <SuspenseRoute>
+            <WatchPage
+              mediaId={watchingId}
+              autoplay={watchAutoplay}
+              relatedItems={detailSimilar}
+              onBack={handleBackFromWatch}
+              onPlayEpisode={handlePlayNow}
+              onOpenDetail={handleOpenBrowseDetail}
+              onPlayStreaming={handlePlayStreaming}
+              onOpenSeries={handleOpenSeries}
+              onToggleStreamingList={handleToggleStreamingList}
+            />
+          </SuspenseRoute>
+        </div>
+      )}
+
+      {!partyGuestSession && !addonWatch && !watchingId && friendProfile && (
+        <div className="fixed inset-0 z-[70] overflow-y-auto overflow-x-hidden bg-void">
+          <FriendProfilePage
+            friend={friendProfile}
+            onBack={() => setFriendProfile(null)}
+            onPlayStreaming={(preview) => {
+              setFriendProfile(null);
+              handlePlayStreaming(preview);
+            }}
+            onOpenChat={() => setFriendProfile(null)}
+          />
+        </div>
+      )}
+
       {mangaReader && (
         <SuspenseRoute>
           <MangaReaderPage
@@ -1696,7 +1627,7 @@ function AppContent() {
 function AppGate() {
   const [bootPhase, setBootPhase] = useState<"intro" | "preparing" | "done">("intro");
   const [catalogReady, setCatalogReady] = useState(false);
-  const [friendsReady, setFriendsReady] = useState(false);
+  const [homeReady, setHomeReady] = useState(false);
   const { profile: cloudProfile } = useCloudAccount();
   const {
     activeProfile,
@@ -1717,31 +1648,22 @@ function AppGate() {
 
   useEffect(() => {
     let cancelled = false;
-    const fastBoot = window.setTimeout(() => {
-      if (!cancelled) setCatalogReady(true);
-    }, 2_200);
-    void prefetchBootCatalog().finally(() => {
+    void waitForUsableBootCatalog().finally(() => {
       if (!cancelled) setCatalogReady(true);
     });
     return () => {
       cancelled = true;
-      window.clearTimeout(fastBoot);
     };
   }, []);
 
   useEffect(() => {
-    if (!cloudProfile) {
-      setFriendsReady(true);
-      return;
-    }
-    let cancelled = false;
-    void prefetchBootFriends().finally(() => {
-      if (!cancelled) setFriendsReady(true);
-    });
-    return () => {
-      cancelled = true;
-    };
+    if (!cloudProfile) return;
+    void prefetchBootFriends();
   }, [cloudProfile]);
+
+  useEffect(() => {
+    setHomeReady(false);
+  }, [activeProfile?.id]);
 
   useEffect(() => {
     if (!isWebShell() && !profilesLoading && profiles.length > 0) {
@@ -1751,6 +1673,43 @@ function AppGate() {
   }, [profilesLoading, profiles.length, syncFromStorage]);
 
   const bootDone = bootPhase === "done";
+  const guestAutoPath = setupComplete && mode === "guest";
+
+  // Guest: entra in sessione già in preparing, così la home può idratarsi sotto il loader.
+  useEffect(() => {
+    if (bootPhase !== "preparing") return;
+    if (!guestAutoPath) return;
+    if (activeProfile || pendingProfile) return;
+    enterGuestSession();
+  }, [
+    bootPhase,
+    guestAutoPath,
+    activeProfile,
+    pendingProfile,
+    enterGuestSession,
+  ]);
+
+  // Path classico guest dopo boot (fallback).
+  useEffect(() => {
+    if (!bootDone || !guestAutoPath) return;
+    if (!activeProfile && !pendingProfile) {
+      enterGuestSession();
+    }
+  }, [bootDone, guestAutoPath, activeProfile, pendingProfile, enterGuestSession]);
+
+  /**
+   * Dopo l'intro:
+   * - guest: resta in preparing finché catalogo + homepage sono pronti
+   * - altrimenti: sblocca al catalogo usabile (poi profile select)
+   */
+  const bootUnlockReady =
+    catalogReady &&
+    (guestAutoPath ? Boolean(activeProfile) && homeReady : true);
+
+  /** Loader visibile finché non c'è una home pronta dietro (guest o post-profilo). */
+  const awaitingHome = Boolean(activeProfile) && !homeReady;
+  const showBootLoader = !bootDone || awaitingHome;
+
   const gateReady = !profilesLoading && !accessLoading;
   const showAccess =
     gateReady &&
@@ -1766,12 +1725,9 @@ function AppGate() {
     !showAccess &&
     mode !== "guest";
 
-  useEffect(() => {
-    if (!setupComplete || mode !== "guest") return;
-    if (!activeProfile && !pendingProfile) {
-      enterGuestSession();
-    }
-  }, [setupComplete, mode, activeProfile, pendingProfile, enterGuestSession]);
+  const handleHomeReady = useCallback(() => {
+    setHomeReady(true);
+  }, []);
 
   if (bootDone && backendOnline === false) {
     return (
@@ -1785,20 +1741,59 @@ function AppGate() {
     );
   }
 
+  const mountAppShell =
+    Boolean(activeProfile) &&
+    (bootDone || (bootPhase === "preparing" && guestAutoPath));
+
   return (
     <>
       <AppAccessBootstrap />
-      {!bootDone ? (
+      {showBootLoader ? (
         <LoadingScreen
-          key="loader"
-          preparing={bootPhase === "preparing"}
-          ready={catalogReady && friendsReady}
-          onIntroComplete={() => setBootPhase("preparing")}
-          onComplete={() => setBootPhase("done")}
+          key={bootDone && awaitingHome ? "home-loader" : "boot-loader"}
+          skipIntro={bootDone && awaitingHome}
+          preparing={bootPhase === "preparing" || (bootDone && awaitingHome)}
+          ready={bootDone && awaitingHome ? homeReady : bootUnlockReady}
+          onIntroComplete={() => {
+            if (!(bootDone && awaitingHome)) setBootPhase("preparing");
+          }}
+          onComplete={() => {
+            if (bootDone && awaitingHome) {
+              setHomeReady(true);
+              return;
+            }
+            setBootPhase("done");
+          }}
         />
       ) : null}
 
-      {bootDone && <GlobalBroadcastModal />}
+      {/* Niente wrapper fixed/invisible: spezzava h-full e bloccava lo scroll. */}
+      {mountAppShell && activeProfile && (
+        <LibraryProvider profileId={activeProfile.id}>
+          <AddonsProvider profileId={activeProfile.id}>
+            <AppUpdaterProvider>
+              {isWebShell() && <WebEssentialUpdateBanner />}
+              <CloudFriendAlertsProvider>
+                <ChatMessageAlertsProvider>
+                  <ChatPopupProvider>
+                    <WatchPartyHostProvider>
+                      {isGuest && bootDone && homeReady && (
+                        <GuestHotSinglesToast />
+                      )}
+                      <AppContent
+                        onHomeReady={handleHomeReady}
+                        deferAmbient={showBootLoader}
+                      />
+                    </WatchPartyHostProvider>
+                  </ChatPopupProvider>
+                </ChatMessageAlertsProvider>
+              </CloudFriendAlertsProvider>
+            </AppUpdaterProvider>
+          </AddonsProvider>
+        </LibraryProvider>
+      )}
+
+      {bootDone && homeReady && <GlobalBroadcastModal />}
 
       {showAccess && <AppAccessScreen />}
 
@@ -1814,26 +1809,6 @@ function AppGate() {
             completePinUnlock(pendingProfile);
           }}
         />
-      )}
-
-      {bootDone && activeProfile && (
-        <LibraryProvider profileId={activeProfile.id}>
-          <AddonsProvider profileId={activeProfile.id}>
-            <AppUpdaterProvider>
-              {isWebShell() && <WebEssentialUpdateBanner />}
-              <CloudFriendAlertsProvider>
-                <ChatMessageAlertsProvider>
-                  <ChatPopupProvider>
-                    <WatchPartyHostProvider>
-                      {isGuest && <GuestHotSinglesToast />}
-                      <AppContent />
-                    </WatchPartyHostProvider>
-                  </ChatPopupProvider>
-                </ChatMessageAlertsProvider>
-              </CloudFriendAlertsProvider>
-            </AppUpdaterProvider>
-          </AddonsProvider>
-        </LibraryProvider>
       )}
     </>
   );

@@ -1,16 +1,21 @@
-import { useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { LordFlixPosterCard } from "./LordFlixPosterCard";
 import { LordFlixContinueCard } from "./LordFlixContinueCard";
 import type { BrowseItem } from "../lib/browse";
 import { browseItemId, browseItemMedia } from "../lib/browse";
 import { prefetchPosterUrls } from "../lib/posterPrefetch";
+import { usePosterQuality } from "../context/PosterQualityContext";
 import { posterUrlFor } from "./PosterImage";
 import {
   RowInteractionContext,
   useRowScrollContainer,
 } from "../hooks/useRowScrollContainer";
 import { useStaggerInView } from "../hooks/useStaggerInView";
+import {
+  rowItemMetrics,
+  useHorizontalWindow,
+} from "../hooks/useHorizontalWindow";
 
 interface MediaRowProps {
   index?: string;
@@ -34,7 +39,7 @@ interface MediaRowProps {
   showReflection?: boolean;
 }
 
-export function MediaRow({
+export const MediaRow = memo(function MediaRow({
   title,
   titleClassName,
   titleLogo,
@@ -50,6 +55,27 @@ export function MediaRow({
 }: MediaRowProps) {
   const { scrollRef, collapseEpoch, scrollProps } = useRowScrollContainer();
   const sectionRef = useRef<HTMLElement>(null);
+  const isContinueRow = layout === "continue";
+
+  const [metrics, setMetrics] = useState(() => rowItemMetrics(layout));
+  useEffect(() => {
+    const sync = () => setMetrics(rowItemMetrics(layout));
+    sync();
+    window.addEventListener("resize", sync);
+    return () => window.removeEventListener("resize", sync);
+  }, [layout]);
+
+  const windowed = useHorizontalWindow(scrollRef, {
+    itemCount: items.length,
+    itemWidth: metrics.itemWidth,
+    gap: metrics.gap,
+  });
+
+  const visibleItems = useMemo(() => {
+    if (!windowed.active) return items;
+    return items.slice(windowed.startIndex, windowed.endIndex);
+  }, [items, windowed.active, windowed.startIndex, windowed.endIndex]);
+
   useStaggerInView(
     sectionRef,
     ":scope > .stagger-card",
@@ -63,19 +89,33 @@ export function MediaRow({
     [items.length, title],
     scrollRef,
   );
-  const isContinueRow = layout === "continue";
   const rowInteractionValue = useMemo(
     () => ({ collapseEpoch }),
     [collapseEpoch],
   );
 
+  const { tier } = usePosterQuality();
+
   useEffect(() => {
+    // Allinea il prefetch al paint iniziale (low per browse) cosi' non scarica
+    // subito l'original mentre la card mostra ancora la thumb.
     prefetchPosterUrls(
       items
         .slice(0, 14)
-        .map((browse) => posterUrlFor(browseItemMedia(browse), "browse")),
+        .map((browse) =>
+          posterUrlFor(browseItemMedia(browse), "browse", "low"),
+        ),
     );
-  }, [items]);
+    if (tier !== "low") {
+      prefetchPosterUrls(
+        items
+          .slice(0, 8)
+          .map((browse) =>
+            posterUrlFor(browseItemMedia(browse), "browse", tier),
+          ),
+      );
+    }
+  }, [items, tier]);
 
   const scroll = (direction: "left" | "right") => {
     if (!scrollRef.current) return;
@@ -148,36 +188,53 @@ export function MediaRow({
             }`}
             {...scrollProps}
           >
-            {items.map((browse, index) => (
+            {windowed.active && windowed.leadingPx > 0 ? (
               <div
-                key={browseItemId(browse)}
-                className={`${animateEntrance ? "stagger-card " : ""}${isContinueRow ? "" : "shrink-0"}`}
-              >
-                {isContinueRow ? (
-                  <LordFlixContinueCard
-                    browse={browse}
-                    priorityPoster={index < 6}
-                    onPlay={onPlay}
-                    onPlayStreaming={onPlayStreaming}
-                    onOpenDetail={onOpenDetail}
-                    onOpenSeries={onOpenSeries}
-                  />
-                ) : (
-                  <LordFlixPosterCard
-                    browse={browse}
-                    layout="row"
-                    priorityPoster={index < 8}
-                    onPlay={onPlay}
-                    onPlayStreaming={onPlayStreaming}
-                    onOpenDetail={onOpenDetail}
-                    onOpenSeries={onOpenSeries}
-                  />
-                )}
-              </div>
-            ))}
+                aria-hidden
+                className="shrink-0"
+                style={{ width: windowed.leadingPx }}
+              />
+            ) : null}
+            {visibleItems.map((browse, localIndex) => {
+              const index = windowed.startIndex + localIndex;
+              return (
+                <div
+                  key={browseItemId(browse)}
+                  className={`${animateEntrance ? "stagger-card " : ""}${isContinueRow ? "" : "shrink-0"}`}
+                >
+                  {isContinueRow ? (
+                    <LordFlixContinueCard
+                      browse={browse}
+                      priorityPoster={index < 6}
+                      onPlay={onPlay}
+                      onPlayStreaming={onPlayStreaming}
+                      onOpenDetail={onOpenDetail}
+                      onOpenSeries={onOpenSeries}
+                    />
+                  ) : (
+                    <LordFlixPosterCard
+                      browse={browse}
+                      layout="row"
+                      priorityPoster={index < 8}
+                      onPlay={onPlay}
+                      onPlayStreaming={onPlayStreaming}
+                      onOpenDetail={onOpenDetail}
+                      onOpenSeries={onOpenSeries}
+                    />
+                  )}
+                </div>
+              );
+            })}
+            {windowed.active && windowed.trailingPx > 0 ? (
+              <div
+                aria-hidden
+                className="shrink-0"
+                style={{ width: windowed.trailingPx }}
+              />
+            ) : null}
           </div>
         </div>
       </section>
     </RowInteractionContext.Provider>
   );
-}
+});

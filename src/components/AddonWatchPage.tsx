@@ -18,6 +18,10 @@ import {
   resolveScPreview,
   resolveTorrentSource,
 } from "../lib/addonsApi";
+import {
+  getCachedAddonMeta,
+  putCachedAddonMeta,
+} from "../lib/prefetchAddonWatch";
 import { readPlayerAudioLanguage } from "../lib/playerAudioLanguage";
 import type { PlayerStreamAudioLanguage } from "../lib/playerAudioLanguage";
 import {
@@ -346,8 +350,21 @@ export function AddonWatchPage({
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
+    const target = {
+      contentType,
+      metaId,
+      slug,
+      catalogPrefix,
+    };
+    const cached = getCachedAddonMeta(target);
+    if (cached) {
+      setMeta(cached);
+      setLoading(false);
+      setError(null);
+    } else {
+      setLoading(true);
+      setError(null);
+    }
     void (async () => {
       try {
         const data = isSc
@@ -359,9 +376,11 @@ export function AddonWatchPage({
               : isSaturn
                 ? await fetchSaturnMeta(slug!)
                 : await fetchAddonMeta(profileId, contentType, metaId);
-        if (!cancelled) setMeta(data);
+        if (cancelled) return;
+        putCachedAddonMeta(target, data);
+        setMeta(data);
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && !cached) {
           setError(err instanceof Error ? err.message : String(err));
         }
       } finally {
@@ -371,7 +390,7 @@ export function AddonWatchPage({
     return () => {
       cancelled = true;
     };
-  }, [profileId, contentType, metaId, isSc, isSaturn, isLoonex, isYoutube, slug]);
+  }, [profileId, contentType, metaId, isSc, isSaturn, isLoonex, isYoutube, slug, catalogPrefix]);
 
   useEffect(() => {
     if (!meta || playback) return;

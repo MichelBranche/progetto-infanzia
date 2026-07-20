@@ -26,6 +26,7 @@ import { HeroBanner } from "./HeroBanner";
 import { MediaRow } from "./MediaRow";
 import { LoadingSpinner } from "./LoadingSpinner";
 import { BrowseGridSkeleton, HeroSkeleton, RowSkeleton } from "./Skeleton";
+import { VirtualizedDiscoveryGrid } from "../hooks/useVerticalGridWindow";
 
 const posterCache = new Map<string, string | null>();
 const posterInflight = new Map<string, Promise<string | null>>();
@@ -320,7 +321,6 @@ export function AnimePage({
 
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const filterBarRef = useRef<HTMLDivElement | null>(null);
-  const gridRef = useRef<HTMLDivElement | null>(null);
 
   const [heroItems, setHeroItems] = useState<MediaItem[]>([]);
 
@@ -699,22 +699,24 @@ export function AnimePage({
               </p>
             </div>
           ) : (
-            <div
-              ref={gridRef}
+            <VirtualizedDiscoveryGrid
+              items={filteredItems}
               className="lf-discovery-grid lf-discovery-grid--browse"
-            >
-              {filteredItems.map((raw, index) => {
+              getKey={(raw) => {
+                const preview = enrichStreamingPreview(raw);
+                return `${preview.type}:${preview.id}`;
+              }}
+              renderItem={(raw, index) => {
                 const preview = enrichStreamingPreview(raw);
                 return (
                   <AnimeTile
-                    key={`${preview.type}:${preview.id}`}
                     preview={preview}
                     index={index}
                     onPlay={onPlayStreaming}
                   />
                 );
-              })}
-            </div>
+              }}
+            />
           )}
 
           {hasMore && (
