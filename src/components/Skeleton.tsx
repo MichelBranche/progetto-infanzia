@@ -249,27 +249,28 @@ export function SearchResultsSkeleton({ count = 10 }: { count?: number }) {
   );
 }
 
-/** Impostazioni: sezioni a card. */
+/** Impostazioni: shell glass + sidebar. */
 export function SettingsSkeleton() {
   return (
     <div
-      className="page-px relative pb-24 pt-[calc(var(--app-nav-height)+1.25rem)]"
+      className="page-px relative pb-24 pt-[calc(var(--app-nav-height)+0.85rem)]"
       aria-busy="true"
       aria-label="Caricamento impostazioni"
     >
-      <div className="mx-auto w-full max-w-2xl space-y-4">
-        <Skeleton className="h-8 w-48 rounded-lg" />
-        <Skeleton className="h-4 w-72 rounded" />
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div
-            key={i}
-            className="space-y-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5"
-          >
-            <Skeleton className="h-4 w-32 rounded" delayMs={i * 40} />
-            <Skeleton className="h-10 w-full rounded-xl" />
-            <Skeleton className="h-10 w-full rounded-xl" />
-          </div>
-        ))}
+      <div className="mx-auto flex min-h-[min(78vh,820px)] w-full max-w-6xl overflow-hidden rounded-[2rem] border border-border bg-panel/75 shadow-[0_24px_80px_rgba(0,0,0,0.18)] lg:flex-row">
+        <div className="hidden w-[15.5rem] shrink-0 border-r border-border p-5 lg:block">
+          <Skeleton className="mb-6 h-9 w-36 rounded-xl" />
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="mb-2 h-10 w-full rounded-full" delayMs={i * 40} />
+          ))}
+        </div>
+        <div className="min-w-0 flex-1 space-y-4 p-6">
+          <Skeleton className="h-8 w-48 rounded-xl" />
+          <Skeleton className="h-4 w-64 rounded" />
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-36 w-full rounded-[1.75rem]" delayMs={i * 50} />
+          ))}
+        </div>
       </div>
     </div>
   );

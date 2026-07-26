@@ -343,7 +343,7 @@ export function Sidebar({
       <div
         ref={panelRef}
         onTransitionEnd={handlePanelTransitionEnd}
-        className={`flex h-full flex-col overflow-hidden border-r border-white/[0.06] bg-[#070709] transition-[width,box-shadow] duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        className={`flex h-full flex-col overflow-hidden border-r border-border bg-void-elevated transition-[width,box-shadow] duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
           isFlyout
             ? "absolute inset-y-0 left-0 z-50 shadow-[20px_0_72px_rgba(0,0,0,0.5)]"
             : "relative"

@@ -98,7 +98,7 @@ export function AppTopNavMoreMenu({
   return (
     <div
       ref={panelRef}
-      className={`app-top-nav__more-panel pointer-events-auto absolute top-[calc(100%+10px)] z-[70] max-h-[min(70vh,420px)] min-w-[220px] overflow-y-auto rounded-xl border border-white/[0.1] bg-[#121216] py-1.5 shadow-[0_24px_64px_rgba(0,0,0,0.55)] ${className}`}
+      className={`app-top-nav__more-panel pointer-events-auto absolute top-[calc(100%+10px)] z-[70] max-h-[min(70vh,420px)] min-w-[220px] overflow-y-auto rounded-xl border border-border bg-panel-elevated py-1.5 shadow-[0_24px_64px_rgba(0,0,0,0.28)] ${className}`}
       role="menu"
     >
       {includePrimary && (
@@ -113,15 +113,15 @@ export function AppTopNavMoreMenu({
                 onSelect();
                 onNavigate(item.id);
               }}
-              className={`flex w-full px-3.5 py-2.5 text-left text-[13px] transition-colors hover:bg-white/[0.06] ${
-                activeId === item.id ? "text-white" : "text-text-secondary"
+              className={`flex w-full px-3.5 py-2.5 text-left text-[13px] transition-colors hover:bg-fill ${
+                activeId === item.id ? "text-text-primary font-medium" : "text-text-secondary"
               }`}
             >
               {item.label}
             </button>
           ))}
           {moreNav.length > 0 && (
-            <div className="my-1 border-t border-white/[0.06]" />
+            <div className="my-1 border-t border-border" />
           )}
         </>
       )}
@@ -135,8 +135,8 @@ export function AppTopNavMoreMenu({
             onSelect();
             onNavigate(item.id);
           }}
-          className={`flex w-full items-center justify-between px-3.5 py-2.5 text-left text-[13px] transition-colors hover:bg-white/[0.06] ${
-            activeId === item.id ? "text-white" : "text-text-secondary"
+          className={`flex w-full items-center justify-between px-3.5 py-2.5 text-left text-[13px] transition-colors hover:bg-fill ${
+            activeId === item.id ? "text-text-primary font-medium" : "text-text-secondary"
           }`}
         >
           <span>{item.label}</span>

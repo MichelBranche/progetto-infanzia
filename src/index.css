@@ -27,11 +27,62 @@
   --color-text-secondary: #a1a1aa;
   --color-text-muted: #71717a;
 
+  /* Pannelli / fill glass (si invertono col tema bianco) */
+  --color-panel: #0a0a0c;
+  --color-panel-elevated: #121216;
+  --color-fill: rgba(255, 255, 255, 0.04);
+  --color-fill-muted: rgba(255, 255, 255, 0.02);
+  --color-fill-strong: rgba(255, 255, 255, 0.08);
+  --color-hairline: rgba(255, 255, 255, 0.08);
+
   --ease-stream: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 
   --color-midnight: var(--color-void);
   --color-midnight-light: var(--color-void-elevated);
+}
+
+/* Tema chiaro: UI chiara + aurora ancora visibile sotto */
+:root[data-chrome="white"] {
+  color-scheme: light;
+  --color-void: #f1f2f6;
+  --color-void-elevated: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-hover: #e8eaef;
+  --color-border: rgba(18, 18, 24, 0.1);
+  --color-border-hover: rgba(18, 18, 24, 0.16);
+  --color-accent: #18181f;
+  --color-accent-soft: rgba(24, 24, 31, 0.08);
+  --color-lord-purple: #ebe4f7;
+  --color-lord-glass: rgba(18, 18, 24, 0.06);
+  --color-text-primary: #121218;
+  --color-text-secondary: #4b4b55;
+  --color-text-muted: #6b6b76;
+  --color-panel: #ffffff;
+  --color-panel-elevated: #f7f8fb;
+  --color-fill: rgba(18, 18, 24, 0.05);
+  --color-fill-muted: rgba(18, 18, 24, 0.03);
+  --color-fill-strong: rgba(18, 18, 24, 0.09);
+  --color-hairline: rgba(18, 18, 24, 0.1);
+  --color-midnight: var(--color-void);
+  --color-midnight-light: var(--color-void-elevated);
+
+  /* Floor scuro sotto l’UI chiara: l’aurora WebGL si vede come nel tema colorato */
+  --lf-bg: #05000d;
+  --lf-liquid: #05000d;
+  --lf-hero-floor: transparent;
+  --lf-surface: #ffffff;
+  --lf-glass: rgb(255 255 255 / 0.82);
+  --lf-glass-strong: rgb(255 255 255 / 0.94);
+  --lf-glass-drop: rgb(255 255 255 / 0.78);
+  --lf-glass-border: rgb(18 18 24 / 0.1);
+  --lf-btn-primary: #18181f;
+  --lf-btn-primary-hover: #000;
+  --lf-btn-primary-fg: #f8f8fa;
+  --lf-btn-secondary: rgb(18 18 24 / 0.08);
+  --lf-btn-secondary-hover: rgb(18 18 24 / 0.14);
+  --lf-btn-secondary-fg: #121218;
+  --lf-pill-active-text: #f8f8fa;
 }
 
 * {
@@ -79,12 +130,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--color-text-primary) 12%, transparent);
   border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: color-mix(in srgb, var(--color-text-primary) 22%, transparent);
 }
 
 .scrollbar-hide {

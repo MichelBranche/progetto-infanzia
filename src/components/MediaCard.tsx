@@ -508,10 +508,10 @@ export const MediaCard = memo(function MediaCard({
 
           {expanded && (
             <div className="space-y-1 px-3 py-2.5">
-              <h3 className="title-clip text-[13px] font-semibold text-white">
+              <h3 className="title-clip text-[13px] font-semibold text-text-primary">
                 {title}
               </h3>
-              <p className="title-clip text-[11px] text-white/50">
+              <p className="title-clip text-[11px] text-text-muted">
                 {resumeEpisodeLabel && (
                   <span className="text-accent">{resumeEpisodeLabel} · </span>
                 )}
@@ -524,7 +524,7 @@ export const MediaCard = memo(function MediaCard({
                     ? ` · ${mediaTypeLabel(item.mediaType)}`
                     : ""}
               </p>
-              <p className="title-safe line-clamp-3 text-[11px] leading-relaxed text-white/70">
+              <p className="title-safe line-clamp-3 text-[11px] leading-relaxed text-text-secondary">
                 {description ||
                   (isSeries
                     ? "Apri la serie per vedere tutti gli episodi."

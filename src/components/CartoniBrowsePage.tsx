@@ -123,7 +123,7 @@ function CartoniCollectionRow({
             type="button"
             onClick={() => scroll("left")}
             aria-label="Scorri a sinistra"
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/40 text-text-secondary opacity-0 transition-all hover:text-white group-hover/row:opacity-100"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-fill-strong text-text-secondary opacity-0 transition-all hover:text-text-primary group-hover/row:opacity-100"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
@@ -131,7 +131,7 @@ function CartoniCollectionRow({
             type="button"
             onClick={() => scroll("right")}
             aria-label="Scorri a destra"
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/40 text-text-secondary opacity-0 transition-all hover:text-white group-hover/row:opacity-100"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-fill-strong text-text-secondary opacity-0 transition-all hover:text-text-primary group-hover/row:opacity-100"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -216,16 +216,16 @@ function CartoniHero({
           transition={{ delay: 0.14, duration: 0.45 }}
           className="mt-4 flex flex-wrap items-center justify-center gap-2"
         >
-          <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-[11px] font-medium text-text-secondary backdrop-blur-md">
+          <span className="rounded-full border border-border bg-fill px-3 py-1 text-[11px] font-medium text-text-secondary backdrop-blur-md">
             {stats.total.toLocaleString("it-IT")} titoli
           </span>
           {stats.loonex > 0 && (
-            <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-[11px] font-medium text-text-secondary backdrop-blur-md">
+            <span className="rounded-full border border-border bg-fill px-3 py-1 text-[11px] font-medium text-text-secondary backdrop-blur-md">
               {stats.loonex.toLocaleString("it-IT")} Loonex
             </span>
           )}
           {stats.streaming - stats.loonex > 0 && (
-            <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-[11px] font-medium text-text-secondary backdrop-blur-md">
+            <span className="rounded-full border border-border bg-fill px-3 py-1 text-[11px] font-medium text-text-secondary backdrop-blur-md">
               {(stats.streaming - stats.loonex).toLocaleString("it-IT")} YouTube
             </span>
           )}
@@ -515,7 +515,7 @@ export function CartoniBrowsePage({
                     setPage(1);
                   }}
                   placeholder="Cerca nel catalogo…"
-                  className="w-full rounded-full border border-white/[0.08] bg-white/[0.03] py-2.5 pl-10 pr-4 text-[13px] text-text-primary outline-none transition-colors placeholder:text-text-muted/60 focus:border-white/18 focus:bg-white/[0.05]"
+                  className="w-full rounded-full border border-border bg-fill py-2.5 pl-10 pr-4 text-[13px] text-text-primary outline-none transition-colors placeholder:text-text-muted/60 focus:border-border-hover focus:bg-fill-strong"
                 />
               </label>
             </div>
@@ -567,8 +567,8 @@ export function CartoniBrowsePage({
                     onClick={() => setPage(n)}
                     className={`min-w-9 rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
                       n === paged.page
-                        ? "bg-white text-void shadow-[0_2px_12px_rgba(0,0,0,0.25)]"
-                        : "border border-white/10 text-text-secondary hover:border-white/18 hover:text-text-primary"
+                        ? "bg-text-primary text-void shadow-[0_2px_12px_rgba(0,0,0,0.18)]"
+                        : "border border-border text-text-secondary hover:border-border-hover hover:text-text-primary"
                     }`}
                   >
                     {n}

@@ -25,6 +25,7 @@ import type { FriendProfileTarget } from "./components/chat/FriendProfileSheet";
 import { AppUpdaterProvider } from "./context/AppUpdaterContext";
 import { WebEssentialUpdateBanner } from "./components/WebEssentialUpdateBanner";
 import { GlobalBroadcastModal } from "./components/GlobalBroadcastModal";
+import { AdminPrankOverlay } from "./components/AdminPrankOverlay";
 import { ProfilePinModal } from "./components/ProfilePinModal";
 import { LibraryProvider, useLibrary } from "./context/LibraryContext";
 import { AddonsProvider, useAddons } from "./context/AddonsContext";
@@ -69,11 +70,14 @@ import {
   previewToMediaItem,
   previewToWatchTarget,
   dedupeStreamingPreviews,
+  streamingPreviewDedupeKey,
 } from "./lib/streamingBrowse";
 import { useStreamingCatalogs } from "./lib/useStreamingCatalogs";
 import { useMyList } from "./lib/useMyList";
 import { markStreamingInMyList, mediaItemToStreamingPreview, streamingListKey } from "./lib/myList";
 import { splitTop10Row } from "./lib/streamingRows";
+import { resolveTop10Items } from "./lib/homeTop10Api";
+import { useHomeTop10Config } from "./hooks/useHomeTop10Config";
 import { STREMIO_ADDONS_ENABLED, isBuiltinStreamingCatalog } from "./lib/features";
 import { isDevAdminEmail } from "./lib/devAdmin";
 import {
@@ -90,6 +94,7 @@ import {
   insertCartoniHomeRow,
   mergedSectionBrowseItems,
 } from "./lib/unifiedBrowse";
+import { buildForYouHomeRow } from "./lib/forYouHome";
 import {
   browseDetailAction,
   similarBrowseItems,
@@ -107,6 +112,8 @@ import {
   WATCH_PARTY_JOIN_EVENT,
 } from "./lib/watchPartyInviteNavigation";
 import { guestSessionFromInvitePayload } from "./lib/watchPartyInviteChatMessage";
+import { getUserAmbientPalette } from "./lib/ambientThemes";
+import { boostAmbientPalette } from "./lib/imagePalette";
 import { getMangaProgress } from "./lib/mangaProgress";
 
 const WatchPage = lazy(() =>
@@ -204,8 +211,8 @@ function RouteFrame({
   return <>{children}</>;
 }
 
-/** Spegne backdrop hero fuori home (e sotto overlay watch). */
-function TauriHeroAmbientBridge({
+/** Aurora: colori hero solo in homepage; altrove tema utente. */
+function HeroAmbientNavBridge({
   activeNav,
   seriesKey,
   overlayOpen,
@@ -214,10 +221,9 @@ function TauriHeroAmbientBridge({
   seriesKey: string | null;
   overlayOpen: boolean;
 }) {
-  const { setActive, setBackdropUrl } = useHeroAmbientControls();
+  const { setActive, setBackdropUrl, setPalette } = useHeroAmbientControls();
 
   useEffect(() => {
-    if (!IS_TAURI_SHELL) return;
     const onHome = activeNav === "home" && !seriesKey && !overlayOpen;
     if (onHome) {
       setActive(true);
@@ -225,7 +231,18 @@ function TauriHeroAmbientBridge({
     }
     setActive(false);
     setBackdropUrl(null);
-  }, [activeNav, seriesKey, overlayOpen, setActive, setBackdropUrl]);
+    setPalette(boostAmbientPalette(getUserAmbientPalette()));
+  }, [activeNav, seriesKey, overlayOpen, setActive, setBackdropUrl, setPalette]);
+
+  useEffect(() => {
+    const onTheme = () => {
+      const onHome = activeNav === "home" && !seriesKey && !overlayOpen;
+      if (onHome) return;
+      setPalette(boostAmbientPalette(getUserAmbientPalette()));
+    };
+    window.addEventListener("branchefy:ambient-theme", onTheme);
+    return () => window.removeEventListener("branchefy:ambient-theme", onTheme);
+  }, [activeNav, seriesKey, overlayOpen, setPalette]);
 
   return null;
 }
@@ -362,6 +379,7 @@ function AppContent({
     refreshContinue: refreshStreamingContinue,
     refreshCatalog,
   } = useStreamingCatalogs(activeProfile?.id ?? "");
+  const { config: homeTop10Config } = useHomeTop10Config();
   const {
     streamingList,
     streamingListKeys,
@@ -804,10 +822,36 @@ function AppContent({
     [pendingFriendRequests],
   );
 
-  const { top10Row, otherRows: streamingRowsWithoutTop10 } = useMemo(
-    () => splitTop10Row(streamingRows, catalogIndex),
-    [streamingRows, catalogIndex],
-  );
+  const { top10Row, otherRows: streamingRowsWithoutTop10 } = useMemo(() => {
+    const split = splitTop10Row(streamingRows, catalogIndex);
+    if (homeTop10Config.mode === "sc") {
+      return split;
+    }
+
+    const resolved = resolveTop10Items(homeTop10Config.items, [
+      ...catalogIndex,
+      ...streamingRows.flatMap((row) => row.items),
+    ]);
+
+    // Manuale: basta 1 titolo. Branchefy: se vuoto o troppo scarso, fallback SC.
+    const minItems = homeTop10Config.mode === "manual" ? 1 : 6;
+    if (resolved.length < minItems) {
+      return split;
+    }
+
+    return {
+      top10Row: {
+        key: `home-top10-${homeTop10Config.mode}`,
+        title: "Top 10",
+        subtitle:
+          homeTop10Config.mode === "manual"
+            ? "Selezione Branchefy"
+            : "Più visti su Branchefy",
+        items: resolved.slice(0, 10),
+      },
+      otherRows: split.otherRows,
+    };
+  }, [streamingRows, catalogIndex, homeTop10Config]);
 
   const searchSuggestions = useMemo(() => {
     const seen = new Set<string>();
@@ -852,6 +896,44 @@ function AppContent({
     streamingRows,
     applyMyListToBrowseItems,
     isGuest,
+  ]);
+
+  const forYouHomeRow = useMemo(() => {
+    if (isGuest) return null;
+    const excludeKeys = new Set<string>();
+    for (const item of streamingContinue) {
+      excludeKeys.add(
+        streamingPreviewDedupeKey({
+          id: item.titleId,
+          type: item.contentType,
+        }),
+      );
+    }
+    if (top10Row) {
+      for (const preview of top10Row.items) {
+        excludeKeys.add(streamingPreviewDedupeKey(preview));
+      }
+    }
+    const row = buildForYouHomeRow({
+      continueItems: streamingContinue,
+      catalogIndex,
+      streamingRows,
+      myListPreviews: streamingList,
+      excludeKeys,
+    });
+    if (!row) return null;
+    return {
+      ...row,
+      items: applyMyListToBrowseItems(row.items),
+    };
+  }, [
+    isGuest,
+    streamingContinue,
+    catalogIndex,
+    streamingRows,
+    streamingList,
+    top10Row,
+    applyMyListToBrowseItems,
   ]);
 
   const unifiedHomeRows = useMemo(() => {
@@ -1147,7 +1229,7 @@ function AppContent({
       }}
     >
     <HeroAmbientProvider>
-    <TauriHeroAmbientBridge
+    <HeroAmbientNavBridge
       activeNav={activeNav}
       seriesKey={seriesKey}
       overlayOpen={watchOverlayOpen}
@@ -1390,6 +1472,7 @@ function AppContent({
                     homeStreamingPending={homeStreamingPending}
                     continueHomeRow={continueHomeRow}
                     top10Row={top10Row}
+                    forYouHomeRow={forYouHomeRow}
                     homeCatalogRows={homeCatalogRows}
                     homeCatalogRowsBeforeManga={homeCatalogRowsBeforeManga}
                     homeCatalogRowsAfterManga={homeCatalogRowsAfterManga}
@@ -1794,6 +1877,7 @@ function AppGate() {
       )}
 
       {bootDone && homeReady && <GlobalBroadcastModal />}
+      {bootDone && homeReady && <AdminPrankOverlay />}
 
       {showAccess && <AppAccessScreen />}
 

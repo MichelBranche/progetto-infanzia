@@ -7,6 +7,7 @@ import {
   EmailConfirmationRequiredError,
   mapSupabaseAuthError,
 } from "./cloudAuthErrors";
+import { prepareAuthRemember } from "./authRemember";
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -80,9 +81,12 @@ export async function signUpWithEmail(
   email: string,
   password: string,
   displayName?: string,
+  rememberMe = true,
 ): Promise<CloudProfile> {
   const supabase = getSupabase();
   if (!supabase) throw new Error(cloudConfigHint());
+
+  prepareAuthRemember(rememberMe);
 
   const { data, error } = await supabase.auth.signUp({
     email: email.trim(),
@@ -106,9 +110,12 @@ export async function signUpWithEmail(
 export async function signInWithEmail(
   email: string,
   password: string,
+  rememberMe = true,
 ): Promise<CloudProfile> {
   const supabase = getSupabase();
   if (!supabase) throw new Error(cloudConfigHint());
+
+  prepareAuthRemember(rememberMe);
 
   const { data, error } = await supabase.auth.signInWithPassword({
     email: email.trim(),

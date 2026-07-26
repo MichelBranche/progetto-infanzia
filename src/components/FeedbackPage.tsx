@@ -16,7 +16,7 @@ import {
   FEEDBACK_TYPE_OPTIONS,
   type FeedbackType,
 } from "../types/feedback";
-import { detectPlatform, submitAppFeedback } from "../lib/feedbackApi";
+import { detectPlatform, formatPlatformLabel, submitAppFeedback } from "../lib/feedbackApi";
 import { fetchAppVersion } from "../lib/appUpdater";
 
 interface FeedbackPageProps {
@@ -266,7 +266,7 @@ export function FeedbackPage({
           </summary>
           <ul className="mt-3 space-y-1.5">
             <li>Versione app: {appVersion}</li>
-            <li>Piattaforma: {detectPlatform()}</li>
+            <li>Piattaforma: {formatPlatformLabel(detectPlatform())}</li>
             <li>
               Profilo: {profile.name} ({roleLabel(profile.role)})
             </li>

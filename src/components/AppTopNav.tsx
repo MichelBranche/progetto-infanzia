@@ -111,11 +111,7 @@ function NavPill({
       )}
       {item.label}
       {badgeCount != null && badgeCount > 0 && (
-        <span
-          className={`ml-1.5 text-[10px] tabular-nums ${
-            active ? "text-black/55" : "text-white/70"
-          }`}
-        >
+        <span className="app-top-nav__badge ml-1.5 text-[10px] tabular-nums">
           {badgeCount}
         </span>
       )}
@@ -461,7 +457,7 @@ export function AppTopNav({
                   <AppTopNavFriendsBar />
 
                   <span
-                    className="app-top-nav__left-dock-divider h-6 w-px shrink-0 bg-white/10"
+                    className="app-top-nav__left-dock-divider h-6 w-px shrink-0"
                     aria-hidden
                   />
 
@@ -487,27 +483,27 @@ export function AppTopNav({
                     isMobileDevice
                       ? "h-11 px-2.5"
                       : "h-10 px-2"
-                  } ${friendsMenuOpen ? "bg-white/[0.1]" : ""}`}
+                  } ${friendsMenuOpen ? "app-top-nav__friends-mobile-btn--open" : ""}`}
                 >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.08]">
-                    <Users className="h-4 w-4 text-white/85" strokeWidth={1.85} />
+                  <span className="app-top-nav__friends-mobile-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-full">
+                    <Users className="app-top-nav__chrome-fg h-4 w-4" strokeWidth={1.85} />
                   </span>
                   {friends.length > 0 ? (
                     <span className="min-w-0 text-left leading-tight">
-                      <span className="block text-[11px] font-medium text-white/90">
+                      <span className="app-top-nav__chrome-fg-strong block text-[11px] font-medium">
                         {onlineCount} online
                       </span>
-                      <span className="block text-[10px] text-white/45">
+                      <span className="app-top-nav__chrome-fg-muted block text-[10px]">
                         {friends.length} amici
                       </span>
                     </span>
                   ) : (
-                    <span className="text-[11px] font-medium text-white/80">
+                    <span className="app-top-nav__chrome-fg text-[11px] font-medium">
                       Amici
                     </span>
                   )}
                   <ChevronDown
-                    className={`app-top-nav__friends-mobile-chevron h-4 w-4 shrink-0 text-white/65 transition-transform duration-300 ${
+                    className={`app-top-nav__friends-mobile-chevron app-top-nav__chrome-fg-muted h-4 w-4 shrink-0 transition-transform duration-300 ${
                       friendsMenuOpen ? "rotate-180" : ""
                     }`}
                     strokeWidth={2.25}
@@ -521,14 +517,14 @@ export function AppTopNav({
 
         {searchActive ? (
           <div className="app-top-nav__search-field flex min-w-0 flex-1 items-center gap-2 border-b border-white/25 pb-1">
-            <Search className="h-4 w-4 shrink-0 text-white/55" strokeWidth={1.75} />
+            <Search className="app-top-nav__chrome-fg-muted h-4 w-4 shrink-0" strokeWidth={1.75} />
             <input
               ref={inputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder="Titoli, serie, cartoni…"
-              className="min-w-0 flex-1 bg-transparent text-[15px] text-white caret-accent outline-none placeholder:text-white/40"
+              className="app-top-nav__chrome-fg-strong min-w-0 flex-1 bg-transparent text-[15px] caret-accent outline-none placeholder:opacity-50"
             />
             <button
               type="button"
@@ -536,7 +532,7 @@ export function AppTopNav({
                 if (searchQuery) onSearchChange("");
                 else onCloseSearch?.();
               }}
-              className="app-top-nav__icon-btn flex h-8 w-8 items-center justify-center rounded-full text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+              className="app-top-nav__icon-btn app-top-nav__chrome-fg-muted flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-[var(--lf-chrome-hover-fill)] hover:text-[var(--lf-chrome-fg-strong)]"
               aria-label={searchQuery ? "Cancella ricerca" : "Chiudi ricerca"}
             >
               <X className="h-4 w-4" />

@@ -55,7 +55,7 @@ export function ProfileHero({
             {profile.name}
           </h1>
 
-          <span className="mt-2 inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-text-muted">
+          <span className="mt-2 inline-flex items-center gap-2 rounded-full border border-border bg-fill px-3 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-text-muted">
             <OnlineDot online />
             {roleLabel(profile.role)}
           </span>

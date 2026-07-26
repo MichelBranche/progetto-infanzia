@@ -36,6 +36,8 @@ interface HeroBannerProps {
   items: MediaItem[];
   scrollContainerRef?: RefObject<HTMLElement | null>;
   fullPage?: boolean;
+  /** Solo homepage: aurora liquida segue i colori della hero. */
+  syncAmbient?: boolean;
   onPlay: (id: string) => void;
   onOpenSeries?: (media: MediaItem) => void;
   onOpenDetail?: (browse: BrowseItem) => void;
@@ -191,6 +193,7 @@ export const HeroBanner = memo(function HeroBanner({
   items,
   scrollContainerRef,
   fullPage = false,
+  syncAmbient = false,
   onPlay,
   onOpenSeries,
   onOpenDetail,
@@ -240,12 +243,14 @@ export const HeroBanner = memo(function HeroBanner({
   }, []);
 
   useEffect(() => {
+    if (!syncAmbient) return;
     setActive(true);
     return () => setActive(false);
-  }, [setActive]);
+  }, [syncAmbient, setActive]);
 
   const handleHeroImageLoad = useCallback(
     (image: HTMLImageElement, heroItem: MediaItem) => {
+      if (!syncAmbient) return;
       const cached = getCachedHeroPalette(heroItem.id);
       if (cached) {
         setPalette(cached);
@@ -263,7 +268,7 @@ export const HeroBanner = memo(function HeroBanner({
         },
       );
     },
-    [setPalette],
+    [setPalette, syncAmbient],
   );
 
   const clearSlideTimer = () => {
@@ -357,11 +362,12 @@ export const HeroBanner = memo(function HeroBanner({
   }, [items]);
 
   useEffect(() => {
-    if (!media) return;
+    if (!syncAmbient || !media) return;
     const heroItem = toHeroItem(media);
     const imageUrl = heroImageForItem(heroItem, heroImageById[media.id]);
     applyHeroPalette(media, imageUrl, setPalette);
   }, [
+    syncAmbient,
     media?.id,
     media?.gradient,
     heroImageById,
@@ -370,7 +376,7 @@ export const HeroBanner = memo(function HeroBanner({
 
   // Backdrop sfocato a tutto schermo (solo home full-page, stile LordFlix)
   useEffect(() => {
-    if (!fullPage || !media) return;
+    if (!syncAmbient || !fullPage || !media) return;
     const heroItem = toHeroItem(media);
     const imageUrl = pickBestHeroUrl(
       heroImageById[media.id],
@@ -379,12 +385,12 @@ export const HeroBanner = memo(function HeroBanner({
       media.posterUrl,
     );
     setBackdropUrl(imageUrl ?? null);
-  }, [fullPage, media, heroImageById, setBackdropUrl]);
+  }, [syncAmbient, fullPage, media, heroImageById, setBackdropUrl]);
 
   useEffect(() => {
-    if (!fullPage) return;
+    if (!syncAmbient || !fullPage) return;
     return () => setBackdropUrl(null);
-  }, [fullPage, setBackdropUrl]);
+  }, [syncAmbient, fullPage, setBackdropUrl]);
 
   useEffect(() => {
     if (!activeProfile || !media || isStreaming) return;
@@ -398,14 +404,14 @@ export const HeroBanner = memo(function HeroBanner({
   const selectSlide = useCallback(
     (nextIndex: number) => {
       const next = items[nextIndex];
-      if (next) {
+      if (next && syncAmbient) {
         const heroItem = toHeroItem(next);
         const imageUrl = heroImageForItem(heroItem, heroImageById[next.id]);
         applyHeroPalette(next, imageUrl, setPalette);
       }
       setIndex(nextIndex);
     },
-    [items, heroImageById, setPalette],
+    [items, heroImageById, setPalette, syncAmbient],
   );
 
   useEffect(() => {

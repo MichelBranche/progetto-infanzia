@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
+  Activity,
   Bug,
   CheckCircle2,
   Film,
@@ -7,12 +9,16 @@ import {
   Loader2,
   Megaphone,
   MessageSquare,
+  RefreshCw,
   RotateCcw,
   Shield,
+  Skull,
+  Terminal,
   Trash2,
   UserRound,
   Users,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { formatDuration } from "../types/media";
 import {
   fetchDevCloudUsers,
@@ -24,6 +30,8 @@ import {
   setFeedbackStatus,
 } from "../lib/devAdminApi";
 import type { DevCloudUser, DevLocalProfileInsight } from "../types/devAdmin";
+import { formatPlatformLabel } from "../lib/feedbackApi";
+import { isAppOpenPresence } from "../lib/devDashboardMetrics";
 import {
   feedbackDaysUntilPurge,
   feedbackTypeLabel,
@@ -33,6 +41,11 @@ import {
   type FeedbackType,
 } from "../types/feedback";
 import {
+  SettingsButton,
+  SettingsNavItem,
+  SettingsShell,
+} from "./settings/SettingsUi";
+import {
   DevActionBar,
   DevActionButton,
   DevBadge,
@@ -41,7 +54,6 @@ import {
   DevDetailPane,
   DevErrorBanner,
   DevFilterRow,
-  DevHero,
   DevListItem,
   DevLoadingState,
   DevMasterDetail,
@@ -55,17 +67,65 @@ import {
   DevWarningBanner,
   ProfileEmptyState,
   ProfileSectionLabel,
-  ProfileTabBar,
 } from "./dev/DevConsoleUi";
 import { BroadcastAdminPanel } from "./dev/BroadcastAdminPanel";
+import { DevOverviewPanel } from "./dev/DevOverviewPanel";
+import { DevTop10Panel } from "./dev/DevTop10Panel";
+import { DevPrankPanel } from "./dev/DevPrankPanel";
 
-type DevTab = "cloud" | "local" | "feedback" | "broadcasts";
+type DevTab = "overview" | "cloud" | "top10" | "feedback" | "broadcasts" | "pranks";
 
-const MAIN_TABS: { id: DevTab; label: string; icon: typeof Users }[] = [
-  { id: "cloud", label: "Utenti cloud", icon: Users },
-  { id: "local", label: "Profili locali", icon: UserRound },
-  { id: "feedback", label: "Feedback", icon: MessageSquare },
-  { id: "broadcasts", label: "Annunci globali", icon: Megaphone },
+const LIVE_POLL_MS = 20_000;
+
+const MAIN_TABS: Array<{
+  id: DevTab;
+  label: string;
+  icon: LucideIcon;
+  title: string;
+  subtitle: string;
+}> = [
+  {
+    id: "overview",
+    label: "Overview",
+    icon: Activity,
+    title: "Overview",
+    subtitle: "Metriche live: utenti nuovi, online e attività",
+  },
+  {
+    id: "cloud",
+    label: "Utenti cloud",
+    icon: Users,
+    title: "Utenti cloud",
+    subtitle: "Account auth, profilo app, amici e visioni",
+  },
+  {
+    id: "top10",
+    label: "Top 10",
+    icon: Film,
+    title: "Top 10 Home",
+    subtitle: "Sorgente della riga Top 10 vista da tutti",
+  },
+  {
+    id: "feedback",
+    label: "Feedback",
+    icon: MessageSquare,
+    title: "Feedback",
+    subtitle: "Segnalazioni e richieste degli utenti",
+  },
+  {
+    id: "broadcasts",
+    label: "Messaggi",
+    icon: Megaphone,
+    title: "Messaggi admin",
+    subtitle: "Popup a tutti gli utenti a nome di Amministrazione Branchefy",
+  },
+  {
+    id: "pranks",
+    label: "Scherzi",
+    icon: Skull,
+    title: "Scherzi utenti",
+    subtitle: "Jumpscare e troll mirati a un singolo utente",
+  },
 ];
 
 function formatWhen(iso?: string) {
@@ -81,14 +141,18 @@ function formatWhen(iso?: string) {
 
 function presenceLabel(user: DevCloudUser) {
   if (!user.hasProfile) return "Senza profilo app";
-  if (user.presenceStatus === "online") return "Online";
-  if (user.presenceStatus === "away") return "Assente";
+  if (isAppOpenPresence(user)) {
+    const status = (user.presenceStatus ?? "").toLowerCase();
+    if (status === "away") return "Assente · app aperta";
+    if (status === "dnd") return "Non disturbare · app aperta";
+    return "Online · app aperta";
+  }
   if (user.lastSeenAt) return `Visto ${formatWhen(user.lastSeenAt)}`;
   return "Offline";
 }
 
 function isCloudUserOnline(user: DevCloudUser) {
-  return user.presenceStatus === "online" || user.presenceStatus === "away";
+  return isAppOpenPresence(user);
 }
 
 function feedbackTypeBadge(type: FeedbackType): string {
@@ -102,7 +166,7 @@ function feedbackTypeBadge(type: FeedbackType): string {
     case "title":
       return "border-mint/25 bg-mint/10 text-mint";
     default:
-      return "border-white/10 bg-white/[0.04] text-text-muted";
+      return "border-border bg-fill-muted text-text-muted";
   }
 }
 
@@ -162,7 +226,7 @@ function CloudUserDetail({
             ? [{ label: "Versione app", value: <span className="font-mono">v{user.appVersion}</span> }]
             : []),
           ...(user.platform
-            ? [{ label: "Piattaforma", value: <span className="capitalize">{user.platform}</span> }]
+            ? [{ label: "Piattaforma", value: formatPlatformLabel(user.platform) }]
             : []),
         ]}
       />
@@ -262,7 +326,7 @@ function FeedbackDetail({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
-      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-5 py-4">
+      <div className="rounded-2xl border border-border bg-fill-muted px-5 py-4">
         <div className="flex flex-wrap items-center gap-2">
           <span
             className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${feedbackTypeBadge(item.type)}`}
@@ -299,7 +363,7 @@ function FeedbackDetail({
             ? [{ label: "Versione app", value: <span className="font-mono">{item.appVersion}</span> }]
             : []),
           ...(item.platform
-            ? [{ label: "Piattaforma", value: <span className="capitalize">{item.platform}</span> }]
+            ? [{ label: "Piattaforma", value: formatPlatformLabel(item.platform) }]
             : []),
           ...(item.context?.activeNav
             ? [{ label: "Sezione attiva", value: item.context.activeNav }]
@@ -359,93 +423,31 @@ function FeedbackDetail({
   );
 }
 
-function LocalProfileDetail({ profile }: { profile: DevLocalProfileInsight }) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-6">
-      <DevDetailHeader
-        title={profile.name}
-        subtitle="Profilo locale su questo dispositivo"
-        avatar={<DevUserAvatar name={profile.name} />}
-        badges={<DevBadge tone="accent">{profile.role}</DevBadge>}
-      />
-
-      <section>
-        <ProfileSectionLabel>{`Amici (${profile.friends.length})`}</ProfileSectionLabel>
-        {profile.friends.length === 0 ? (
-          <ProfileEmptyState
-            icon={Users}
-            title="Nessun amico"
-            description="Nessun amico LAN aggiunto da questo profilo."
-          />
-        ) : (
-          <DevRowList>
-            {profile.friends.map((friend) => (
-              <DevRowItem
-                key={friend.friendCode}
-                title={friend.displayName}
-                subtitle={friend.lastHost ? `Host: ${friend.lastHost}` : undefined}
-                trailing={
-                  <>
-                    <p className="font-mono text-text-secondary">{friend.friendCode}</p>
-                    <p>{formatWhen(friend.addedAt)}</p>
-                  </>
-                }
-              />
-            ))}
-          </DevRowList>
-        )}
-      </section>
-
-      <section className="min-h-0 flex-1">
-        <ProfileSectionLabel>{`Titoli guardati (${profile.recentSessions.length})`}</ProfileSectionLabel>
-        {profile.recentSessions.length === 0 ? (
-          <ProfileEmptyState
-            icon={Film}
-            title="Nessuna sessione"
-            description="Nessuna visione registrata su questo profilo."
-          />
-        ) : (
-          <DevRowList maxHeight="max-h-[min(52vh,520px)]">
-            {profile.recentSessions.map((session) => (
-              <DevRowItem
-                key={session.id}
-                title={session.mediaTitle}
-                subtitle={`${session.sourceKind === "addon" ? "Streaming" : "Libreria locale"}${session.completed ? " · completato" : ""}`}
-                trailing={
-                  <>
-                    <p>{formatWhen(session.startedAt)}</p>
-                    <p className="tabular-nums">{formatDuration(session.secondsWatched)}</p>
-                  </>
-                }
-              />
-            ))}
-          </DevRowList>
-        )}
-      </section>
-    </div>
-  );
-}
-
 export function DevConsolePage() {
-  const [tab, setTab] = useState<DevTab>("cloud");
+  const [tab, setTab] = useState<DevTab>("overview");
   const [query, setQuery] = useState("");
   const [feedbackTypeFilter, setFeedbackTypeFilter] = useState<FeedbackType | "all">("all");
   const [feedbackBucket, setFeedbackBucket] = useState<FeedbackBucket>("inbox");
   const [feedbackActionBusy, setFeedbackActionBusy] = useState(false);
   const [deleteUserBusy, setDeleteUserBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cloudUsers, setCloudUsers] = useState<DevCloudUser[]>([]);
   const [localProfiles, setLocalProfiles] = useState<DevLocalProfileInsight[]>([]);
   const [feedbackItems, setFeedbackItems] = useState<AppFeedbackRecord[]>([]);
   const [feedbackWarning, setFeedbackWarning] = useState<string | null>(null);
   const [selectedCloudId, setSelectedCloudId] = useState<string | null>(null);
-  const [selectedLocalId, setSelectedLocalId] = useState<string | null>(null);
   const [selectedFeedbackId, setSelectedFeedbackId] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = Boolean(opts?.silent);
+    if (silent) setRefreshing(true);
+    else {
+      setLoading(true);
+      setError(null);
+    }
     setFeedbackWarning(null);
     try {
       const [cloudResult, localResult, feedbackResult] = await Promise.allSettled([
@@ -476,29 +478,37 @@ export function DevConsolePage() {
       setCloudUsers(cloud);
       setLocalProfiles(local.profiles);
       setFeedbackItems(feedback);
+      setLastUpdatedAt(Date.now());
       setSelectedCloudId((prev) =>
         prev && cloud.some((u) => u.userId === prev) ? prev : (cloud[0]?.userId ?? null),
-      );
-      setSelectedLocalId((prev) =>
-        prev && local.profiles.some((p) => p.id === prev)
-          ? prev
-          : (local.profiles[0]?.id ?? null),
       );
       setSelectedFeedbackId((prev) =>
         prev && feedback.some((item) => item.id === prev)
           ? prev
           : (feedback[0]?.id ?? null),
       );
+      if (silent) setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (!silent) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (tab !== "overview") return;
+    const id = window.setInterval(() => {
+      void load({ silent: true });
+    }, LIVE_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [tab, load]);
 
   const filteredCloud = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -509,12 +519,6 @@ export function DevConsolePage() {
         user.displayName?.toLowerCase().includes(q),
     );
   }, [cloudUsers, query]);
-
-  const filteredLocal = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return localProfiles;
-    return localProfiles.filter((profile) => profile.name.toLowerCase().includes(q));
-  }, [localProfiles, query]);
 
   const filteredFeedback = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -542,11 +546,6 @@ export function DevConsolePage() {
   const selectedCloudUser = useMemo(
     () => cloudUsers.find((u) => u.userId === selectedCloudId) ?? null,
     [cloudUsers, selectedCloudId],
-  );
-
-  const selectedLocalProfile = useMemo(
-    () => localProfiles.find((p) => p.id === selectedLocalId) ?? null,
-    [localProfiles, selectedLocalId],
   );
 
   const selectedFeedback = useMemo(
@@ -610,276 +609,340 @@ export function DevConsolePage() {
     }
   }, []);
 
+  const activeMeta = MAIN_TABS.find((t) => t.id === tab) ?? MAIN_TABS[0];
+  const ActiveIcon = activeMeta.icon;
+
   const stats =
-    tab === "broadcasts"
+    tab === "overview" || tab === "top10" || tab === "pranks"
+      ? []
+      : tab === "broadcasts"
       ? [
-          { label: "Annunci", value: "—", icon: Megaphone },
+          { label: "Messaggi", value: "—", icon: Megaphone },
           { label: "Utenti auth", value: cloudUsers.length, icon: Users },
           { label: "Feedback", value: feedbackItems.length, icon: MessageSquare },
         ]
       : tab === "feedback"
-      ? [
-          { label: "Da fare", value: inboxCount, icon: MessageSquare },
-          { label: "Risolti", value: resolvedCount, icon: CheckCircle2 },
-          { label: "Cestino", value: trashCount, icon: Trash2 },
-        ]
-      : [
-          { label: "Utenti auth", value: cloudUsers.length, icon: Users },
-          { label: "Con profilo", value: registeredCount, icon: Shield },
-          { label: "Solo auth", value: unregisteredCount, icon: UserRound },
-        ];
+        ? [
+            { label: "Da fare", value: inboxCount, icon: MessageSquare },
+            { label: "Risolti", value: resolvedCount, icon: CheckCircle2 },
+            { label: "Cestino", value: trashCount, icon: Trash2 },
+          ]
+        : [
+            { label: "Utenti auth", value: cloudUsers.length, icon: Users },
+            { label: "Con profilo", value: registeredCount, icon: Shield },
+            { label: "Solo auth", value: unregisteredCount, icon: UserRound },
+          ];
 
-  if (loading) {
-    return (
-      <>
-        <DevHero onRefresh={() => void load()} refreshing />
-        <DevLoadingState />
-      </>
-    );
-  }
-
-  if (error) {
-    return (
-      <>
-        <DevHero onRefresh={() => void load()} />
-        <DevErrorBanner message={error} />
-      </>
-    );
-  }
-
-  return (
+  const sidebar = (
     <>
-      <DevHero onRefresh={() => void load()} refreshing={loading} />
-      <DevStatsGrid stats={stats} />
-
-      <div className="page-px mx-auto mt-8 flex max-w-5xl justify-center">
-        <ProfileTabBar tabs={MAIN_TABS} active={tab} onChange={setTab} />
+      <div className="flex items-center gap-2.5 px-4 pb-3 pt-4 lg:px-5 lg:pb-5 lg:pt-6">
+        <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-text-primary text-void">
+          <Terminal className="h-4 w-4" strokeWidth={2.25} />
+        </span>
+        <div className="min-w-0">
+          <p className="font-display text-[15px] font-semibold tracking-[-0.03em] text-text-primary">
+            Area Dev
+          </p>
+          <p className="text-[11px] text-text-muted">Console privata</p>
+        </div>
       </div>
 
-      <DevFilterRow
-        trailing={
-          tab !== "broadcasts" ? (
-            <DevSearchInput
-              value={query}
-              onChange={setQuery}
-              placeholder={
-                tab === "feedback"
-                  ? "Cerca messaggio, oggetto o profilo…"
-                  : "Cerca email, nome o profilo…"
-              }
-            />
-          ) : undefined
-        }
+      <nav
+        className="flex gap-1 overflow-x-auto px-3 pb-3 scrollbar-hide lg:flex-1 lg:flex-col lg:overflow-visible lg:px-3 lg:pb-4"
+        aria-label="Sezioni area dev"
       >
-        {tab === "feedback" &&
-          (
-            [
-              ["inbox", "Da fare"],
-              ["resolved", "Risolti"],
-              ["trash", "Cestino"],
-            ] as const
-          ).map(([id, label]) => (
-            <DevChip
-              key={id}
-              active={feedbackBucket === id}
-              onClick={() => {
-                setFeedbackBucket(id);
-                setSelectedFeedbackId(null);
-              }}
-            >
-              {label}
-            </DevChip>
-          ))}
-      </DevFilterRow>
+        {MAIN_TABS.map((item) => (
+          <div key={item.id} className="shrink-0 lg:w-full">
+            <SettingsNavItem
+              icon={item.icon}
+              label={item.label}
+              active={tab === item.id}
+              onClick={() => setTab(item.id)}
+            />
+          </div>
+        ))}
+      </nav>
 
-      {tab === "feedback" && feedbackBucket !== "trash" && (
-        <DevFilterRow>
-          {(
-            [
-              ["all", "Tutti"],
-              ["bug", "Bug"],
-              ["feedback", "Feedback"],
-              ["feature", "Funzioni"],
-              ["title", "Titoli"],
-            ] as const
-          ).map(([id, label]) => (
-            <DevChip
-              key={id}
-              active={feedbackTypeFilter === id}
-              onClick={() => setFeedbackTypeFilter(id)}
-            >
-              {label}
-            </DevChip>
-          ))}
-        </DevFilterRow>
-      )}
-
-      {tab === "feedback" && feedbackWarning && <DevWarningBanner message={feedbackWarning} />}
-
-      {tab === "broadcasts" && <BroadcastAdminPanel />}
-
-      {tab === "cloud" && (
-        <DevMasterDetail
-          sidebar={
-            <DevSidebar title={`Utenti (${filteredCloud.length})`}>
-              {filteredCloud.length === 0 ? (
-                <p className="px-3 py-8 text-center text-[13px] text-text-muted">
-                  Nessun utente trovato.
-                </p>
-              ) : (
-                filteredCloud.map((user) => (
-                  <DevListItem
-                    key={user.userId}
-                    selected={user.userId === selectedCloudId}
-                    onClick={() => setSelectedCloudId(user.userId)}
-                    title={user.displayName ?? user.email}
-                    subtitle={user.email}
-                    meta={`${user.friends.length} amici · ${user.recentWatches.length} visioni${user.appVersion ? ` · v${user.appVersion}` : ""}`}
-                    leading={
-                      <DevUserAvatar
-                        name={user.displayName ?? user.email}
-                        imageUrl={user.avatarUrl}
-                        online={user.hasProfile ? isCloudUserOnline(user) : undefined}
-                      />
-                    }
-                  />
-                ))
-              )}
-            </DevSidebar>
-          }
-          detail={
-            <DevDetailPane
-              empty={
-                <ProfileEmptyState
-                  icon={Users}
-                  title="Seleziona un utente"
-                  description="Scegli un account dalla lista per vedere dettagli, amici e visioni."
-                />
-              }
-            >
-              {selectedCloudUser && (
-                <CloudUserDetail
-                  user={selectedCloudUser}
-                  deleteBusy={deleteUserBusy}
-                  onDelete={() => void handleDeleteCloudUser(selectedCloudUser)}
-                />
-              )}
-            </DevDetailPane>
-          }
-        />
-      )}
-
-      {tab === "local" && (
-        <DevMasterDetail
-          sidebar={
-            <DevSidebar title={`Profili (${filteredLocal.length})`}>
-              {filteredLocal.length === 0 ? (
-                <p className="px-3 py-8 text-center text-[13px] text-text-muted">
-                  Nessun profilo locale.
-                </p>
-              ) : (
-                filteredLocal.map((profile) => (
-                  <DevListItem
-                    key={profile.id}
-                    selected={profile.id === selectedLocalId}
-                    onClick={() => setSelectedLocalId(profile.id)}
-                    title={profile.name}
-                    subtitle={profile.role}
-                    meta={`${profile.friends.length} amici · ${profile.recentSessions.length} visioni`}
-                    leading={<DevUserAvatar name={profile.name} />}
-                  />
-                ))
-              )}
-            </DevSidebar>
-          }
-          detail={
-            <DevDetailPane
-              empty={
-                <ProfileEmptyState
-                  icon={UserRound}
-                  title="Seleziona un profilo"
-                  description="Scegli un profilo locale per vedere amici e cronologia visioni."
-                />
-              }
-            >
-              {selectedLocalProfile && <LocalProfileDetail profile={selectedLocalProfile} />}
-            </DevDetailPane>
-          }
-        />
-      )}
-
-      {tab === "feedback" && (
-        <DevMasterDetail
-          sidebar={
-            <DevSidebar
-              title={`${
-                feedbackBucket === "trash"
-                  ? "Cestino"
-                  : feedbackBucket === "resolved"
-                    ? "Risolti"
-                    : "Da fare"
-              } (${filteredFeedback.length})`}
-            >
-              {filteredFeedback.length === 0 ? (
-                <p className="px-3 py-8 text-center text-[13px] text-text-muted">
-                  Nessun feedback trovato.
-                </p>
-              ) : (
-                filteredFeedback.map((item) => (
-                  <DevListItem
-                    key={item.id}
-                    selected={item.id === selectedFeedbackId}
-                    onClick={() => setSelectedFeedbackId(item.id)}
-                    title={item.subject ?? item.message}
-                    subtitle={`${item.profileName} · ${item.profileRole}`}
-                    meta={formatWhen(item.createdAt)}
-                    leading={
-                      <span
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${feedbackTypeBadge(item.type)}`}
-                      >
-                        <FeedbackTypeIcon type={item.type} />
-                      </span>
-                    }
-                  />
-                ))
-              )}
-            </DevSidebar>
-          }
-          detail={
-            <DevDetailPane
-              empty={
-                <ProfileEmptyState
-                  icon={MessageSquare}
-                  title="Nessun messaggio"
-                  description="Seleziona un feedback dalla lista per leggerlo e gestirlo."
-                />
-              }
-            >
-              {selectedFeedback && (
-                <FeedbackDetail
-                  item={selectedFeedback}
-                  bucket={feedbackBucket}
-                  busy={feedbackActionBusy}
-                  onResolve={() =>
-                    void runFeedbackAction(() =>
-                      setFeedbackStatus(selectedFeedback.id, "resolved"),
-                    )
-                  }
-                  onReopen={() =>
-                    void runFeedbackAction(() => setFeedbackStatus(selectedFeedback.id, "open"))
-                  }
-                  onTrash={() =>
-                    void runFeedbackAction(() => moveFeedbackToTrash(selectedFeedback.id))
-                  }
-                  onRestore={() =>
-                    void runFeedbackAction(() => restoreFeedbackFromTrash(selectedFeedback.id))
-                  }
-                />
-              )}
-            </DevDetailPane>
-          }
-        />
-      )}
+      <div className="mt-auto hidden border-t border-border px-5 py-4 lg:block">
+        <p className="text-[12px] leading-relaxed text-text-secondary">
+          Solo account sviluppatore. I dati cloud richiedono sessione admin.
+        </p>
+      </div>
     </>
+  );
+
+  return (
+    <div className="page-px relative pb-[max(5.5rem,var(--mobile-nav-height))] pt-[calc(var(--app-nav-height)+0.85rem)] sm:pb-20 sm:pt-[calc(var(--app-nav-height)+1.5rem)]">
+      <div className="mx-auto w-full max-w-6xl">
+        <SettingsShell sidebar={sidebar}>
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-5 py-5 sm:px-7 sm:py-6">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+                {activeMeta.label}
+              </p>
+              <h1 className="font-display mt-1 text-[clamp(1.65rem,3vw,2.15rem)] font-semibold tracking-[-0.045em] text-text-primary">
+                {activeMeta.title}
+              </h1>
+              <p className="mt-1 text-[13px] text-text-muted sm:text-[14px]">
+                {activeMeta.subtitle}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <SettingsButton
+                variant="secondary"
+                onClick={() => void load({ silent: !loading && cloudUsers.length > 0 })}
+                disabled={loading || refreshing}
+                className="px-4 py-2"
+              >
+                {loading || refreshing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" strokeWidth={2} />
+                )}
+                Aggiorna
+              </SettingsButton>
+              <span className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-full bg-fill-strong text-text-primary sm:flex">
+                <ActiveIcon className="h-5 w-5" strokeWidth={1.85} />
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-4 p-4 sm:p-6 lg:p-7">
+            {loading ? (
+              <DevLoadingState />
+            ) : error ? (
+              <DevErrorBanner message={error} />
+            ) : (
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={tab}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                  className="space-y-4"
+                >
+                  {stats.length > 0 && <DevStatsGrid stats={stats} />}
+
+                  {tab === "overview" && (
+                    <DevOverviewPanel
+                      cloudUsers={cloudUsers}
+                      feedbackItems={feedbackItems}
+                      localProfileCount={localProfiles.length}
+                      lastUpdatedAt={lastUpdatedAt}
+                      live
+                    />
+                  )}
+
+                  {tab !== "broadcasts" &&
+                    tab !== "overview" &&
+                    tab !== "top10" &&
+                    tab !== "pranks" && (
+                    <DevFilterRow
+                      trailing={
+                        <DevSearchInput
+                          value={query}
+                          onChange={setQuery}
+                          placeholder={
+                            tab === "feedback"
+                              ? "Cerca messaggio, oggetto o profilo…"
+                              : "Cerca email, nome o profilo…"
+                          }
+                        />
+                      }
+                    >
+                      {tab === "feedback"
+                        ? (
+                            [
+                              ["inbox", "Da fare"],
+                              ["resolved", "Risolti"],
+                              ["trash", "Cestino"],
+                            ] as const
+                          ).map(([id, label]) => (
+                            <DevChip
+                              key={id}
+                              active={feedbackBucket === id}
+                              onClick={() => {
+                                setFeedbackBucket(id);
+                                setSelectedFeedbackId(null);
+                              }}
+                            >
+                              {label}
+                            </DevChip>
+                          ))
+                        : null}
+                    </DevFilterRow>
+                  )}
+
+                  {tab === "feedback" && feedbackBucket !== "trash" && (
+                    <DevFilterRow>
+                      {(
+                        [
+                          ["all", "Tutti"],
+                          ["bug", "Bug"],
+                          ["feedback", "Feedback"],
+                          ["feature", "Funzioni"],
+                          ["title", "Titoli"],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <DevChip
+                          key={id}
+                          active={feedbackTypeFilter === id}
+                          onClick={() => setFeedbackTypeFilter(id)}
+                        >
+                          {label}
+                        </DevChip>
+                      ))}
+                    </DevFilterRow>
+                  )}
+
+                  {tab === "feedback" && feedbackWarning && (
+                    <DevWarningBanner message={feedbackWarning} />
+                  )}
+
+                  {tab === "broadcasts" && <BroadcastAdminPanel />}
+
+                  {tab === "pranks" && <DevPrankPanel />}
+
+                  {tab === "cloud" && (
+                    <DevMasterDetail
+                      sidebar={
+                        <DevSidebar title={`Utenti (${filteredCloud.length})`}>
+                          {filteredCloud.length === 0 ? (
+                            <p className="px-3 py-8 text-center text-[13px] text-text-muted">
+                              Nessun utente trovato.
+                            </p>
+                          ) : (
+                            filteredCloud.map((user) => (
+                              <DevListItem
+                                key={user.userId}
+                                selected={user.userId === selectedCloudId}
+                                onClick={() => setSelectedCloudId(user.userId)}
+                                title={user.displayName ?? user.email}
+                                subtitle={user.email}
+                                meta={`${user.friends.length} amici · ${user.recentWatches.length} visioni${user.appVersion ? ` · v${user.appVersion}` : ""}`}
+                                leading={
+                                  <DevUserAvatar
+                                    name={user.displayName ?? user.email}
+                                    imageUrl={user.avatarUrl}
+                                    online={
+                                      user.hasProfile ? isCloudUserOnline(user) : undefined
+                                    }
+                                  />
+                                }
+                              />
+                            ))
+                          )}
+                        </DevSidebar>
+                      }
+                      detail={
+                        <DevDetailPane
+                          empty={
+                            <ProfileEmptyState
+                              icon={Users}
+                              title="Seleziona un utente"
+                              description="Scegli un account dalla lista per vedere dettagli, amici e visioni."
+                            />
+                          }
+                        >
+                          {selectedCloudUser && (
+                            <CloudUserDetail
+                              user={selectedCloudUser}
+                              deleteBusy={deleteUserBusy}
+                              onDelete={() => void handleDeleteCloudUser(selectedCloudUser)}
+                            />
+                          )}
+                        </DevDetailPane>
+                      }
+                    />
+                  )}
+
+                  {tab === "top10" && <DevTop10Panel />}
+
+                  {tab === "feedback" && (
+                    <DevMasterDetail
+                      sidebar={
+                        <DevSidebar
+                          title={`${
+                            feedbackBucket === "trash"
+                              ? "Cestino"
+                              : feedbackBucket === "resolved"
+                                ? "Risolti"
+                                : "Da fare"
+                          } (${filteredFeedback.length})`}
+                        >
+                          {filteredFeedback.length === 0 ? (
+                            <p className="px-3 py-8 text-center text-[13px] text-text-muted">
+                              Nessun feedback trovato.
+                            </p>
+                          ) : (
+                            filteredFeedback.map((item) => (
+                              <DevListItem
+                                key={item.id}
+                                selected={item.id === selectedFeedbackId}
+                                onClick={() => setSelectedFeedbackId(item.id)}
+                                title={item.subject ?? item.message}
+                                subtitle={`${item.profileName} · ${item.profileRole}`}
+                                meta={formatWhen(item.createdAt)}
+                                leading={
+                                  <span
+                                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${feedbackTypeBadge(item.type)}`}
+                                  >
+                                    <FeedbackTypeIcon type={item.type} />
+                                  </span>
+                                }
+                              />
+                            ))
+                          )}
+                        </DevSidebar>
+                      }
+                      detail={
+                        <DevDetailPane
+                          empty={
+                            <ProfileEmptyState
+                              icon={MessageSquare}
+                              title="Nessun messaggio"
+                              description="Seleziona un feedback dalla lista per leggerlo e gestirlo."
+                            />
+                          }
+                        >
+                          {selectedFeedback && (
+                            <FeedbackDetail
+                              item={selectedFeedback}
+                              bucket={feedbackBucket}
+                              busy={feedbackActionBusy}
+                              onResolve={() =>
+                                void runFeedbackAction(() =>
+                                  setFeedbackStatus(selectedFeedback.id, "resolved"),
+                                )
+                              }
+                              onReopen={() =>
+                                void runFeedbackAction(() =>
+                                  setFeedbackStatus(selectedFeedback.id, "open"),
+                                )
+                              }
+                              onTrash={() =>
+                                void runFeedbackAction(() =>
+                                  moveFeedbackToTrash(selectedFeedback.id),
+                                )
+                              }
+                              onRestore={() =>
+                                void runFeedbackAction(() =>
+                                  restoreFeedbackFromTrash(selectedFeedback.id),
+                                )
+                              }
+                            />
+                          )}
+                        </DevDetailPane>
+                      }
+                    />
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            )}
+          </div>
+        </SettingsShell>
+      </div>
+    </div>
   );
 }

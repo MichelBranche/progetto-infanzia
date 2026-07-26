@@ -265,7 +265,7 @@ export function AppTopNavFriendsMenuPanel({
 
   const shellClass = isSheet
     ? "friends-menu-sheet__content flex min-h-0 flex-1 flex-col"
-    : "overflow-hidden rounded-2xl border border-white/[0.08] bg-[#121216] shadow-[0_20px_50px_rgba(0,0,0,0.55)]";
+    : "overflow-hidden rounded-2xl border border-border bg-panel-elevated shadow-[0_20px_50px_rgba(0,0,0,0.28)]";
 
   return (
     <div className={shellClass} role="menu">
@@ -295,7 +295,7 @@ export function AppTopNavFriendsMenuPanel({
                 <button
                   type="button"
                   onClick={refreshAll}
-                  className="flex h-11 w-11 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-white/[0.06] hover:text-text-primary"
+                  className="flex h-11 w-11 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-fill hover:text-text-primary"
                   title="Aggiorna"
                   aria-label="Aggiorna lista amici"
                 >
@@ -307,7 +307,7 @@ export function AppTopNavFriendsMenuPanel({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="flex h-11 w-11 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-white/[0.06] hover:text-text-primary"
+                  className="flex h-11 w-11 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-fill hover:text-text-primary"
                   aria-label="Chiudi menu amici"
                 >
                   <X className="h-5 w-5" strokeWidth={1.75} />
@@ -342,7 +342,7 @@ export function AppTopNavFriendsMenuPanel({
             <button
               type="button"
               onClick={refreshAll}
-              className={`flex items-center justify-center rounded-full text-text-muted transition-colors hover:bg-white/[0.06] hover:text-text-primary ${
+              className={`flex items-center justify-center rounded-full text-text-muted transition-colors hover:bg-fill hover:text-text-primary ${
                 isSheet ? "h-11 w-11" : "h-8 w-8"
               }`}
               title="Aggiorna"
@@ -357,7 +357,7 @@ export function AppTopNavFriendsMenuPanel({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex h-11 w-11 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-white/[0.06] hover:text-text-primary"
+                className="flex h-11 w-11 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-fill hover:text-text-primary"
                 aria-label="Chiudi menu amici"
               >
                 <X className="h-5 w-5" strokeWidth={1.75} />
@@ -409,11 +409,11 @@ export function AppTopNavFriendsMenuPanel({
                   onClick={() => setStatus(option.id)}
                   className={`flex items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
                     selected
-                      ? "bg-white/[0.08] text-text-primary"
-                      : "text-text-secondary hover:bg-white/[0.04] hover:text-text-primary"
+                      ? "bg-fill-strong text-text-primary"
+                      : "text-text-secondary hover:bg-fill-muted hover:text-text-primary"
                   }`}
                 >
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.04]">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-fill">
                     <span
                       className={`inline-flex h-2 w-2 rounded-full ${STATUS_DOT_CLASS[option.id]}`}
                     />
@@ -494,7 +494,7 @@ export function AppTopNavFriendsMenuPanel({
             {visibleFriends.map((friend) => (
               <li key={friend.key}>
                 <div
-                  className={`flex items-center gap-2 transition-colors hover:bg-white/[0.04] ${
+                  className={`flex items-center gap-2 transition-colors hover:bg-fill-muted ${
                     isSheet
                       ? "friends-menu-sheet__friend-row rounded-2xl px-2 py-1"
                       : `rounded-xl px-2 py-2 ${friend.online ? "" : "opacity-85"}`
@@ -540,7 +540,7 @@ export function AppTopNavFriendsMenuPanel({
                     <button
                       type="button"
                       onClick={() => void openChat(friend)}
-                      className={`flex shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-white/[0.08] hover:text-text-primary ${
+                      className={`flex shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-fill-strong hover:text-text-primary ${
                         isSheet ? "friends-menu-sheet__action-btn" : "h-8 w-8"
                       }`}
                       title="Apri chat"
@@ -617,7 +617,7 @@ export function AppTopNavFriendsMenuPanel({
               setShowPartyJoin((v) => !v);
               setPartyError(null);
             }}
-            className={`flex w-full items-center justify-between rounded-xl text-left font-medium text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-text-primary ${
+            className={`flex w-full items-center justify-between rounded-xl text-left font-medium text-text-secondary transition-colors hover:bg-fill-muted hover:text-text-primary ${
               isSheet ? "min-h-12 px-3 py-3 text-[14px]" : "px-2 py-2 text-[13px]"
             }`}
           >
@@ -639,7 +639,7 @@ export function AppTopNavFriendsMenuPanel({
                 value={partyCode}
                 onChange={(e) => setPartyCode(e.target.value.toUpperCase())}
                 placeholder="Codice stanza"
-                className={`w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 text-text-primary outline-none placeholder:text-text-muted focus:border-accent/40 ${
+                className={`w-full rounded-xl border border-border bg-fill px-3 text-text-primary outline-none placeholder:text-text-muted focus:border-accent/40 ${
                   isSheet ? "py-3 text-[15px]" : "py-2.5 text-[13px]"
                 }`}
               />
@@ -649,7 +649,7 @@ export function AppTopNavFriendsMenuPanel({
                   value={partyHostIp}
                   onChange={(e) => setPartyHostIp(e.target.value)}
                   placeholder="IP host (LAN)"
-                  className={`w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 text-text-primary outline-none placeholder:text-text-muted focus:border-accent/40 ${
+                  className={`w-full rounded-xl border border-border bg-fill px-3 text-text-primary outline-none placeholder:text-text-muted focus:border-accent/40 ${
                     isSheet ? "py-3 text-[15px]" : "py-2.5 text-[13px]"
                   }`}
                 />
@@ -681,7 +681,7 @@ export function AppTopNavFriendsMenuPanel({
           type="button"
           role="menuitem"
           onClick={() => onNavigate("friends")}
-          className={`flex w-full items-center justify-between rounded-xl text-left text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-text-primary ${
+          className={`flex w-full items-center justify-between rounded-xl text-left text-text-secondary transition-colors hover:bg-fill-muted hover:text-text-primary ${
             isSheet ? "min-h-12 px-4 py-3 text-[14px]" : "px-3 py-2.5 text-[13px]"
           }`}
         >
@@ -695,7 +695,7 @@ export function AppTopNavFriendsMenuPanel({
           type="button"
           role="menuitem"
           onClick={() => onNavigate("invite")}
-          className={`flex w-full items-center justify-between rounded-xl text-left text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-text-primary ${
+          className={`flex w-full items-center justify-between rounded-xl text-left text-text-secondary transition-colors hover:bg-fill-muted hover:text-text-primary ${
             isSheet ? "min-h-12 px-4 py-3 text-[14px]" : "px-3 py-2.5 text-[13px]"
           }`}
         >
@@ -722,7 +722,7 @@ function FriendAvatar({
   const initial = name.trim().charAt(0).toUpperCase() || "?";
   return (
     <div
-      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/[0.06] font-display font-semibold text-text-primary ${
+      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-fill-strong font-display font-semibold text-text-primary ${
         large ? "h-11 w-11 text-[15px]" : "h-9 w-9 text-[13px]"
       }`}
     >

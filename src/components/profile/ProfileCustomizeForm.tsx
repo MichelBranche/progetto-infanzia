@@ -128,7 +128,7 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-[#0a0a0e]/80 p-4 sm:p-5">
+    <section className="rounded-2xl border border-border bg-panel/80 p-4 sm:p-5">
       <h3 className="mb-4 font-display text-[15px] font-medium tracking-[-0.02em] text-text-primary">
         {title}
       </h3>
@@ -153,14 +153,14 @@ function ColorSwatches({
           onClick={() => onChange(c)}
           className={`h-8 w-8 rounded-full transition-transform ${
             value === c
-              ? "scale-110 ring-2 ring-white ring-offset-2 ring-offset-[#0a0a0e]"
+              ? "scale-110 ring-2 ring-text-primary ring-offset-2 ring-offset-panel"
               : "hover:scale-105"
           }`}
           style={{ backgroundColor: c }}
           aria-label={`Colore ${c}`}
         />
       ))}
-      <label className="flex h-9 cursor-pointer items-center gap-2 rounded-full border border-white/10 px-3 text-[12px] text-text-muted transition-colors hover:border-white/20">
+      <label className="flex h-9 cursor-pointer items-center gap-2 rounded-full border border-border px-3 text-[12px] text-text-muted transition-colors hover:border-border-hover">
         <input
           type="color"
           value={value}
@@ -187,9 +187,9 @@ function ProfileFormActions({
   onCancel: () => void;
 }) {
   const docked =
-    "fixed inset-x-0 bottom-0 z-20 border-t border-white/[0.08] bg-[#05000d]/94 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-xl sm:static sm:z-auto sm:mx-auto sm:mt-2 sm:max-w-md sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:pb-0 sm:backdrop-blur-none";
+    "fixed inset-x-0 bottom-0 z-20 border-t border-border bg-void/94 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-xl sm:static sm:z-auto sm:mx-auto sm:mt-2 sm:max-w-md sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:pb-0 sm:backdrop-blur-none";
   const embedded =
-    "sticky bottom-0 -mx-1 border-t border-white/[0.06] bg-[#0a0a0e]/95 px-1 pb-1 pt-4 backdrop-blur-sm";
+    "sticky bottom-0 -mx-1 border-t border-border bg-panel/95 px-1 pb-1 pt-4 backdrop-blur-sm";
 
   return (
     <div className={dockActions ? docked : embedded}>
@@ -199,7 +199,7 @@ function ProfileFormActions({
           whileTap={{ scale: 0.98 }}
           whileHover={{ scale: 1.01 }}
           onClick={onCancel}
-          className="min-h-12 w-full touch-manipulation rounded-xl border border-white/12 bg-white/[0.03] px-5 py-3.5 text-[15px] font-medium text-text-muted transition-colors hover:border-white/20 hover:bg-white/[0.06] hover:text-text-secondary sm:min-w-[9.5rem] sm:w-auto"
+          className="min-h-12 w-full touch-manipulation rounded-xl border border-border bg-fill px-5 py-3.5 text-[15px] font-medium text-text-muted transition-colors hover:border-border-hover hover:bg-fill-strong hover:text-text-secondary sm:min-w-[9.5rem] sm:w-auto"
         >
           Annulla
         </motion.button>
@@ -208,7 +208,7 @@ function ProfileFormActions({
           disabled={submitting || !canSubmit}
           whileTap={submitting || !canSubmit ? undefined : { scale: 0.98 }}
           whileHover={submitting || !canSubmit ? undefined : { scale: 1.01 }}
-          className="min-h-12 w-full touch-manipulation rounded-xl bg-accent px-6 py-3.5 text-[15px] font-semibold text-white shadow-[0_10px_30px_rgba(255,103,64,0.28)] transition-opacity hover:opacity-95 disabled:opacity-40 sm:min-w-[11rem] sm:w-auto"
+          className="min-h-12 w-full touch-manipulation rounded-xl bg-accent px-6 py-3.5 text-[15px] font-semibold text-void shadow-[0_10px_30px_rgba(0,0,0,0.14)] transition-opacity hover:opacity-95 disabled:opacity-40 sm:min-w-[11rem] sm:w-auto"
         >
           {submitting ? "Salvataggio..." : submitLabel}
         </motion.button>
@@ -314,7 +314,7 @@ export function ProfileCustomizeForm({
         <div className="flex flex-col items-center gap-8">
           <aside className="flex w-full justify-center">
             <div
-              className="relative flex w-full max-w-[240px] flex-col items-center rounded-3xl border border-white/[0.08] bg-[#0a0a0e]/90 px-6 py-8"
+              className="relative flex w-full max-w-[240px] flex-col items-center rounded-3xl border border-border bg-panel/90 px-6 py-8"
               style={{ boxShadow: `0 24px 80px ${value.avatarColor}18` }}
             >
               <div
@@ -359,7 +359,7 @@ export function ProfileCustomizeForm({
                       className={`rounded-xl border px-3 py-3 text-left transition-all ${
                         value.role === opt.id
                           ? "border-accent/40 bg-accent/10"
-                          : "border-white/[0.07] bg-white/[0.02] hover:border-white/14"
+                          : "border-border bg-fill-muted hover:border-border-hover"
                       }`}
                     >
                       <p className="text-[13px] font-medium text-text-primary">

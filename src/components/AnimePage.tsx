@@ -691,10 +691,10 @@ export function AnimePage({
             <BrowseGridSkeleton count={18} />
           ) : filteredItems.length === 0 && !hasMore ? (
             <div className="flex min-h-[30vh] flex-col items-center justify-center py-12 text-center">
-              <p className="text-[15px] font-medium text-white/85">
+              <p className="text-[15px] font-medium text-text-primary">
                 Nessun anime con questo filtro
               </p>
-              <p className="mt-2 text-[13px] text-white/45">
+              <p className="mt-2 text-[13px] text-text-muted">
                 Prova a cambiare audio, genere od ordinamento.
               </p>
             </div>

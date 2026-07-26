@@ -1,13 +1,38 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { getSupabase } from "./supabaseClient";
 import { isCloudEnabled } from "./cloudConfig";
 import type { SubmitFeedbackInput } from "../types/feedback";
+import { detectMobileDevice } from "./mobileDevice";
 
+/** Piattaforma heartbeat/feedback: distingue shell web vs desktop. */
 export function detectPlatform(): string {
-  const ua = navigator.userAgent;
-  if (ua.includes("Win")) return "windows";
-  if (ua.includes("Mac")) return "macos";
-  if (ua.includes("Linux")) return "linux";
-  return "unknown";
+  if (isTauri()) {
+    const ua = navigator.userAgent;
+    if (ua.includes("Win")) return "desktop-windows";
+    if (ua.includes("Mac")) return "desktop-macos";
+    if (ua.includes("Linux")) return "desktop-linux";
+    return "desktop";
+  }
+  if (detectMobileDevice()) return "web-mobile";
+  return "web";
+}
+
+export function formatPlatformLabel(platform?: string): string {
+  if (!platform) return "—";
+  const p = platform.toLowerCase();
+  const map: Record<string, string> = {
+    web: "Web",
+    "web-mobile": "Web mobile",
+    browser: "Web",
+    desktop: "Desktop",
+    "desktop-windows": "Desktop · Windows",
+    "desktop-macos": "Desktop · macOS",
+    "desktop-linux": "Desktop · Linux",
+    windows: "Windows",
+    macos: "macOS",
+    linux: "Linux",
+  };
+  return map[p] ?? platform;
 }
 
 export async function submitAppFeedback(

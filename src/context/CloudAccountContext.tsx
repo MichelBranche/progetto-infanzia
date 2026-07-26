@@ -28,8 +28,17 @@ interface CloudAccountContextValue {
   loading: boolean;
   profile: CloudProfile | null;
   user: User | null;
-  signUp: (email: string, password: string, displayName?: string) => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (
+    email: string,
+    password: string,
+    displayName?: string,
+    rememberMe?: boolean,
+  ) => Promise<void>;
+  signIn: (
+    email: string,
+    password: string,
+    rememberMe?: boolean,
+  ) => Promise<void>;
   signOut: () => Promise<void>;
   updateDisplayName: (name: string) => Promise<void>;
   refresh: () => Promise<void>;
@@ -145,8 +154,13 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
   }, [configured, refresh, reloadProfileOnly]);
 
   const signUp = useCallback(
-    async (email: string, password: string, displayName?: string) => {
-      const p = await signUpWithEmail(email, password, displayName);
+    async (
+      email: string,
+      password: string,
+      displayName?: string,
+      rememberMe = true,
+    ) => {
+      const p = await signUpWithEmail(email, password, displayName, rememberMe);
       setProfile(p);
       const supabase = getSupabase();
       const { data } = await supabase!.auth.getSession();
@@ -157,15 +171,18 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const signIn = useCallback(async (email: string, password: string) => {
-    const p = await signInWithEmail(email, password);
-    setProfile(p);
-    const supabase = getSupabase();
-    const { data } = await supabase!.auth.getSession();
-    setUser(data.session?.user ?? null);
-    const { syncCloudAccountWithApp } = await import("../lib/cloudProfileSync");
-    await syncCloudAccountWithApp(p).catch(() => {});
-  }, []);
+  const signIn = useCallback(
+    async (email: string, password: string, rememberMe = true) => {
+      const p = await signInWithEmail(email, password, rememberMe);
+      setProfile(p);
+      const supabase = getSupabase();
+      const { data } = await supabase!.auth.getSession();
+      setUser(data.session?.user ?? null);
+      const { syncCloudAccountWithApp } = await import("../lib/cloudProfileSync");
+      await syncCloudAccountWithApp(p).catch(() => {});
+    },
+    [],
+  );
 
   const signOut = useCallback(async () => {
     const { clearMyPresence } = await import("../lib/cloudPresence");

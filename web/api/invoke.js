@@ -1,18 +1,4 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
-
-export const config = {
-  runtime: "nodejs",
-};
-
-type InvokeBody = {
-  command?: string;
-  args?: Record<string, unknown>;
-};
-
-export default async function handler(
-  req: VercelRequest,
-  res: VercelResponse,
-): Promise<void> {
+export default async function handler(req, res) {
   if (req.method === "OPTIONS") {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -35,7 +21,7 @@ export default async function handler(
     return;
   }
 
-  const body = (req.body ?? {}) as InvokeBody;
+  const body = req.body ?? {};
   if (!body.command || typeof body.command !== "string") {
     res.status(400).json({ ok: false, error: "Campo command mancante" });
     return;

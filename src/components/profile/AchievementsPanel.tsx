@@ -96,7 +96,7 @@ export function AchievementsPanel({ state, loading }: AchievementsPanelProps) {
                 className={`rounded-2xl border p-4 transition-colors ${
                   unlocked
                     ? "border-accent/25 bg-accent/[0.08]"
-                    : "border-white/[0.06] bg-white/[0.02]"
+                    : "border-border bg-fill-muted"
                 }`}
               >
                 <div className="flex items-start gap-3">

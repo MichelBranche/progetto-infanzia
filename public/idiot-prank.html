@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>You are an idiot!</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        cursor: none;
+        user-select: none;
+      }
+      video {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #000;
+      }
+    </style>
+  </head>
+  <body>
+    <video
+      id="v"
+      src="/jumpscares/you-are-an-idiot.mp4"
+      playsinline
+      loop
+      preload="auto"
+    ></video>
+    <script>
+      (function () {
+        var params = new URLSearchParams(location.search);
+        var startAt = Number(params.get("startAt") || "0");
+        var endAt = Number(params.get("endAt") || "0");
+        var forceMuted = params.get("muted") === "1";
+        var v = document.getElementById("v");
+
+        function closeSelf() {
+          try {
+            if (window.__TAURI__ && window.__TAURI__.window) {
+              window.__TAURI__.window.getCurrentWindow().close();
+              return;
+            }
+          } catch (e) {}
+          try {
+            window.close();
+          } catch (e) {}
+        }
+
+        function play() {
+          try {
+            v.currentTime = 0;
+          } catch (e) {}
+          v.muted = forceMuted;
+          v.volume = forceMuted ? 0 : 1;
+          var p = v.play();
+          if (p && typeof p.catch === "function") {
+            p.catch(function () {
+              v.muted = true;
+              v.play();
+            });
+          }
+          if (endAt > 0) {
+            setTimeout(closeSelf, Math.max(0, endAt - Date.now()));
+          }
+        }
+
+        var wait = Math.max(0, startAt - Date.now());
+        if (wait > 0) setTimeout(play, wait);
+        else play();
+      })();
+    </script>
+  </body>
+</html>

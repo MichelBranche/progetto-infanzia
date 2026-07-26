@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Blocks,
+  Cloud,
   Globe,
   KeyRound,
   Lock,
   LayoutGrid,
+  Paintbrush,
+  Settings2,
   Shield,
   Volume2,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { IS_TAURI_SHELL } from "../lib/tauriShell";
 import { setProfilePin, removeProfilePin } from "../lib/profilesApi";
 import { fetchSettings, updateSettings } from "../lib/settingsApi";
@@ -20,13 +24,15 @@ import { DebridPanel } from "./DebridPanel";
 import { STREMIO_ADDONS_ENABLED } from "../lib/features";
 import type { AppSettings } from "../lib/settingsApi";
 import { AmbientThemePicker } from "./settings/AmbientThemePicker";
+import { ChromeModePicker } from "./settings/ChromeModePicker";
 import { SettingsSkeleton } from "./Skeleton";
 import {
   SettingsAlert,
   SettingsButton,
-  SettingsGroupLabel,
   SettingsInput,
+  SettingsNavItem,
   SettingsSection,
+  SettingsShell,
   SettingsSwitch,
 } from "./settings/SettingsUi";
 
@@ -34,10 +40,51 @@ interface SettingsPageProps {
   profileId: string;
 }
 
-const sectionMotion = {
-  initial: { opacity: 0, y: 14 },
-  animate: { opacity: 1, y: 0 },
-};
+type SettingsTabId = "aspect" | "account" | "streaming" | "family" | "app";
+
+const TABS: Array<{
+  id: SettingsTabId;
+  label: string;
+  icon: LucideIcon;
+  title: string;
+  subtitle: string;
+}> = [
+  {
+    id: "aspect",
+    label: "Aspetto",
+    icon: Paintbrush,
+    title: "Aspetto",
+    subtitle: "Tema interfaccia e aurora animata",
+  },
+  {
+    id: "account",
+    label: "Account",
+    icon: Cloud,
+    title: "Account",
+    subtitle: "Accesso cloud e PIN profilo genitore",
+  },
+  {
+    id: "streaming",
+    label: "Streaming",
+    icon: Blocks,
+    title: "Streaming",
+    subtitle: "Addon Stremio e servizi debrid",
+  },
+  {
+    id: "family",
+    label: "Famiglia",
+    icon: Shield,
+    title: "Famiglia",
+    subtitle: "Limiti tempo e fascia oraria",
+  },
+  {
+    id: "app",
+    label: "App",
+    icon: Settings2,
+    title: "App",
+    subtitle: "Suoni, proxy e aggiornamenti",
+  },
+];
 
 export function SettingsPage({ profileId }: SettingsPageProps) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -49,6 +96,16 @@ export function SettingsPage({ profileId }: SettingsPageProps) {
   const [pinMessage, setPinMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scProxyDraft, setScProxyDraft] = useState("");
+  const [activeTab, setActiveTab] = useState<SettingsTabId>("aspect");
+
+  const visibleTabs = useMemo(
+    () =>
+      TABS.filter((tab) => tab.id !== "streaming" || STREMIO_ADDONS_ENABLED),
+    [],
+  );
+
+  const activeMeta = visibleTabs.find((tab) => tab.id === activeTab) ?? visibleTabs[0];
+  const ActiveIcon = activeMeta.icon;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,6 +126,12 @@ export function SettingsPage({ profileId }: SettingsPageProps) {
   useEffect(() => {
     if (settings) setScProxyDraft(settings.scProxyUrl ?? "");
   }, [settings?.scProxyUrl]);
+
+  useEffect(() => {
+    if (!STREMIO_ADDONS_ENABLED && activeTab === "streaming") {
+      setActiveTab("aspect");
+    }
+  }, [activeTab]);
 
   const saveSettings = async (patch: Parameters<typeof updateSettings>[1]) => {
     setSaving(true);
@@ -118,259 +181,270 @@ export function SettingsPage({ profileId }: SettingsPageProps) {
     return <SettingsSkeleton />;
   }
 
-  let motionIndex = 0;
-
-  return (
-    <div className="relative min-h-full">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_90%_55%_at_50%_-15%,rgba(94,234,212,0.09),transparent_65%)]" />
-        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-void/80 to-transparent" />
-        <div className="noise-overlay absolute inset-0 opacity-[0.035]" />
+  const sidebar = (
+    <>
+      <div className="flex items-center gap-2.5 px-4 pb-3 pt-4 lg:px-5 lg:pb-5 lg:pt-6">
+        <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-text-primary font-display text-[15px] font-black italic tracking-[-0.06em] text-void">
+          B
+        </span>
+        <div className="min-w-0">
+          <p className="font-display text-[15px] font-semibold tracking-[-0.03em] text-text-primary">
+            Branchefy
+          </p>
+          <p className="text-[11px] text-text-muted">Impostazioni</p>
+        </div>
       </div>
 
-      <div className="page-px relative pb-[max(6rem,var(--mobile-nav-height))] pt-[calc(var(--app-nav-height)+1.25rem)] sm:pb-24 sm:pt-[calc(var(--app-nav-height)+2.25rem)]">
-        <div className="mx-auto w-full max-w-2xl">
-          <motion.header
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-            className="mb-8 text-center sm:mb-10"
-          >
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.03] shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
-              <span className="chromatic-logo chromatic-logo--skew font-display text-[2rem] font-black leading-none tracking-[-0.08em]">
-                B
-              </span>
+      <nav
+        className="flex gap-1 overflow-x-auto px-3 pb-3 scrollbar-hide lg:flex-1 lg:flex-col lg:overflow-visible lg:px-3 lg:pb-4"
+        aria-label="Sezioni impostazioni"
+      >
+        {visibleTabs.map((tab) => (
+          <div key={tab.id} className="shrink-0 lg:w-full">
+            <SettingsNavItem
+              icon={tab.icon}
+              label={tab.label}
+              active={activeTab === tab.id}
+              onClick={() => setActiveTab(tab.id)}
+            />
+          </div>
+        ))}
+      </nav>
+
+      <div className="mt-auto hidden border-t border-border px-5 py-4 lg:block">
+        <p className="text-[12px] leading-relaxed text-text-secondary">
+          Tema e aurora restano salvati su questo dispositivo.
+        </p>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="page-px relative pb-[max(5.5rem,var(--mobile-nav-height))] pt-[calc(var(--app-nav-height)+0.85rem)] sm:pb-20 sm:pt-[calc(var(--app-nav-height)+1.5rem)]">
+      <div className="mx-auto w-full max-w-6xl">
+        <SettingsShell sidebar={sidebar}>
+          <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-5 sm:px-7 sm:py-6">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+                {activeMeta.label}
+              </p>
+              <h1 className="font-display mt-1 text-[clamp(1.65rem,3vw,2.15rem)] font-semibold tracking-[-0.045em] text-text-primary">
+                {activeMeta.title}
+              </h1>
+              <p className="mt-1 text-[13px] text-text-muted sm:text-[14px]">
+                {activeMeta.subtitle}
+              </p>
             </div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-accent">
-              Branchefy
-            </p>
-            <h1 className="font-display mt-2 text-[clamp(1.75rem,4vw,2.5rem)] font-semibold tracking-[-0.04em] text-text-primary">
-              Impostazioni
-            </h1>
-            <p className="mx-auto mt-2 max-w-md text-[13px] leading-relaxed text-text-muted">
-              Aspetto, streaming, account e controllo genitori
-            </p>
-          </motion.header>
+            <span className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-full bg-fill-strong text-text-primary sm:flex">
+              <ActiveIcon className="h-5 w-5" strokeWidth={1.85} />
+            </span>
+          </div>
 
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-5"
-            >
-              <SettingsAlert variant="error">{error}</SettingsAlert>
-            </motion.div>
-          )}
+          <div className="space-y-4 p-4 sm:p-6 lg:p-7">
+            {error && <SettingsAlert variant="error">{error}</SettingsAlert>}
 
-          <div className="space-y-3">
-            <motion.div
-              {...sectionMotion}
-              transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
-            >
-              <SettingsGroupLabel>Aspetto</SettingsGroupLabel>
-              <AmbientThemePicker />
-            </motion.div>
-
-            <motion.div
-              {...sectionMotion}
-              transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
-            >
-              <SettingsGroupLabel>Account</SettingsGroupLabel>
-              <CloudAuthPanel />
-            </motion.div>
-
-            <motion.div
-              {...sectionMotion}
-              transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
-            >
-              <SettingsSection
-                icon={Lock}
-                title="PIN profilo genitore"
-                description="Protegge l'accesso al profilo genitore e alle impostazioni"
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                className="space-y-4"
               >
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <SettingsInput
-                    value={currentPin}
-                    onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ""))}
-                    placeholder="PIN attuale"
-                    maxLength={8}
-                    inputMode="numeric"
-                  />
-                  <SettingsInput
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                    placeholder="Nuovo PIN"
-                    maxLength={8}
-                    inputMode="numeric"
-                  />
-                  <SettingsInput
-                    value={pinConfirm}
-                    onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, ""))}
-                    placeholder="Conferma PIN"
-                    maxLength={8}
-                    inputMode="numeric"
-                    className="sm:col-span-2"
-                  />
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <SettingsButton variant="primary" onClick={() => void handleSetPin()}>
-                    Salva PIN
-                  </SettingsButton>
-                  <SettingsButton variant="secondary" onClick={() => void handleRemovePin()}>
-                    Rimuovi PIN
-                  </SettingsButton>
-                </div>
-                {pinMessage && (
-                  <p className="mt-3 text-[12px] text-text-secondary">{pinMessage}</p>
+                {activeTab === "aspect" && (
+                  <>
+                    <ChromeModePicker />
+                    <AmbientThemePicker />
+                  </>
                 )}
-              </SettingsSection>
-            </motion.div>
 
-            {STREMIO_ADDONS_ENABLED && (
-              <motion.div
-                {...sectionMotion}
-                transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
-              >
-                <SettingsSection
-                  icon={Blocks}
-                  title="Addon Stremio"
-                  description="Cataloghi e streaming remoto"
-                >
-                  <AddonManagerPanel parentProfileId={profileId} />
-                </SettingsSection>
-              </motion.div>
-            )}
+                {activeTab === "account" && (
+                  <>
+                    <CloudAuthPanel />
+                    <SettingsSection
+                      variant="ink"
+                      icon={Lock}
+                      title="PIN profilo genitore"
+                      description="Protegge l'accesso al profilo genitore e alle impostazioni"
+                    >
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <SettingsInput
+                          value={currentPin}
+                          onChange={(e) =>
+                            setCurrentPin(e.target.value.replace(/\D/g, ""))
+                          }
+                          placeholder="PIN attuale"
+                          maxLength={8}
+                          inputMode="numeric"
+                        />
+                        <SettingsInput
+                          value={pin}
+                          onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                          placeholder="Nuovo PIN"
+                          maxLength={8}
+                          inputMode="numeric"
+                        />
+                        <SettingsInput
+                          value={pinConfirm}
+                          onChange={(e) =>
+                            setPinConfirm(e.target.value.replace(/\D/g, ""))
+                          }
+                          placeholder="Conferma PIN"
+                          maxLength={8}
+                          inputMode="numeric"
+                          className="sm:col-span-2"
+                        />
+                      </div>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <SettingsButton
+                          variant="primary"
+                          className="settings-ink-btn-primary"
+                          onClick={() => void handleSetPin()}
+                        >
+                          Salva PIN
+                        </SettingsButton>
+                        <SettingsButton
+                          variant="secondary"
+                          className="settings-ink-btn-secondary"
+                          onClick={() => void handleRemovePin()}
+                        >
+                          Rimuovi PIN
+                        </SettingsButton>
+                      </div>
+                      {pinMessage && (
+                        <p className="mt-3 text-[13px] text-text-secondary">{pinMessage}</p>
+                      )}
+                    </SettingsSection>
+                  </>
+                )}
 
-            {STREMIO_ADDONS_ENABLED && (
-              <motion.div
-                {...sectionMotion}
-                transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
-              >
-                <SettingsSection
-                  icon={KeyRound}
-                  title="Debrid"
-                  description="Real-Debrid / AllDebrid per stream torrent in-app"
-                >
-                  <DebridPanel parentProfileId={profileId} />
-                </SettingsSection>
-              </motion.div>
-            )}
+                {activeTab === "streaming" && STREMIO_ADDONS_ENABLED && (
+                  <>
+                    <SettingsSection
+                      icon={Blocks}
+                      title="Addon Stremio"
+                      description="Cataloghi e streaming remoto"
+                    >
+                      <AddonManagerPanel parentProfileId={profileId} />
+                    </SettingsSection>
+                    <SettingsSection
+                      icon={KeyRound}
+                      title="Debrid"
+                      description="Real-Debrid / AllDebrid per stream torrent in-app"
+                    >
+                      <DebridPanel parentProfileId={profileId} />
+                    </SettingsSection>
+                  </>
+                )}
 
-            <motion.div
-              {...sectionMotion}
-              transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
-            >
-              <SettingsGroupLabel>Famiglia</SettingsGroupLabel>
-
-              <SettingsSection
-                icon={Shield}
-                title="Limiti profili bambino"
-                description="Tempo giornaliero e fascia oraria consentita"
-              >
-                <ParentalLimitsPanel parentProfileId={profileId} />
-              </SettingsSection>
-            </motion.div>
-
-            <motion.div
-              {...sectionMotion}
-              transition={{ delay: motionIndex++ * 0.05, duration: 0.4 }}
-            >
-              <SettingsGroupLabel>App</SettingsGroupLabel>
-
-              <SettingsSection
-                icon={Volume2}
-                title="Suono intro"
-                description="Effetto sonoro all'avvio di Branchefy"
-                headerRight={
-                  <SettingsSwitch
-                    enabled={settings.introSoundEnabled}
-                    disabled={saving}
-                    onChange={() =>
-                      void saveSettings({ introSoundEnabled: !settings.introSoundEnabled })
-                    }
-                  />
-                }
-              />
-
-              <div className="mt-3">
-                <SettingsSection
-                  icon={LayoutGrid}
-                  title="Suoni card home"
-                  description="Effetti al passaggio del mouse sulle card e al click per aprire un titolo"
-                  headerRight={
-                    <SettingsSwitch
-                      enabled={settings.homeCardSoundsEnabled}
-                      disabled={saving}
-                      onChange={() =>
-                        void saveSettings({
-                          homeCardSoundsEnabled: !settings.homeCardSoundsEnabled,
-                        })
-                      }
-                    />
-                  }
-                />
-              </div>
-
-              {IS_TAURI_SHELL && (
-                <div className="mt-3">
+                {activeTab === "family" && (
                   <SettingsSection
-                    icon={Globe}
-                    title="Proxy StreamingCommunity (avanzato)"
-                    description="Instrada solo il traffico StreamingCommunity attraverso un proxy (utile se il tuo IP è stato bloccato). Lascialo spento per la connessione diretta."
-                    headerRight={
-                      <SettingsSwitch
-                        enabled={settings.scProxyEnabled}
-                        disabled={saving}
-                        onChange={() =>
-                          void saveSettings({
-                            scProxyEnabled: !settings.scProxyEnabled,
-                          })
+                    icon={Shield}
+                    title="Limiti profili bambino"
+                    description="Tempo giornaliero e fascia oraria consentita"
+                  >
+                    <ParentalLimitsPanel parentProfileId={profileId} />
+                  </SettingsSection>
+                )}
+
+                {activeTab === "app" && (
+                  <>
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <SettingsSection
+                        icon={Volume2}
+                        title="Suono intro"
+                        description="Effetto sonoro all'avvio di Branchefy"
+                        headerRight={
+                          <SettingsSwitch
+                            enabled={settings.introSoundEnabled}
+                            disabled={saving}
+                            onChange={() =>
+                              void saveSettings({
+                                introSoundEnabled: !settings.introSoundEnabled,
+                              })
+                            }
+                          />
                         }
                       />
-                    }
-                  >
-                    {settings.scProxyEnabled && (
-                      <div className="mt-1">
-                        <SettingsInput
-                          value={scProxyDraft}
-                          onChange={(e) => setScProxyDraft(e.target.value)}
-                          placeholder="socks5://utente:password@host:1080"
-                          spellCheck={false}
-                          autoCapitalize="none"
-                        />
-                        <div className="mt-3 flex flex-wrap items-center gap-2">
-                          <SettingsButton
-                            variant="primary"
-                            onClick={() =>
-                              void saveSettings({ scProxyUrl: scProxyDraft.trim() })
+                      <SettingsSection
+                        icon={LayoutGrid}
+                        title="Suoni card home"
+                        description="Effetti sulle card e al click per aprire un titolo"
+                        headerRight={
+                          <SettingsSwitch
+                            enabled={settings.homeCardSoundsEnabled}
+                            disabled={saving}
+                            onChange={() =>
+                              void saveSettings({
+                                homeCardSoundsEnabled:
+                                  !settings.homeCardSoundsEnabled,
+                              })
                             }
-                          >
-                            Salva proxy
-                          </SettingsButton>
-                          {settings.scProxyUrl && (
-                            <span className="text-[12px] text-text-secondary">
-                              Attivo: {settings.scProxyUrl}
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-3 text-[12px] leading-relaxed text-text-muted">
-                          Schemi supportati: <code>http://</code>, <code>https://</code>,{" "}
-                          <code>socks5://</code>, <code>socks5h://</code> (con eventuale
-                          {" "}<code>utente:password@</code>). Non serve una VPN di sistema:
-                          solo le richieste a StreamingCommunity passano dal proxy.
-                        </p>
-                      </div>
-                    )}
-                  </SettingsSection>
-                </div>
-              )}
+                          />
+                        }
+                      />
+                    </div>
 
-              <div className="mt-3">
-                <AppUpdaterSection />
-              </div>
-            </motion.div>
+                    {IS_TAURI_SHELL && (
+                      <SettingsSection
+                        icon={Globe}
+                        title="Proxy StreamingCommunity"
+                        description="Instrada solo StreamingCommunity tramite proxy. Lascialo spento per la connessione diretta."
+                        headerRight={
+                          <SettingsSwitch
+                            enabled={settings.scProxyEnabled}
+                            disabled={saving}
+                            onChange={() =>
+                              void saveSettings({
+                                scProxyEnabled: !settings.scProxyEnabled,
+                              })
+                            }
+                          />
+                        }
+                      >
+                        {settings.scProxyEnabled && (
+                          <div className="mt-1">
+                            <SettingsInput
+                              value={scProxyDraft}
+                              onChange={(e) => setScProxyDraft(e.target.value)}
+                              placeholder="socks5://utente:password@host:1080"
+                              spellCheck={false}
+                              autoCapitalize="none"
+                            />
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              <SettingsButton
+                                variant="primary"
+                                onClick={() =>
+                                  void saveSettings({
+                                    scProxyUrl: scProxyDraft.trim(),
+                                  })
+                                }
+                              >
+                                Salva proxy
+                              </SettingsButton>
+                              {settings.scProxyUrl && (
+                                <span className="text-[12px] text-text-secondary">
+                                  Attivo: {settings.scProxyUrl}
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-3 text-[12px] leading-relaxed text-text-muted">
+                              Schemi: <code>http://</code>, <code>https://</code>,{" "}
+                              <code>socks5://</code>, <code>socks5h://</code>.
+                            </p>
+                          </div>
+                        )}
+                      </SettingsSection>
+                    )}
+
+                    <AppUpdaterSection />
+                  </>
+                )}
+              </motion.div>
+            </AnimatePresence>
           </div>
-        </div>
+        </SettingsShell>
       </div>
     </div>
   );

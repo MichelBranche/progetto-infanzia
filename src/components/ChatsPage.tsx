@@ -176,7 +176,7 @@ export function ChatsPage() {
           <button
             type="button"
             onClick={() => setShowGroupForm((v) => !v)}
-            className={`inline-flex items-center gap-2 self-start rounded-full border border-white/12 bg-white/[0.04] px-4 py-2 text-[12px] font-medium text-text-secondary hover:bg-white/[0.07] ${
+            className={`inline-flex items-center gap-2 self-start rounded-full border border-border bg-fill px-4 py-2 text-[12px] font-medium text-text-secondary hover:bg-fill-strong ${
               selectedId ? "hidden lg:inline-flex" : ""
             }`}
           >
@@ -192,7 +192,7 @@ export function ChatsPage() {
               value={groupTitle}
               onChange={(e) => setGroupTitle(e.target.value)}
               placeholder="Nome del gruppo"
-              className="mb-4 w-full rounded-xl border border-white/10 bg-black/25 px-4 py-2.5 text-[13px] text-text-primary outline-none focus:border-accent/40"
+              className="mb-4 w-full rounded-xl border border-border bg-fill px-4 py-2.5 text-[13px] text-text-primary outline-none focus:border-accent/40"
             />
             <p className="mb-2 text-[12px] text-text-muted">Aggiungi amici</p>
             <div className="mb-4 flex flex-wrap gap-2">
@@ -206,7 +206,7 @@ export function ChatsPage() {
                     className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
                       active
                         ? "border-accent/40 bg-accent/15 text-accent"
-                        : "border-white/10 text-text-muted hover:text-text-secondary"
+                        : "border-border text-text-muted hover:text-text-secondary"
                     }`}
                   >
                     {friend.displayName}
@@ -218,7 +218,7 @@ export function ChatsPage() {
               type="button"
               disabled={creatingGroup || !groupTitle.trim() || groupMemberIds.length === 0}
               onClick={() => void handleCreateGroup()}
-              className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-[12px] font-medium text-white disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-[12px] font-medium text-void disabled:opacity-50"
             >
               {creatingGroup ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Users className="h-3.5 w-3.5" />}
               Crea gruppo
@@ -234,10 +234,10 @@ export function ChatsPage() {
 
         {loading ? (
           <div className="grid gap-4 lg:grid-cols-[minmax(260px,300px)_1fr]">
-            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-2">
+            <div className="rounded-2xl border border-border bg-fill-muted p-2">
               <ListSkeleton rows={7} variant="chat" />
             </div>
-            <div className="hidden min-h-[320px] rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 lg:block">
+            <div className="hidden min-h-[320px] rounded-2xl border border-border bg-fill-muted p-6 lg:block">
               <ListSkeleton rows={4} variant="line" />
             </div>
           </div>
@@ -248,7 +248,7 @@ export function ChatsPage() {
                 selectedId ? "hidden lg:flex" : ""
               }`}
             >
-              <p className="border-b border-white/[0.06] px-4 py-3.5 text-[11px] font-medium uppercase tracking-[0.2em] text-text-muted">
+              <p className="border-b border-border px-4 py-3.5 text-[11px] font-medium uppercase tracking-[0.2em] text-text-muted">
                 Conversazioni ({chats.length})
               </p>
               <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -269,11 +269,11 @@ export function ChatsPage() {
                         onClick={() => setSelectedId(chat.id)}
                         className={`mb-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition-colors ${
                           selectedId === chat.id
-                            ? "bg-white/[0.08] ring-1 ring-white/15"
-                            : "hover:bg-white/[0.04]"
+                            ? "bg-fill-strong ring-1 ring-border"
+                            : "hover:bg-fill"
                         }`}
                       >
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/[0.06] font-display text-[13px] font-semibold">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-fill-strong font-display text-[13px] font-semibold text-text-primary">
                           {avatarUrl ? (
                             <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
                           ) : (
@@ -318,7 +318,7 @@ export function ChatsPage() {
                 className="h-[min(calc(100dvh-var(--app-nav-height)-var(--mobile-nav-height)-2rem),680px)] lg:h-[min(62vh,560px)]"
               />
             ) : (
-              <div className="hidden items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center text-[13px] text-text-muted lg:flex">
+              <div className="hidden items-center justify-center rounded-2xl border border-border bg-fill-muted p-8 text-center text-[13px] text-text-muted lg:flex">
                 Seleziona una conversazione
               </div>
             )}

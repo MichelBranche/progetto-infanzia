@@ -17,11 +17,7 @@ export function AppTopNavFriendsChevron() {
       aria-expanded={open}
       aria-haspopup="menu"
       aria-label="Menu amici e presenza"
-      className={`app-top-nav__friends-chevron flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
-        open
-          ? "bg-white/[0.12] text-white"
-          : "text-white/70 hover:bg-white/[0.08] hover:text-white"
-      }`}
+      className="app-top-nav__friends-chevron flex h-9 w-9 items-center justify-center rounded-full transition-colors"
     >
       <ChevronDown
         className={`h-[18px] w-[18px] transition-transform duration-300 ${

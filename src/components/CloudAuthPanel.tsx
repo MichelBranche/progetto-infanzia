@@ -41,6 +41,7 @@ export function CloudAuthPanel() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -88,24 +89,24 @@ export function CloudAuthPanel() {
 
   if (profile) {
     return (
-      <SettingsCard variant="accent">
+      <SettingsCard variant="ink">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             <SettingsIconBadge icon={Cloud} />
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">
                 Connesso
               </p>
               <p className="font-display mt-1 text-[17px] font-semibold tracking-[-0.02em] text-text-primary">
                 {profile.displayName}
               </p>
-              <p className="text-[13px] text-text-muted">{profile.email}</p>
+              <p className="text-[13px] text-text-secondary">{profile.email}</p>
             </div>
           </div>
           <SettingsButton
             variant="secondary"
             onClick={() => void signOut()}
-            className="shrink-0 px-3 py-2"
+            className="settings-ink-btn-secondary shrink-0 px-3 py-2"
           >
             <LogOut className="h-3 w-3" />
             Esci
@@ -124,7 +125,7 @@ export function CloudAuthPanel() {
           <SettingsButton
             variant="secondary"
             onClick={() => void copyFriendCode()}
-            className="ml-auto px-3 py-2"
+            className="settings-ink-btn-secondary ml-auto px-3 py-2"
           >
             <Copy className="h-3.5 w-3.5" />
             {copied ? "Copiato" : "Copia"}
@@ -140,10 +141,10 @@ export function CloudAuthPanel() {
     setMessage(null);
     try {
       if (mode === "register") {
-        await signUp(email, password, displayName || undefined);
+        await signUp(email, password, displayName || undefined, rememberMe);
         setMessage("Account creato. Ora puoi aggiungere amici via email.");
       } else {
-        await signIn(email, password);
+        await signIn(email, password, rememberMe);
         setMessage("Accesso effettuato.");
       }
     } catch (err) {
@@ -237,7 +238,7 @@ export function CloudAuthPanel() {
             <button
               type="button"
               onClick={() => setShowPassword((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-text-muted hover:bg-white/5 hover:text-text-primary"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-text-muted hover:bg-fill hover:text-text-primary"
               aria-label={showPassword ? "Nascondi password" : "Mostra password"}
             >
               {showPassword ? (
@@ -248,6 +249,15 @@ export function CloudAuthPanel() {
             </button>
           </div>
         </SettingsField>
+        <label className="flex cursor-pointer items-center gap-2.5 px-0.5">
+          <input
+            type="checkbox"
+            checked={rememberMe}
+            onChange={(e) => setRememberMe(e.target.checked)}
+            className="h-4 w-4 rounded border-border bg-fill accent-text-primary"
+          />
+          <span className="text-[12px] text-text-secondary">Rimani connesso</span>
+        </label>
         <SettingsButton
           type="submit"
           variant="primary"

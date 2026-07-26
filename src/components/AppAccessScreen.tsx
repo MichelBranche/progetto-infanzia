@@ -32,6 +32,7 @@ export function AppAccessScreen() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,9 +43,9 @@ export function AppAccessScreen() {
     setError(null);
     try {
       if (authMode === "register") {
-        await signUp(email, password, displayName || undefined);
+        await signUp(email, password, displayName || undefined, rememberMe);
       } else {
-        await signIn(email, password);
+        await signIn(email, password, rememberMe);
       }
       completeRegisteredSetup();
     } catch (err) {
@@ -273,6 +274,17 @@ export function AppAccessScreen() {
                     </button>
                   </div>
                 </div>
+                <label className="flex cursor-pointer items-center gap-2.5 px-0.5 py-0.5">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="h-4 w-4 rounded border-white/20 bg-white/[0.06] accent-white"
+                  />
+                  <span className="text-[12px] text-text-secondary">
+                    Rimani connesso
+                  </span>
+                </label>
                 <button
                   type="submit"
                   disabled={busy || !email.trim() || password.length < 6}

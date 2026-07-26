@@ -175,7 +175,7 @@ export function AppTopNavFriendsBar() {
             <button
               type="button"
               onClick={() => openMenu()}
-              className="app-top-nav__friend-stack-more relative -ml-2 flex shrink-0 items-center justify-center rounded-full bg-white/[0.1] font-display text-[10px] font-semibold text-white/85 ring-2 ring-[#141418] transition-colors hover:bg-white/[0.16]"
+              className="app-top-nav__friend-stack-more relative -ml-2 flex shrink-0 items-center justify-center rounded-full bg-[var(--lf-chrome-hover-fill)] font-display text-[10px] font-semibold text-[var(--lf-chrome-fg)] ring-2 ring-[var(--lf-chrome-bg-solid)] transition-colors hover:bg-[var(--lf-chrome-hover-fill-strong)]"
               style={{ zIndex: 0 }}
               aria-label={`Altri ${overflowCount} amici`}
             >
@@ -187,7 +187,7 @@ export function AppTopNavFriendsBar() {
         <button
           type="button"
           onClick={() => openMenu()}
-          className="app-top-nav__friend-stack-empty flex items-center justify-center rounded-full bg-white/[0.06] text-white/70 transition-colors hover:bg-white/[0.1]"
+          className="app-top-nav__friend-stack-empty flex items-center justify-center rounded-full bg-[var(--lf-chrome-hover-fill)] text-[var(--lf-chrome-fg-muted)] transition-colors hover:bg-[var(--lf-chrome-hover-fill-strong)]"
           aria-label="Aggiungi amici"
         >
           <Users className="h-4 w-4" strokeWidth={1.85} />
@@ -200,10 +200,10 @@ export function AppTopNavFriendsBar() {
         className="ml-2 hidden min-w-0 text-left sm:block"
         aria-label="Apri menu amici"
       >
-        <span className="block truncate font-display text-[12px] font-medium leading-tight text-white/90">
+        <span className="app-top-nav__chrome-fg-strong block truncate font-display text-[12px] font-medium leading-tight">
           {friends.length > 0 ? "Amici" : "Aggiungi amici"}
         </span>
-        <span className="block text-[10px] leading-tight text-white/45">
+        <span className="app-top-nav__chrome-fg-muted block text-[10px] leading-tight">
           {canInviteFriends && hostSession
             ? `Stanza ${hostSession.room.code} · invita`
             : friends.length > 0
@@ -216,7 +216,7 @@ export function AppTopNavFriendsBar() {
         <button
           type="button"
           onClick={() => openMenu()}
-          className="ml-1.5 shrink-0 text-white/50 sm:hidden"
+          className="app-top-nav__chrome-fg-muted ml-1.5 shrink-0 sm:hidden"
           aria-label="Aggiungi amici"
         >
           <UserPlus className="h-3.5 w-3.5" strokeWidth={1.85} />

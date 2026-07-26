@@ -1358,3 +1358,42 @@ create policy "profile avatars delete own"
     bucket_id = 'profile-avatars'
     and (storage.foldername(name))[1] = (select auth.uid()::text)
   );
+
+-- Config Top 10 home (singleton). Funzioni RPC: vedi migration 20260726150000_app_home_top10.sql
+create table if not exists public.app_home_top10 (
+  id integer primary key default 1 check (id = 1),
+  mode text not null default 'sc' check (mode in ('sc', 'branchefy', 'manual')),
+  items jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now(),
+  updated_by uuid references auth.users (id) on delete set null
+);
+
+insert into public.app_home_top10 (id, mode, items)
+values (1, 'sc', '[]'::jsonb)
+on conflict (id) do nothing;
+
+alter table public.app_home_top10 enable row level security;
+
+drop policy if exists "home top10 read dev admin" on public.app_home_top10;
+create policy "home top10 read dev admin"
+  on public.app_home_top10 for select
+  to authenticated
+  using (public.is_dev_admin());
+
+drop policy if exists "home top10 insert dev admin" on public.app_home_top10;
+create policy "home top10 insert dev admin"
+  on public.app_home_top10 for insert
+  to authenticated
+  with check (public.is_dev_admin());
+
+drop policy if exists "home top10 update dev admin" on public.app_home_top10;
+create policy "home top10 update dev admin"
+  on public.app_home_top10 for update
+  to authenticated
+  using (public.is_dev_admin())
+  with check (public.is_dev_admin());
+
+alter table public.cloud_watch_events
+  add column if not exists title_id text;
+alter table public.cloud_watch_events
+  add column if not exists poster_url text;

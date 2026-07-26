@@ -48,6 +48,7 @@ interface HomeKeepAliveViewProps {
   homeStreamingPending: boolean;
   continueHomeRow: HomeContinueRow | null;
   top10Row: HomeTop10Row | null;
+  forYouHomeRow: HomeCatalogRow | null;
   homeCatalogRows: HomeCatalogRow[];
   homeCatalogRowsBeforeManga: HomeCatalogRow[];
   homeCatalogRowsAfterManga: HomeCatalogRow[];
@@ -103,6 +104,7 @@ export const HomeKeepAliveView = memo(
     homeStreamingPending,
     continueHomeRow,
     top10Row,
+    forYouHomeRow,
     homeCatalogRows,
     homeCatalogRowsBeforeManga,
     homeCatalogRowsAfterManga,
@@ -125,6 +127,7 @@ export const HomeKeepAliveView = memo(
         {heroItems.length > 0 ? (
           <HeroBanner
             fullPage
+            syncAmbient={show}
             items={heroItems}
             scrollContainerRef={scrollContainerRef}
             onPlay={onPlay}
@@ -173,6 +176,23 @@ export const HomeKeepAliveView = memo(
                 onOpenDetail={onOpenDetail}
               />
             </Suspense>
+          </div>
+        )}
+        {forYouHomeRow && (
+          <div className="lf-home-for-you-slot relative">
+            <MediaRow
+              key={forYouHomeRow.key}
+              index="02"
+              title={forYouHomeRow.title}
+              subtitle={forYouHomeRow.subtitle}
+              items={forYouHomeRow.items}
+              animateEntrance={animateEntrance}
+              onPlay={onPlay}
+              onPlayStreaming={onPlayStreaming}
+              onOpenDetail={onOpenDetail}
+              onOpenSeries={onOpenSeries}
+              onToggleStreamingList={onToggleStreamingList}
+            />
           </div>
         )}
         <div className="lf-home-content relative">

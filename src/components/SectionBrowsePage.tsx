@@ -333,7 +333,7 @@ export function SectionBrowsePage(props: SectionBrowsePageProps) {
                 ? `${catalogCountLabel} · ${subtitle ?? `Scopri ${title.toLowerCase()} da guardare`}`
                 : (subtitle ?? `Scopri ${title.toLowerCase()} da guardare`)}
               {syncing && !lordFlixBrowse && (
-                <span className="text-white/40"> · Aggiornamento catalogo…</span>
+                <span className="text-text-muted"> · Aggiornamento catalogo…</span>
               )}
             </p>
             {syncing && lordFlixBrowse && (
@@ -407,16 +407,16 @@ export function SectionBrowsePage(props: SectionBrowsePageProps) {
         </div>
 
         {!lordFlixBrowse && (
-          <p className="mt-4 text-[12px] text-white/40">{catalogCountLabel}</p>
+          <p className="mt-4 text-[12px] text-text-muted">{catalogCountLabel}</p>
         )}
       </header>
 
       {lordFlixBrowse && filteredItems.length === 0 ? (
         <div className="flex min-h-[40vh] flex-col items-center justify-center py-16 text-center">
-          <p className="text-[15px] font-medium text-white/85">
+          <p className="text-[15px] font-medium text-text-primary">
             Nessun titolo con questi filtri
           </p>
-          <p className="mt-2 max-w-sm text-[13px] text-white/45">
+          <p className="mt-2 max-w-sm text-[13px] text-text-muted">
             Prova a cambiare genere, anno o provider
             {filtersActive ? ", oppure ripristina i filtri." : "."}
           </p>

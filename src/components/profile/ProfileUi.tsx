@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 export const PROFILE_CARD =
-  "rounded-2xl border border-white/[0.07] bg-[#0a0a0e]/80";
+  "rounded-2xl border border-border bg-panel/80";
 
 export function ProfileSectionLabel({ children }: { children: string }) {
   return (
@@ -100,7 +100,7 @@ export function ProfileTabBar<T extends string>({
   return (
     <div className="flex justify-center">
       <nav
-        className="inline-flex max-w-full gap-1 overflow-x-auto rounded-full border border-white/[0.07] bg-white/[0.03] p-1"
+        className="inline-flex max-w-full gap-1 overflow-x-auto rounded-full border border-border bg-fill p-1"
         aria-label="Sezioni profilo"
       >
         {tabs.map(({ id, label, icon: Icon }) => {
@@ -113,7 +113,7 @@ export function ProfileTabBar<T extends string>({
               onClick={() => onChange(id)}
               className={`relative flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[13px] font-medium transition-colors sm:px-5 ${
                 isActive
-                  ? "bg-white/[0.1] text-text-primary shadow-sm"
+                  ? "bg-text-primary text-void shadow-sm"
                   : "text-text-muted hover:text-text-secondary"
               }`}
             >
@@ -245,7 +245,7 @@ export function FriendListRow({
     </>
   );
 
-  const rowShell = "flex w-full items-center gap-2 border-b border-white/[0.05] py-3 last:border-0";
+  const rowShell = "flex w-full items-center gap-2 border-b border-border py-3 last:border-0";
 
   if (onPress) {
     return (

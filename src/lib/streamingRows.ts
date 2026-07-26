@@ -5,7 +5,7 @@ const TOP10_TARGET = 10;
 const TOP10_MIN = 6;
 
 /** Solo Streaming Community (esclude Saturn, Loonex, addon, ecc.). */
-function isStreamingCommunityPreview(preview: StremioMetaPreview): boolean {
+export function isStreamingCommunityPreview(preview: StremioMetaPreview): boolean {
   const prefix = preview.catalogPrefix?.toLowerCase();
   return !prefix || prefix === "sc";
 }

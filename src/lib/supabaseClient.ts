@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseKey, isCloudEnabled } from "./cloudConfig";
+import { createAuthStorage } from "./authRemember";
 
 let client: SupabaseClient | null = null;
 
@@ -14,6 +15,7 @@ export function getSupabase(): SupabaseClient | null {
           persistSession: true,
           autoRefreshToken: true,
           detectSessionInUrl: false,
+          storage: createAuthStorage(),
         },
       },
     );

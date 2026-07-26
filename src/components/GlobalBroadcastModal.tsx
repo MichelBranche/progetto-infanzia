@@ -1,7 +1,6 @@
-import { AlertTriangle, Info, Megaphone, Wrench, X } from "lucide-react";
+import { AlertTriangle, Megaphone, Wrench, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { AppBroadcast, AppBroadcastType } from "../types/appBroadcast";
-import { formatBroadcastWindow } from "../lib/appBroadcastApi";
 import { useAppBroadcast } from "../hooks/useAppBroadcast";
 
 function typeMeta(type: AppBroadcastType) {
@@ -9,7 +8,8 @@ function typeMeta(type: AppBroadcastType) {
     case "essential":
       return {
         icon: AlertTriangle,
-        label: "Comunicazione essenziale",
+        label: "Amministrazione Branchefy",
+        eyebrow: "Comunicazione essenziale",
         border: "border-warm/30",
         bg: "bg-[#120a0a]",
         glow: "from-warm/25 via-warm/5 to-transparent",
@@ -20,7 +20,8 @@ function typeMeta(type: AppBroadcastType) {
     case "maintenance":
       return {
         icon: Wrench,
-        label: "Manutenzione in corso",
+        label: "Amministrazione Branchefy",
+        eyebrow: "Manutenzione",
         border: "border-warm/25",
         bg: "bg-[#120d08]",
         glow: "from-warm/20 via-warm/5 to-transparent",
@@ -31,7 +32,8 @@ function typeMeta(type: AppBroadcastType) {
     case "warning":
       return {
         icon: AlertTriangle,
-        label: "Avviso importante",
+        label: "Amministrazione Branchefy",
+        eyebrow: "Avviso importante",
         border: "border-amber-400/25",
         bg: "bg-[#141008]",
         glow: "from-amber-400/15 via-amber-400/5 to-transparent",
@@ -41,12 +43,13 @@ function typeMeta(type: AppBroadcastType) {
       };
     default:
       return {
-        icon: Info,
-        label: "Comunicazione",
+        icon: Megaphone,
+        label: "Amministrazione Branchefy",
+        eyebrow: "Messaggio ufficiale",
         border: "border-accent/25",
         bg: "bg-[#0a0c12]",
         glow: "from-accent/15 via-accent/5 to-transparent",
-        iconWrap: "border-accent/25 bg-accent/10 text-accent",
+        iconWrap: "border-accent/10 bg-accent/10 text-accent",
         titleColor: "text-accent",
         blocking: false,
       };
@@ -88,10 +91,11 @@ function BroadcastCard({
           </div>
           <div className="min-w-0 flex-1">
             <p
-              className={`text-[10px] font-semibold uppercase tracking-[0.32em] ${meta.titleColor}`}
+              className={`text-[10px] font-semibold uppercase tracking-[0.28em] ${meta.titleColor}`}
             >
               {meta.label}
             </p>
+            <p className="mt-1 text-[11px] text-text-muted">{meta.eyebrow}</p>
             <h2
               id="global-broadcast-title"
               className="font-display mt-1.5 text-[clamp(1.35rem,3vw,1.75rem)] font-semibold leading-tight tracking-[-0.03em] text-text-primary"
@@ -103,9 +107,6 @@ function BroadcastCard({
               className="mt-3 whitespace-pre-wrap text-[13px] leading-relaxed text-text-secondary"
             >
               {broadcast.body}
-            </p>
-            <p className="mt-4 text-[11px] text-text-muted">
-              {formatBroadcastWindow(broadcast.startsAt, broadcast.endsAt)}
             </p>
           </div>
           {canDismiss && (

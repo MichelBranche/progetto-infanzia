@@ -1,15 +1,15 @@
-# Branchefy v0.2.16
+# Branchefy v0.2.17
 
-## Fix release desktop
+## Novità
 
-- **macOS universal build**: i bin di sviluppo (`export-sc-catalog-seed`, web-api) non vengono più inclusi nel bundle Tauri. Prima il bundler cercava `export-sc-catalog-seed` nel target universal e falliva.
-
-## Da v0.2.15 (inclusa)
-
-- Performance home/boot, Top 10 Streaming Community, libro manga 3D su desktop
+- **Top 10 Home (Area Dev)**: sorgente configurabile — Streaming Community, più visti Branchefy, o selezione manuale condivisa
+- **Messaggi admin**: popup a tutti gli utenti a nome di Amministrazione Branchefy
+- **Scherzi admin**: jumpscare video, finto ban, shake, invert, e *You are an idiot* (sull’app desktop apre più finestre sincronizzate)
+- **Aurora homepage**: i colori del background liquid seguono la hero solo in home; nel resto dell’app resta il tema scelto dall’utente
+- **Area Dev**: overview live, metriche web/Vercel, console restyling
 
 ## Piattaforme
 
-- **Windows**: aggiornamento automatico in-app dalla release GitHub
-- **Web app**: deploy su Vercel — ricarica quando compare il banner aggiornamento
-- **macOS**: scarica il nuovo `.dmg` dalla release GitHub
+- **Windows**: installer `.exe` con aggiornamento automatico in-app
+- **macOS**: `.dmg` universale (Intel + Apple Silicon) — tasto destro → Apri alla prima apertura
+- **Web app**: deploy automatico su Vercel da `main`

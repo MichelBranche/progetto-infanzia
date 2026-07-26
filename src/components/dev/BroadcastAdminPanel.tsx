@@ -5,6 +5,7 @@ import {
   Megaphone,
   Plus,
   Save,
+  Send,
   Trash2,
   Wrench,
 } from "lucide-react";
@@ -19,9 +20,18 @@ import {
 import type { AppBroadcast, AppBroadcastInput, AppBroadcastType } from "../../types/appBroadcast";
 import { appBroadcastTypeLabel } from "../../types/appBroadcast";
 import {
+  SettingsButton,
+  SettingsCheckboxRow,
+  SettingsField,
+  SettingsInput,
+  SettingsPill,
+} from "../settings/SettingsUi";
+import {
   DevActionBar,
   DevActionButton,
+  DevDetailPane,
   DevErrorBanner,
+  DevInfoBanner,
   DevListItem,
   DevLoadingState,
   DevMasterDetail,
@@ -34,6 +44,13 @@ const TYPE_OPTIONS: AppBroadcastType[] = [
   "warning",
   "maintenance",
   "essential",
+];
+
+const DURATION_PRESETS: Array<{ id: string; label: string; hours: number }> = [
+  { id: "2h", label: "2 ore", hours: 2 },
+  { id: "24h", label: "24 ore", hours: 24 },
+  { id: "7d", label: "7 giorni", hours: 24 * 7 },
+  { id: "30d", label: "30 giorni", hours: 24 * 30 },
 ];
 
 function toLocalInputValue(iso?: string): string {
@@ -51,13 +68,13 @@ function fromLocalInputValue(value: string): string {
   return date.toISOString();
 }
 
-function defaultForm(): AppBroadcastInput {
+function defaultForm(hours = 24): AppBroadcastInput {
   const start = new Date();
-  const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+  const end = new Date(start.getTime() + hours * 60 * 60 * 1000);
   return {
     title: "",
     body: "",
-    messageType: "maintenance",
+    messageType: "info",
     startsAt: start.toISOString(),
     endsAt: end.toISOString(),
     dismissible: true,
@@ -94,6 +111,8 @@ function BroadcastForm({
   onSave,
   onDelete,
   isNew,
+  durationPreset,
+  onDurationPreset,
 }: {
   value: AppBroadcastInput;
   onChange: (next: AppBroadcastInput) => void;
@@ -101,39 +120,31 @@ function BroadcastForm({
   onSave: () => void;
   onDelete?: () => void;
   isNew: boolean;
+  durationPreset: string;
+  onDurationPreset: (id: string) => void;
 }) {
   return (
-    <div className="space-y-4 p-4 sm:p-6">
+    <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block sm:col-span-2">
-          <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.12em] text-text-muted">
-            Titolo
-          </span>
-          <input
+        <SettingsField label="Titolo" className="sm:col-span-2">
+          <SettingsInput
             value={value.title}
             onChange={(event) => onChange({ ...value, title: event.target.value })}
-            className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-[14px] text-text-primary outline-none focus:border-accent/40"
-            placeholder="Es. Manutenzione server"
+            placeholder="Es. Novità su Branchefy"
           />
-        </label>
+        </SettingsField>
 
-        <label className="block sm:col-span-2">
-          <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.12em] text-text-muted">
-            Messaggio
-          </span>
+        <SettingsField label="Messaggio" className="sm:col-span-2">
           <textarea
             value={value.body}
             onChange={(event) => onChange({ ...value, body: event.target.value })}
             rows={5}
-            className="w-full resize-y rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-[14px] leading-relaxed text-text-primary outline-none focus:border-accent/40"
-            placeholder="Descrivi il problema o la manutenzione..."
+            placeholder="Testo che vedranno tutti gli utenti nel popup…"
+            className="w-full resize-y rounded-2xl border border-border bg-fill px-4 py-3 text-[14px] leading-relaxed text-text-primary outline-none transition-colors placeholder:text-text-muted/70 focus:border-border-hover focus:bg-fill-strong"
           />
-        </label>
+        </SettingsField>
 
-        <label className="block">
-          <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.12em] text-text-muted">
-            Tipologia
-          </span>
+        <SettingsField label="Tipologia">
           <select
             value={value.messageType}
             onChange={(event) =>
@@ -144,7 +155,7 @@ function BroadcastForm({
                   event.target.value === "essential" ? false : value.dismissible,
               })
             }
-            className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-[14px] text-text-primary outline-none focus:border-accent/40"
+            className="w-full rounded-2xl border border-border bg-fill px-4 py-3 text-[14px] text-text-primary outline-none transition-colors focus:border-border-hover focus:bg-fill-strong"
           >
             {TYPE_OPTIONS.map((type) => (
               <option key={type} value={type}>
@@ -152,60 +163,81 @@ function BroadcastForm({
               </option>
             ))}
           </select>
-        </label>
+        </SettingsField>
 
-        <label className="flex items-end gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-          <input
-            type="checkbox"
+        <div className="flex items-end">
+          <SettingsCheckboxRow
             checked={value.enabled}
-            onChange={(event) => onChange({ ...value, enabled: event.target.checked })}
-            className="h-4 w-4 rounded border-white/20"
+            onChange={() => onChange({ ...value, enabled: !value.enabled })}
+            label="Messaggio attivo"
           />
-          <span className="text-[13px] text-text-primary">Annuncio attivo</span>
-        </label>
+        </div>
 
-        <label className="block">
-          <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.12em] text-text-muted">
-            Inizio lavori
-          </span>
-          <input
-            type="datetime-local"
-            value={toLocalInputValue(value.startsAt)}
-            onChange={(event) =>
-              onChange({ ...value, startsAt: fromLocalInputValue(event.target.value) })
-            }
-            className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-[14px] text-text-primary outline-none focus:border-accent/40"
-          />
-        </label>
+        {isNew && (
+          <div className="sm:col-span-2">
+            <p className="mb-2 text-[12px] font-medium text-text-secondary">
+              Durata (da ora)
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {DURATION_PRESETS.map((preset) => (
+                <SettingsPill
+                  key={preset.id}
+                  active={durationPreset === preset.id}
+                  onClick={() => onDurationPreset(preset.id)}
+                >
+                  {preset.label}
+                </SettingsPill>
+              ))}
+              <SettingsPill
+                active={durationPreset === "custom"}
+                onClick={() => onDurationPreset("custom")}
+              >
+                Personalizzata
+              </SettingsPill>
+            </div>
+          </div>
+        )}
 
-        <label className="block">
-          <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.12em] text-text-muted">
-            Fine lavori
-          </span>
-          <input
-            type="datetime-local"
-            value={toLocalInputValue(value.endsAt)}
-            onChange={(event) =>
-              onChange({ ...value, endsAt: fromLocalInputValue(event.target.value) })
-            }
-            className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-[14px] text-text-primary outline-none focus:border-accent/40"
-          />
-        </label>
+        {(durationPreset === "custom" || !isNew) && (
+          <>
+            <SettingsField label="Inizio">
+              <SettingsInput
+                type="datetime-local"
+                value={toLocalInputValue(value.startsAt)}
+                onChange={(event) =>
+                  onChange({
+                    ...value,
+                    startsAt: fromLocalInputValue(event.target.value),
+                  })
+                }
+              />
+            </SettingsField>
 
-        <label className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 sm:col-span-2">
-          <input
-            type="checkbox"
+            <SettingsField label="Fine">
+              <SettingsInput
+                type="datetime-local"
+                value={toLocalInputValue(value.endsAt)}
+                onChange={(event) =>
+                  onChange({
+                    ...value,
+                    endsAt: fromLocalInputValue(event.target.value),
+                  })
+                }
+              />
+            </SettingsField>
+          </>
+        )}
+
+        <div className="sm:col-span-2">
+          <SettingsCheckboxRow
             checked={value.dismissible}
             disabled={value.messageType === "essential"}
-            onChange={(event) =>
-              onChange({ ...value, dismissible: event.target.checked })
+            onChange={() =>
+              onChange({ ...value, dismissible: !value.dismissible })
             }
-            className="h-4 w-4 rounded border-white/20 disabled:opacity-40"
+            label="Chiudibile dall'utente (disattivato per messaggi essenziali)"
           />
-          <span className="text-[13px] text-text-primary">
-            Chiudibile dall&apos;utente (disattivato per messaggi essenziali)
-          </span>
-        </label>
+        </div>
       </div>
 
       <DevActionBar>
@@ -213,9 +245,9 @@ function BroadcastForm({
           tone="accent"
           onClick={onSave}
           disabled={busy || !value.title.trim() || !value.body.trim()}
-          icon={busy ? Loader2 : Save}
+          icon={busy ? Loader2 : isNew ? Send : Save}
         >
-          {isNew ? "Pubblica annuncio" : "Salva modifiche"}
+          {isNew ? "Invia popup a tutti" : "Salva modifiche"}
         </DevActionButton>
         {!isNew && onDelete && (
           <DevActionButton tone="danger" onClick={onDelete} disabled={busy} icon={Trash2}>
@@ -232,9 +264,27 @@ export function BroadcastAdminPanel() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<AppBroadcastInput>(defaultForm());
+  const [draft, setDraft] = useState<AppBroadcastInput>(() => defaultForm(24));
+  const [durationPreset, setDurationPreset] = useState("24h");
   const isNew = selectedId === "__new__";
+
+  const applyDurationPreset = useCallback((id: string) => {
+    setDurationPreset(id);
+    if (id === "custom") return;
+    const preset = DURATION_PRESETS.find((item) => item.id === id);
+    if (!preset) return;
+    setDraft((prev) => {
+      const start = new Date();
+      const end = new Date(start.getTime() + preset.hours * 60 * 60 * 1000);
+      return {
+        ...prev,
+        startsAt: start.toISOString(),
+        endsAt: end.toISOString(),
+      };
+    });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -260,11 +310,15 @@ export function BroadcastAdminPanel() {
 
   useEffect(() => {
     if (selectedId === "__new__") {
-      setDraft(defaultForm());
+      setDraft(defaultForm(24));
+      setDurationPreset("24h");
       return;
     }
     const selected = items.find((item) => item.id === selectedId);
-    if (selected) setDraft(formFromBroadcast(selected));
+    if (selected) {
+      setDraft(formFromBroadcast(selected));
+      setDurationPreset("custom");
+    }
   }, [selectedId, items]);
 
   const selected = useMemo(
@@ -277,20 +331,25 @@ export function BroadcastAdminPanel() {
   const save = async () => {
     setBusy(true);
     setError(null);
+    setMessage(null);
     try {
       const payload = {
         ...draft,
         dismissible: draft.messageType === "essential" ? false : draft.dismissible,
       };
       if (Date.parse(payload.endsAt) <= Date.parse(payload.startsAt)) {
-        throw new Error("La fine lavori deve essere successiva all'inizio");
+        throw new Error("La fine deve essere successiva all'inizio");
       }
       if (isNew) {
         const created = await createDevBroadcast(payload);
+        setMessage(
+          "Popup inviato. Gli utenti online lo vedono subito; gli altri alla prossima apertura.",
+        );
         await load();
         setSelectedId(created.id);
       } else if (selectedId) {
         await updateDevBroadcast(selectedId, payload);
+        setMessage("Messaggio aggiornato.");
         await load();
       }
     } catch (err) {
@@ -302,9 +361,10 @@ export function BroadcastAdminPanel() {
 
   const remove = async () => {
     if (!selectedId || isNew) return;
-    if (!window.confirm("Eliminare questo annuncio globale?")) return;
+    if (!window.confirm("Eliminare questo messaggio globale?")) return;
     setBusy(true);
     setError(null);
+    setMessage(null);
     try {
       await deleteDevBroadcast(selectedId);
       await load();
@@ -319,65 +379,76 @@ export function BroadcastAdminPanel() {
   if (loading) return <DevLoadingState />;
 
   return (
-    <div className="page-px mx-auto mt-6 max-w-5xl">
-      {error && (
-        <div className="mb-4">
-          <DevErrorBanner message={error} />
+    <div className="space-y-4">
+      {error && <DevErrorBanner message={error} />}
+      {message && (
+        <div className="rounded-2xl border border-mint/25 bg-mint/10 px-4 py-3 text-[13px] text-mint">
+          {message}
         </div>
       )}
 
-      <div className="mb-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3 text-[12px] text-text-secondary">
-        Gli annunci vengono mostrati a <strong>tutti gli utenti</strong> con popup centrale e
-        suono notifica. Chi non è online li vedrà alla prossima apertura dell&apos;app.
+      <DevInfoBanner>
+        I messaggi partono a nome di{" "}
+        <strong className="text-text-primary">Amministrazione Branchefy</strong> e
+        appaiono in popup centrale a tutti gli utenti (con suono). Chi non è online
+        li vede alla prossima apertura dell&apos;app, finché restano attivi.
         {liveCount > 0 && (
           <span className="ml-2 inline-flex items-center gap-1 text-warm">
             <Megaphone className="h-3.5 w-3.5" />
-            {liveCount} annuncio/i attivo/i ora
+            {liveCount} attivo/i ora
           </span>
         )}
-      </div>
+      </DevInfoBanner>
 
       <DevMasterDetail
         sidebar={
-          <DevSidebar title="Annunci globali">
+          <DevSidebar title="Messaggi inviati">
             <div className="mb-2 px-1">
-              <button
-                type="button"
+              <SettingsButton
+                variant="secondary"
                 onClick={() => setSelectedId("__new__")}
-                className="inline-flex w-full items-center justify-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-3 py-2 text-[11px] font-medium text-accent"
+                className="w-full px-3 py-2 text-[12px]"
               >
                 <Plus className="h-3.5 w-3.5" />
-                Nuovo annuncio
-              </button>
+                Nuovo messaggio
+              </SettingsButton>
             </div>
-            {items.map((item) => {
-              const badge = statusBadge(item);
-              return (
-                <DevListItem
-                  key={item.id}
-                  selected={item.id === selectedId}
-                  onClick={() => setSelectedId(item.id)}
-                  title={item.title}
-                  subtitle={`${appBroadcastTypeLabel(item.messageType)} · ${badge.label}`}
-                  meta={formatBroadcastWindow(item.startsAt, item.endsAt)}
-                  leading={
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-text-muted">
-                      {item.messageType === "maintenance" ? (
-                        <Wrench className="h-4 w-4" />
-                      ) : (
-                        <AlertTriangle className="h-4 w-4" />
-                      )}
-                    </span>
-                  }
-                />
-              );
-            })}
+            {items.length === 0 ? (
+              <p className="px-3 py-6 text-center text-[13px] text-text-muted">
+                Nessun messaggio ancora.
+              </p>
+            ) : (
+              items.map((item) => {
+                const badge = statusBadge(item);
+                return (
+                  <DevListItem
+                    key={item.id}
+                    selected={item.id === selectedId}
+                    onClick={() => setSelectedId(item.id)}
+                    title={item.title}
+                    subtitle={`${appBroadcastTypeLabel(item.messageType)} · ${badge.label}`}
+                    meta={formatBroadcastWindow(item.startsAt, item.endsAt)}
+                    leading={
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-fill-muted text-text-muted">
+                        {item.messageType === "maintenance" ? (
+                          <Wrench className="h-4 w-4" />
+                        ) : item.messageType === "info" ? (
+                          <Megaphone className="h-4 w-4" />
+                        ) : (
+                          <AlertTriangle className="h-4 w-4" />
+                        )}
+                      </span>
+                    }
+                  />
+                );
+              })
+            )}
           </DevSidebar>
         }
         detail={
-          <div className="min-h-[420px] rounded-2xl border border-white/[0.08] bg-[#0a0a0c]">
+          <DevDetailPane>
             {selected && !isNew && (
-              <div className="border-b border-white/[0.06] px-4 py-3 sm:px-6">
+              <div className="mb-5 border-b border-border pb-4">
                 <DevMetaGrid
                   items={[
                     { label: "Stato", value: statusBadge(selected).label },
@@ -390,6 +461,12 @@ export function BroadcastAdminPanel() {
                 />
               </div>
             )}
+            {isNew && (
+              <p className="mb-4 text-[13px] text-text-muted">
+                Scrivi titolo e testo, scegli quanto resta visibile, poi invia. Il
+                popup mostra mittente <span className="text-text-secondary">Amministrazione Branchefy</span>.
+              </p>
+            )}
             <BroadcastForm
               value={draft}
               onChange={setDraft}
@@ -397,8 +474,10 @@ export function BroadcastAdminPanel() {
               onSave={() => void save()}
               onDelete={isNew ? undefined : () => void remove()}
               isNew={isNew}
+              durationPreset={durationPreset}
+              onDurationPreset={applyDurationPreset}
             />
-          </div>
+          </DevDetailPane>
         }
       />
     </div>
