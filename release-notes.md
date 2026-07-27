@@ -1,9 +1,9 @@
-# Branchefy v0.2.21
+# Branchefy v0.2.22
 
 ## Hotfix critico player
 
-- **Chiavi AES HLS**: in 0.2.19/0.2.20 le chiavi di decrittazione venivano riscritte come se fossero playlist m3u8 → body corrotto, buffering infinito, film che non partiva mai
-- Ora le chiavi restano proxate (Referer ok) ma **opache** (binarie), come in 0.2.18
+- **Chiavi AES VixCloud**: spesso stanno sotto `/playlist/…?type=key` — in 0.2.21 venivano ancora trattate come m3u8 → chiave corrotta, caricamento infinito
+- Ora `#EXT-X-KEY` / `SESSION-KEY` / `MAP` e `type=key` sono sempre **opachi** (binari), anche se il path contiene `/playlist/`
 - Segmenti e playlist restano sul proxy locale
 
 ## Piattaforme

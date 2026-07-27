@@ -85,15 +85,15 @@ impl AddonProxyRegistry {
         base: Option<&url::Url>,
         request_headers: &HashMap<String, String>,
         use_proxy: bool,
+        // Body binario (chiave AES, init map): proxy opaco, mai rewrite m3u8.
+        opaque: bool,
     ) -> String {
         let absolute = resolve_url(base, reference);
-        // Sempre proxy locale: i CDN VixCloud/SC richiedono Referer/Origin
-        // che il browser non può impostare su fetch diretti dei segmenti.
-        // `use_proxy` controlla solo l'hop SOCKS/VPN al fetch dell'entry.
-        // `rewrite_manifest` SOLO per playlist .m3u8 — mai per chiavi AES
-        // (binarie): altrimenti il body chiave viene riscritto come testo e
-        // la decrittazione HLS fallisce → buffering infinito.
-        let rewrite = is_hls_playlist_url(&absolute);
+        // Sempre proxy locale: i CDN VixCloud/SC richiedono Referer/Origin.
+        // `use_proxy` = hop SOCKS/VPN. `rewrite_manifest` solo playlist testuali.
+        // Attenzione: le chiavi VixCloud spesso stanno su `/playlist/...` quindi
+        // `is_hls_playlist_url` da solo non basta — serve il flag `opaque`.
+        let rewrite = !opaque && is_hls_playlist_url(&absolute);
         let id = self.register(absolute, request_headers.clone(), rewrite, use_proxy);
         self.playback_url(&id)
     }
@@ -105,6 +105,10 @@ impl AddonProxyRegistry {
         request_headers: &HashMap<String, String>,
         use_proxy: bool,
     ) -> String {
+        let upper = line.to_ascii_uppercase();
+        let opaque_uri = upper.contains("EXT-X-KEY")
+            || upper.contains("EXT-X-SESSION-KEY")
+            || upper.contains("EXT-X-MAP");
         let mut result = line.to_string();
         let mut search_from = 0;
         while let Some(rel) = result[search_from..].find("URI=\"") {
@@ -114,7 +118,8 @@ impl AddonProxyRegistry {
             };
             let url_end = url_start + end_off;
             let reference = &result[url_start..url_end];
-            let proxied = self.proxy_reference(reference, base, request_headers, use_proxy);
+            let proxied =
+                self.proxy_reference(reference, base, request_headers, use_proxy, opaque_uri);
             result = format!("{}{}{}", &result[..url_start], proxied, &result[url_end..]);
             search_from = url_start + proxied.len();
         }
@@ -142,7 +147,8 @@ impl AddonProxyRegistry {
                 if trimmed.starts_with('#') {
                     return with_uris;
                 }
-                self.proxy_reference(trimmed, base.as_ref(), request_headers, use_proxy)
+                // Segmenti media (.ts/.m4s/…): sempre opachi.
+                self.proxy_reference(trimmed, base.as_ref(), request_headers, use_proxy, true)
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -150,22 +156,18 @@ impl AddonProxyRegistry {
 }
 
 fn is_hls_playlist_url(url: &str) -> bool {
-    url.contains("/playlist/")
-        || url.ends_with(".m3u8")
-        || url.contains(".m3u8?")
-        || url.contains("type=audio")
-        || url.contains("type=subtitle")
-        || url.contains("type=video")
-}
-
-#[allow(dead_code)]
-fn is_hls_key_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
-    lower.contains("ext-x-key")
-        || lower.contains("/key/")
-        || lower.contains("type=key")
-        || lower.ends_with(".key")
-        || lower.contains(".key?")
+    // type=key è una chiave AES (binaria), non una playlist — anche se
+    // spesso vive sotto /playlist/ su VixCloud.
+    if lower.contains("type=key") {
+        return false;
+    }
+    lower.contains("/playlist/")
+        || lower.ends_with(".m3u8")
+        || lower.contains(".m3u8?")
+        || lower.contains("type=audio")
+        || lower.contains("type=subtitle")
+        || lower.contains("type=video")
 }
 
 fn resolve_url(base: Option<&url::Url>, reference: &str) -> String {
@@ -249,6 +251,41 @@ https://cdn.example/seg/002.m4s?token=s2"#;
             !key_entry.rewrite_manifest,
             "AES keys must be proxied opaque, not rewritten as m3u8"
         );
+    }
+
+    #[test]
+    fn vixcloud_playlist_path_keys_stay_opaque() {
+        let proxy = AddonProxyRegistry::new();
+        let headers = HashMap::new();
+        // VixCloud mette spesso le chiavi sotto /playlist/… — non sono m3u8.
+        let media = r#"#EXTM3U
+#EXT-X-KEY:METHOD=AES-128,URI="https://vixcloud.co/playlist/abcd?type=key&token=k"
+#EXTINF:4.0,
+https://cdn.example/seg/001.ts"#;
+
+        let rewritten = proxy.rewrite_hls_manifest(
+            media,
+            "https://vixcloud.co/playlist/1?type=video",
+            &headers,
+            false,
+        );
+        let key_id = rewritten
+            .lines()
+            .find_map(|line| {
+                if !line.contains("EXT-X-KEY") {
+                    return None;
+                }
+                let start = line.find("/remote/")?;
+                let rest = &line[start + "/remote/".len()..];
+                let end = rest
+                    .find(|c: char| !c.is_ascii_hexdigit())
+                    .unwrap_or(rest.len());
+                Some(rest[..end].to_string())
+            })
+            .expect("key id");
+        let entry = proxy.get(&key_id).expect("key entry");
+        assert!(!entry.rewrite_manifest);
+        assert!(entry.upstream_url.contains("type=key"));
     }
 
     #[test]
