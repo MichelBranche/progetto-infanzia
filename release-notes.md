@@ -1,25 +1,20 @@
-# Branchefy v0.2.25
+# Branchefy v0.2.26
 
-## Hotfix definitivo player (`keyLoadError · HTTP 404`)
+## Streaming Community: dominio `.vin` + VixCloud
 
-### Causa dimostrata (probe live su Railway 0.2.23)
+SC è passato a **`streamingcommunityz.vin`** (CDN `cdn.streamingcommunityz.vin`) e gli embed restano su **`vixcloud.co`**.
 
-La media playlist veniva **servita grezza** (varianti master registrate opache). Dentro c’era:
+### Cosa rompeva il desktop
 
-```text
-#EXT-X-KEY:METHOD=AES-128,URI="/storage/enc.key"
-```
-
-hls.js risolverà quella URI sull’origin del proxy → `…/storage/enc.key` → **404**. Non è un token scaduto: è la chiave relativa non proxata.
+Le build ≤ 0.2.25 trattavano ancora `vixcloud.co` come host morto e riscrivavano verso `vixsrc.to` (spesso 403). I mirror non includevano `.vin`.
 
 ### Fix
 
-- Varianti del master sempre riscrivibili (già in 0.2.24)
-- Sniff obbligatorio se l’URL upstream è una playlist (`type=video` / `/playlist/`), anche se registrata opaca
-- `/health` espone `version` per verificare il deploy Railway
-- Test di regressione sul caso `/storage/enc.key`
+- Mirror default / remoti: `.vin` in cima
+- `vixcloud.co` di nuovo host embed primario (non più “legacy”)
+- Referer/CDN immagini allineati al dominio live
 
-Dopo il deploy: hard refresh, Riprova. `/health` deve rispondere `"version":"0.2.25"`.
+La web app già funzionava dopo il deploy Railway; questa release allinea il **desktop**.
 
 ## Piattaforme
 
