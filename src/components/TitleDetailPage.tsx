@@ -29,6 +29,7 @@ import { LordFlixTrailerCard } from "./LordFlixTrailerCard";
 import { SparkleActionButton } from "./SparkleActionButton";
 import { usePrefetchIntent } from "../hooks/usePrefetchIntent";
 import { fetchCastPhotos } from "../lib/castPhotos";
+import { posterUrlFallbacks } from "../lib/posterUrl";
 
 export interface TitleDetailPageProps {
   detail: TitleDetailModel;
@@ -558,6 +559,24 @@ export function TitleDetailPage({
   footer,
 }: TitleDetailPageProps) {
   const [expandedPlot, setExpandedPlot] = useState(false);
+  const [heroSrcIndex, setHeroSrcIndex] = useState(0);
+  const [logoSrcIndex, setLogoSrcIndex] = useState(0);
+  const heroCandidates = useMemo(
+    () => posterUrlFallbacks(detail.heroImage, "high"),
+    [detail.heroImage],
+  );
+  const logoCandidates = useMemo(
+    () => posterUrlFallbacks(detail.logo, "high"),
+    [detail.logo],
+  );
+  const heroSrc = heroCandidates[heroSrcIndex] ?? detail.heroImage;
+  const logoSrc = logoCandidates[logoSrcIndex] ?? detail.logo;
+
+  useEffect(() => {
+    setHeroSrcIndex(0);
+    setLogoSrcIndex(0);
+  }, [detail.id, detail.heroImage, detail.logo]);
+
   const {
     seasons,
     activeSeason,
@@ -604,11 +623,16 @@ export function TitleDetailPage({
   return (
     <div className="lf-title-detail min-h-full bg-void pb-20">
       <section className="lf-title-detail__hero relative w-full overflow-hidden">
-        {detail.heroImage ? (
+        {heroSrc ? (
           <img
-            src={detail.heroImage}
+            src={heroSrc}
             alt=""
             className="lf-title-detail__hero-bg"
+            onError={() => {
+              if (heroSrcIndex + 1 < heroCandidates.length) {
+                setHeroSrcIndex((i) => i + 1);
+              }
+            }}
           />
         ) : (
           <div className="lf-title-detail__hero-bg lf-title-detail__hero-bg--fallback" />
@@ -630,11 +654,16 @@ export function TitleDetailPage({
         <div className="lf-title-detail__hero-inner page-px">
           <div className="lf-title-detail__hero-grid">
             <div className="lf-title-detail__hero-main">
-              {detail.logo ? (
+              {logoSrc ? (
                 <img
-                  src={detail.logo}
+                  src={logoSrc}
                   alt={detail.name}
                   className="lf-title-detail__logo"
+                  onError={() => {
+                    if (logoSrcIndex + 1 < logoCandidates.length) {
+                      setLogoSrcIndex((i) => i + 1);
+                    }
+                  }}
                 />
               ) : (
                 <h1 className="lf-title-detail__title">{detail.name}</h1>

@@ -60,6 +60,13 @@ function scImageProxyUrl(rel: string): string {
   if (isWebShell()) {
     return normalizeWebAssetUrl(`/sc-image/${clean}`) ?? `/sc-image/${clean}`;
   }
+  // Desktop: Railway prima del stream locale — il bind :17890 può fallire
+  // in silenzio e lasciare tutte le locandine rotte.
+  return scImageServerFallbackUrl(clean);
+}
+
+function scImageLocalProxyUrl(rel: string): string {
+  const clean = rel.replace(/^\/+/, "").replace(/^images\//, "");
   return `${TAURI_STREAM_ORIGIN}/sc-image/${clean}`;
 }
 
@@ -168,6 +175,9 @@ export function posterUrlFallbacks(
   const trimmed = url.trim();
   const scRel = extractScImageRel(trimmed);
   if (scRel) {
+    if (!isWebShell()) {
+      push(scImageLocalProxyUrl(scRel));
+    }
     // Se il proxy locale/Vercel fallisce (IP bloccato), prova Railway.
     push(scImageServerFallbackUrl(scRel));
     // Ultimo tentativo: CDN diretto (desktop senza stream server).
@@ -221,7 +231,7 @@ export function maximizeLogoUrl(url: string | undefined): string | undefined {
     .replace(/_thumb(?:nail)?(?=\.[a-z0-9]+$)/gi, "")
     .replace(/-thumb(?:nail)?(?=\.[a-z0-9]+$)/gi, "");
 
-  return stripSizeLimitingQuery(normalized);
+  return proxifyCdnImageUrl(stripSizeLimitingQuery(normalized));
 }
 
 export function logoUrlQualityScore(url: string | undefined): number {
@@ -277,7 +287,7 @@ export function maximizeHeroUrl(url: string | undefined): string | undefined {
     .replace(/\/medium\//gi, "/")
     .replace(/\/thumb\//gi, "/");
 
-  return stripSizeLimitingQuery(normalized);
+  return proxifyCdnImageUrl(stripSizeLimitingQuery(normalized));
 }
 
 export function heroUrlQualityScore(url: string | undefined): number {

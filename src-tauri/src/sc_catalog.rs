@@ -2526,9 +2526,7 @@ pub fn cdn_url(db: &crate::db::Database) -> String {
         .unwrap_or_else(|| DEFAULT_CDN_URL.to_string())
 }
 
-/// CDN da provare in ordine (proxy immagini + build URL catalogo).
-/// Preferisce il CDN di default noto-funzionante rispetto all'inferenza
-/// `cdn.{mirror}` (es. unity) che a volte non serve le locandine.
+/** Prefer known-good CDNs before any sticky/inferred host that may 404. */
 pub fn cdn_candidates(db: &crate::db::Database) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
@@ -2542,15 +2540,6 @@ pub fn cdn_candidates(db: &crate::db::Database) -> Vec<String> {
         }
     };
 
-    if let Some(cdn) = db
-        .get_meta("sc_cdn_url")
-        .ok()
-        .flatten()
-        .filter(|s| !s.trim().is_empty())
-    {
-        push(&cdn);
-    }
-
     push(DEFAULT_CDN_URL);
     for fallback in [
         "https://cdn.streamingcommunityz.gives",
@@ -2561,6 +2550,15 @@ pub fn cdn_candidates(db: &crate::db::Database) -> Vec<String> {
         "https://cdn.streamingunity.dog",
     ] {
         push(fallback);
+    }
+
+    if let Some(cdn) = db
+        .get_meta("sc_cdn_url")
+        .ok()
+        .flatten()
+        .filter(|s| !s.trim().is_empty())
+    {
+        push(&cdn);
     }
 
     if let Ok(Some(app)) = db.get_meta(META_SC_RESOLVED_APP) {

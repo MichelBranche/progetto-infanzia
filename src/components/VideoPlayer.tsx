@@ -620,7 +620,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const hls = new Hls({
         enableWorker: true,
         enableWebVTT: true,
-        // Playlist via proxy locale, segmenti diretti al CDN: buffer ampio
+        // Playlist + segmenti via proxy locale (Referer/Origin); buffer ampio
+        // per assorbire jitter di rete.
         // assorbe comunque i cambi di livello ABR.
         maxBufferLength: 60,
         maxMaxBufferLength: 120,

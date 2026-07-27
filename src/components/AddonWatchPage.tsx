@@ -43,6 +43,7 @@ import { VideoPlayer } from "./VideoPlayer";
 import { PlayerLoadingScreen } from "./PlayerLoadingScreen";
 import { YouTubePlayer, youtubeVideoIdFromStreamUrl } from "./YouTubePlayer";
 import { StreamingTitlePage } from "./StreamingTitlePage";
+import { maximizeHeroUrl, pickBestLogoUrl } from "../lib/posterUrl";
 
 import type { BrowseItem } from "../lib/browse";
 import { nextEpisode } from "../lib/browse";
@@ -752,8 +753,8 @@ export function AddonWatchPage({
           <PlayerLoadingScreen
             title={launching.title}
             subtitle={launching.subtitle}
-            backdropUrl={meta.background ?? meta.poster}
-            logoUrl={meta.logo}
+            backdropUrl={maximizeHeroUrl(meta.background ?? meta.poster)}
+            logoUrl={pickBestLogoUrl(meta.logo)}
             onCancel={cancelLaunch}
           />
         )}
@@ -839,8 +840,8 @@ export function AddonWatchPage({
         <PlayerLoadingScreen
           title={launching.title}
           subtitle={launching.subtitle}
-          backdropUrl={meta.background ?? meta.poster}
-          logoUrl={meta.logo}
+          backdropUrl={maximizeHeroUrl(meta.background ?? meta.poster)}
+          logoUrl={pickBestLogoUrl(meta.logo)}
           onCancel={cancelLaunch}
         />
       )}

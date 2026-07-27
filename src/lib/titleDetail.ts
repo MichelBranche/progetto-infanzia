@@ -9,6 +9,7 @@ import {
   type SeriesRef,
 } from "./browse";
 import { posterUrlFor } from "../components/PosterImage";
+import { maximizeHeroUrl, pickBestLogoUrl } from "./posterUrl";
 import type { MediaItem } from "../types/media";
 import {
   formatDuration,
@@ -219,8 +220,8 @@ export function titleDetailFromStremio(
     name: meta.name,
     typeLabel: isSeries ? "Serie TV" : "Film",
     isSeries,
-    heroImage: meta.background ?? meta.poster,
-    logo: meta.logo,
+    heroImage: maximizeHeroUrl(meta.background ?? meta.poster),
+    logo: pickBestLogoUrl(meta.logo),
     year: extractYear(meta.releaseInfo),
     runtime: meta.runtime,
     views: formatViews(meta.viewCount),
