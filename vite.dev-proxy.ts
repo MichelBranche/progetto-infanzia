@@ -23,6 +23,7 @@ export const devServerProxy = {
   "/saturn-poster": longApiProxy,
   "/loonex-poster": longApiProxy,
   "/sc-image": longApiProxy,
+  "/mangadex-cover": longApiProxy,
   "/welib-book": { ...devApiProxy, timeout: 120_000, proxyTimeout: 120_000 },
   "/welib-audio": devApiProxy,
   "/welib-cover": devApiProxy,

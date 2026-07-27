@@ -12,7 +12,8 @@ pub struct ProxyEntry {
     pub upstream_url: String,
     pub request_headers: HashMap<String, String>,
     pub rewrite_manifest: bool,
-    /// Instrada lo scaricamento (manifest + segmenti) attraverso il proxy SC.
+    /// Se true, anche i segmenti media passano dal proxy (VPN utente).
+    /// Altrimenti solo playlist/chiavi: i .ts/.m4s restano sul CDN.
     pub use_proxy: bool,
     pub created_at: Instant,
 }
@@ -86,7 +87,13 @@ impl AddonProxyRegistry {
         use_proxy: bool,
     ) -> String {
         let absolute = resolve_url(base, reference);
-        let rewrite = is_hls_playlist_url(&absolute);
+        // VPN utente: tutto resta sul proxy. Altrimenti i segmenti media
+        // puntano al CDN (meno hop = meno stutter); playlist e chiavi AES
+        // restano locali perché richiedono i Referer/Origin salvati.
+        if !should_proxy_reference(&absolute, use_proxy) {
+            return absolute;
+        }
+        let rewrite = needs_local_proxy(&absolute);
         let id = self.register(absolute, request_headers.clone(), rewrite, use_proxy);
         self.playback_url(&id)
     }
@@ -151,6 +158,24 @@ fn is_hls_playlist_url(url: &str) -> bool {
         || url.contains("type=video")
 }
 
+fn is_hls_key_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.contains("ext-x-key")
+        || lower.contains("/key/")
+        || lower.contains("type=key")
+        || lower.ends_with(".key")
+        || lower.contains(".key?")
+}
+
+/// Cosa deve ancora passare dal proxy locale (headers Referer/Origin).
+fn needs_local_proxy(url: &str) -> bool {
+    is_hls_playlist_url(url) || is_hls_key_url(url)
+}
+
+fn should_proxy_reference(url: &str, force_proxy_all: bool) -> bool {
+    force_proxy_all || needs_local_proxy(url)
+}
+
 fn resolve_url(base: Option<&url::Url>, reference: &str) -> String {
     if let Ok(abs) = url::Url::parse(reference) {
         return abs.to_string();
@@ -186,5 +211,49 @@ https://vixcloud.co/playlist/1?type=video&rendition=720p&token=def"#;
         assert!(!rewritten.contains("vixcloud.co/playlist"), "{rewritten}");
         assert!(rewritten.contains("/remote/"));
         assert_eq!(rewritten.matches("/remote/").count(), 2);
+    }
+
+    #[test]
+    fn leaves_media_segments_on_cdn_without_vpn() {
+        let proxy = AddonProxyRegistry::new();
+        let headers = HashMap::from([("Referer".to_string(), "https://vixcloud.co/".to_string())]);
+        let media = r#"#EXTM3U
+#EXT-X-KEY:METHOD=AES-128,URI="https://vixcloud.co/key/abc?token=k"
+#EXTINF:4.0,
+https://cdn.example/seg/001.ts?token=s1
+#EXTINF:4.0,
+https://cdn.example/seg/002.m4s?token=s2"#;
+
+        let rewritten = proxy.rewrite_hls_manifest(
+            media,
+            "https://vixcloud.co/playlist/1?type=video",
+            &headers,
+            false,
+        );
+
+        // Chiave ancora proxyata (serve Referer); segmenti restano sul CDN.
+        assert_eq!(rewritten.matches("/remote/").count(), 1, "{rewritten}");
+        assert!(rewritten.contains("https://cdn.example/seg/001.ts?token=s1"), "{rewritten}");
+        assert!(rewritten.contains("https://cdn.example/seg/002.m4s?token=s2"), "{rewritten}");
+        assert!(!rewritten.contains("vixcloud.co/key/"), "{rewritten}");
+    }
+
+    #[test]
+    fn proxies_segments_when_vpn_enabled() {
+        let proxy = AddonProxyRegistry::new();
+        let headers = HashMap::new();
+        let media = r#"#EXTM3U
+#EXTINF:4.0,
+https://cdn.example/seg/001.ts"#;
+
+        let rewritten = proxy.rewrite_hls_manifest(
+            media,
+            "https://vixcloud.co/playlist/1?type=video",
+            &headers,
+            true,
+        );
+
+        assert!(!rewritten.contains("cdn.example"), "{rewritten}");
+        assert!(rewritten.contains("/remote/"), "{rewritten}");
     }
 }

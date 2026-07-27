@@ -61,9 +61,10 @@ fn http_client() -> Result<Client, String> {
 }
 
 fn desktop_path() -> PathBuf {
-    std::env::var("USERPROFILE")
-        .map(|p| PathBuf::from(p).join("Desktop"))
-        .unwrap_or_else(|_| PathBuf::from("."))
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(|h| PathBuf::from(h).join("Desktop"))
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// Layout HTTrack comuni: `Desktop/loonex.eu/cartoni` oppure `Desktop/cartoni/loonex.eu/cartoni`.

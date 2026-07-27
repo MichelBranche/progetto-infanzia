@@ -87,16 +87,26 @@ pub async fn start_server(
     let app = build_stream_router::<Arc<StreamState>>().with_state(state);
 
     let addr = format!("0.0.0.0:{STREAM_PORT}");
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .expect("failed to bind stream server");
+    let listener = match tokio::net::TcpListener::bind(&addr).await {
+        Ok(listener) => listener,
+        Err(err) => {
+            // Su Mac un'altra istanza / firewall puo' occupare la porta:
+            // non far crashare tutta l'app (player/LAN restano degradati).
+            eprintln!(
+                "[stream] impossibile bind su {addr}: {err}. Streaming locale e LAN non disponibili."
+            );
+            return;
+        }
+    };
 
-    axum::serve(
+    if let Err(err) = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .await
-    .expect("stream server error");
+    {
+        eprintln!("[stream] server error: {err}");
+    }
 }
 
 pub fn build_stream_router<S>() -> Router<S>
@@ -119,6 +129,7 @@ where
         .route("/saturn-poster/{*path}", get(saturn_poster_handler))
         .route("/loonex-poster/{*path}", get(loonex_poster_handler))
         .route("/sc-image/{*path}", get(sc_image_handler))
+        .route("/mangadex-cover/{*path}", get(mangadex_cover_handler))
         .route(
             "/welib-book/{md5}",
             get(welib_book_handler).head(welib_book_head_handler),
@@ -416,8 +427,10 @@ fn referer_for_image_url(url: &str) -> &'static str {
         "https://www.themoviedb.org/"
     } else if lower.contains("saturncdn.net") {
         "https://www.animesaturn.ac/"
-    } else if lower.contains("streamingcommunity") {
+    } else if lower.contains("streamingcommunity") || lower.contains("streamingunity") {
         "https://streamingcommunityz.tech/"
+    } else if lower.contains("mangadex.org") {
+        "https://mangadex.org/"
     } else if lower.contains("x-cdn-x.com") || lower.contains("welib.org") {
         "https://welib.org/"
     } else {
@@ -556,10 +569,36 @@ async fn sc_image_handler(
     if rel.is_empty() || rel.contains("..") {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let cdn = crate::sc_catalog::cdn_url(state.db.as_ref());
+    let candidates = crate::sc_catalog::cdn_candidates(state.db.as_ref());
+    let mut last_err = StatusCode::BAD_GATEWAY;
+    for cdn in candidates {
+        let upstream = format!(
+            "{}/images/{}",
+            cdn.trim_end_matches('/'),
+            rel.trim_start_matches('/')
+        );
+        match serve_remote_image(&upstream).await {
+            Ok(response) => return Ok(response),
+            Err(status) => last_err = status,
+        }
+    }
+    Err(last_err)
+}
+
+async fn mangadex_cover_handler(
+    Path(path): Path<String>,
+) -> Result<Response<Body>, StatusCode> {
+    let decoded = urlencoding::decode(&path).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let rel = decoded
+        .replace('\\', "/")
+        .trim_start_matches('/')
+        .trim_start_matches("covers/")
+        .to_string();
+    if rel.is_empty() || rel.contains("..") {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let upstream = format!(
-        "{}/images/{}",
-        cdn.trim_end_matches('/'),
+        "https://uploads.mangadex.org/covers/{}",
         rel.trim_start_matches('/')
     );
     serve_remote_image(&upstream).await

@@ -45,27 +45,51 @@ export function seededPreviewTime(seed: string, durationSec: number): number {
   return min + t * (max - min);
 }
 
+/** Un seek che non torna blocca tutta la coda delle anteprime. */
+const SEEK_TIMEOUT_MS = 2500;
+const SCRUB_SEEK_TIMEOUT_MS = 6000;
+
+type FrameCallbackVideo = HTMLVideoElement & {
+  requestVideoFrameCallback?: (callback: () => void) => number;
+  cancelVideoFrameCallback?: (handle: number) => void;
+};
+
 export function captureVideoFrame(
   video: HTMLVideoElement,
   timeSec: number,
   width = 320,
+  timeoutMs = SEEK_TIMEOUT_MS,
 ): Promise<string | null> {
   return new Promise((resolve) => {
+    let settled = false;
+    let frameHandle: number | null = null;
+    const frameVideo = video as FrameCallbackVideo;
+
     const cleanup = () => {
+      window.clearTimeout(timer);
       video.removeEventListener("seeked", onSeeked);
       video.removeEventListener("error", onError);
+      if (frameHandle !== null) {
+        frameVideo.cancelVideoFrameCallback?.(frameHandle);
+        frameHandle = null;
+      }
     };
 
-    const onError = () => {
+    const finish = (frame: string | null) => {
+      if (settled) return;
+      settled = true;
       cleanup();
-      resolve(null);
+      resolve(frame);
     };
 
-    const onSeeked = () => {
-      cleanup();
+    const timer = window.setTimeout(() => finish(null), timeoutMs);
+
+    const onError = () => finish(null);
+
+    const draw = () => {
       try {
         if (video.videoWidth <= 0 || video.videoHeight <= 0) {
-          resolve(null);
+          finish(null);
           return;
         }
         const canvas = document.createElement("canvas");
@@ -74,28 +98,41 @@ export function captureVideoFrame(
         canvas.height = Math.round(width / aspect);
         const ctx = canvas.getContext("2d");
         if (!ctx) {
-          resolve(null);
+          finish(null);
           return;
         }
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.82));
+        finish(canvas.toDataURL("image/jpeg", 0.82));
       } catch {
-        resolve(null);
+        finish(null);
       }
+    };
+
+    const onSeeked = () => {
+      video.removeEventListener("seeked", onSeeked);
+      // "seeked" può precedere la presentazione del nuovo frame: senza questa
+      // attesa si finisce per catturare l'immagine del punto precedente.
+      if (typeof frameVideo.requestVideoFrameCallback === "function") {
+        frameHandle = frameVideo.requestVideoFrameCallback(() => {
+          frameHandle = null;
+          draw();
+        });
+        return;
+      }
+      draw();
     };
 
     video.addEventListener("seeked", onSeeked);
     video.addEventListener("error", onError);
     try {
       const safeTime = Math.max(0, Math.min(timeSec, Math.max(0, video.duration - 0.25)));
-      if (Math.abs(video.currentTime - safeTime) < 0.08) {
+      if (Math.abs(video.currentTime - safeTime) < 0.08 && video.readyState >= 2) {
         onSeeked();
         return;
       }
       video.currentTime = safeTime;
     } catch {
-      cleanup();
-      resolve(null);
+      finish(null);
     }
   });
 }
@@ -212,7 +249,9 @@ export async function captureScrubFrame(
   const cached = frameCache.get(key);
   if (cached) return cached;
 
-  const frame = await scheduleCapture(() => captureVideoFrame(video, timeSec, 320));
+  // Non passare dalla coda globale condivisa con le miniature episodi:
+  // lo scrub ha già una coda seriale sul proprio video element.
+  const frame = await captureVideoFrame(video, timeSec, 280, SCRUB_SEEK_TIMEOUT_MS);
   if (frame) {
     frameCache.set(key, frame);
     if (frameCache.size > 200) {

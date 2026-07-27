@@ -157,19 +157,68 @@ function normalizeStream<T extends { url: string }>(stream: T): T {
   return { ...stream, url: normalizePlaybackUrl(stream.url) };
 }
 
+/**
+ * Risolvere uno stream SC costa 4-5 richieste upstream in sequenza.
+ * Cache breve + dedupe delle richieste in volo: riaprire lo stesso episodio
+ * (o cliccare Play dopo un prefetch su hover) parte istantaneo.
+ */
+const SC_STREAM_TTL_MS = 8 * 60 * 1000;
+const scStreamCache = new Map<string, { at: number; stream: PlayableStream }>();
+const scStreamInFlight = new Map<string, Promise<PlayableStream>>();
+
+function scStreamKey(
+  titleId: string,
+  slug: string,
+  episodeId?: string,
+  audioLang?: PlayerStreamAudioLanguage,
+): string {
+  return `${titleId}|${slug}|${episodeId ?? ""}|${audioLang ?? ""}`;
+}
+
+/**
+ * Da chiamare quando uno stream cachato smette di funzionare (token upstream
+ * scaduto): senza questo, un retry ricadrebbe sullo stesso URL morto.
+ */
+export function invalidateScStreamUrl(url: string): void {
+  for (const [key, entry] of scStreamCache) {
+    if (entry.stream.url === url) scStreamCache.delete(key);
+  }
+}
+
 export async function resolveScStream(
   titleId: string,
   slug: string,
   episodeId?: string,
   audioLang?: PlayerStreamAudioLanguage,
 ): Promise<PlayableStream> {
-  const stream = await invoke<PlayableStream>("resolve_sc_stream_cmd", {
-    titleId: Number(titleId),
-    slug,
-    episodeId: episodeId ? Number(episodeId) : null,
-    audioLang: audioLang ?? null,
-  });
-  return normalizeStream(stream);
+  const key = scStreamKey(titleId, slug, episodeId, audioLang);
+
+  const cached = scStreamCache.get(key);
+  if (cached && Date.now() - cached.at < SC_STREAM_TTL_MS) {
+    return cached.stream;
+  }
+
+  const inFlight = scStreamInFlight.get(key);
+  if (inFlight) return inFlight;
+
+  const request = (async () => {
+    const stream = await invoke<PlayableStream>("resolve_sc_stream_cmd", {
+      titleId: Number(titleId),
+      slug,
+      episodeId: episodeId ? Number(episodeId) : null,
+      audioLang: audioLang ?? null,
+    });
+    const normalized = normalizeStream(stream);
+    scStreamCache.set(key, { at: Date.now(), stream: normalized });
+    return normalized;
+  })();
+
+  scStreamInFlight.set(key, request);
+  try {
+    return await request;
+  } finally {
+    scStreamInFlight.delete(key);
+  }
 }
 
 export async function searchScCatalog(

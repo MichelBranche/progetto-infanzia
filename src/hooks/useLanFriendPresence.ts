@@ -45,8 +45,10 @@ export function useLanFriendPresence(
   );
 
   useEffect(() => {
-    if (!active) return;
+    // Una scansione iniziale serve comunque alla barra amici in nav;
+    // il ciclo periodico solo quando la lista è davvero visibile.
     void refresh(false);
+    if (!active) return;
     const interval = window.setInterval(() => void refresh(false), LAN_SYNC_MS);
     return () => window.clearInterval(interval);
   }, [active, refresh]);

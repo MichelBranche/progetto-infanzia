@@ -53,13 +53,19 @@ fn http_client() -> Result<Client, String> {
 }
 
 pub fn default_paths() -> (PathBuf, PathBuf) {
-    let desktop = std::env::var("USERPROFILE")
-        .map(|p| PathBuf::from(p).join("Desktop"))
-        .unwrap_or_else(|_| PathBuf::from("."));
+    let desktop = home_dir()
+        .map(|h| h.join("Desktop"))
+        .unwrap_or_else(|| PathBuf::from("."));
     (
         desktop.join("www.animesaturn.net"),
         desktop.join("img.saturncdn.net"),
     )
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
 }
 
 pub fn site_root_path(db: &Database) -> PathBuf {

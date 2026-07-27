@@ -2520,20 +2520,56 @@ pub fn app_url(db: &crate::db::Database) -> String {
 }
 
 pub fn cdn_url(db: &crate::db::Database) -> String {
+    cdn_candidates(db)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| DEFAULT_CDN_URL.to_string())
+}
+
+/// CDN da provare in ordine (proxy immagini + build URL catalogo).
+/// Preferisce il CDN di default noto-funzionante rispetto all'inferenza
+/// `cdn.{mirror}` (es. unity) che a volte non serve le locandine.
+pub fn cdn_candidates(db: &crate::db::Database) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    let mut push = |raw: &str| {
+        let trimmed = raw.trim().trim_end_matches('/');
+        if trimmed.is_empty() {
+            return;
+        }
+        if seen.insert(trimmed.to_string()) {
+            out.push(trimmed.to_string());
+        }
+    };
+
     if let Some(cdn) = db
         .get_meta("sc_cdn_url")
         .ok()
         .flatten()
         .filter(|s| !s.trim().is_empty())
     {
-        return cdn.trim_end_matches('/').to_string();
+        push(&cdn);
     }
+
+    push(DEFAULT_CDN_URL);
+    for fallback in [
+        "https://cdn.streamingcommunityz.gives",
+        "https://cdn.streamingcommunityz.buzz",
+        "https://cdn.streamingcommunityz.space",
+        "https://cdn.streamingcommunityz.ceo",
+        "https://cdn.streamingcommunityz.community",
+        "https://cdn.streamingunity.dog",
+    ] {
+        push(fallback);
+    }
+
     if let Ok(Some(app)) = db.get_meta(META_SC_RESOLVED_APP) {
         if let Some(cdn) = infer_cdn_from_app(&app) {
-            return cdn;
+            push(&cdn);
         }
     }
-    DEFAULT_CDN_URL.to_string()
+
+    out
 }
 
 pub fn lang(db: &crate::db::Database) -> String {

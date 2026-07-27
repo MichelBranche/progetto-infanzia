@@ -3,6 +3,7 @@ import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updat
 import { relaunch } from "@tauri-apps/plugin-process";
 import { isTauri } from "@tauri-apps/api/core";
 import { isEssentialUpdate } from "./updateNotes";
+import { isDesktopMacOs } from "./platform";
 
 const DISMISS_KEY = "branchefy-updater-dismissed";
 
@@ -20,8 +21,25 @@ export interface UpdaterProgress {
   total: number | null;
 }
 
+/**
+ * Firma ad-hoc su macOS: Gatekeeper + updater non sono affidabili.
+ * Gli aggiornamenti in-app restano solo su Windows firmato.
+ */
 export function isUpdaterSupported(): boolean {
-  return isTauri() && import.meta.env.PROD;
+  return isTauri() && import.meta.env.PROD && !isDesktopMacOs();
+}
+
+export function updaterUnsupportedReason(): string | null {
+  if (!isTauri()) {
+    return "Gli aggiornamenti automatici sono disponibili solo nell'app installata.";
+  }
+  if (!import.meta.env.PROD) {
+    return "Gli aggiornamenti automatici non sono disponibili in modalità sviluppo.";
+  }
+  if (isDesktopMacOs()) {
+    return "Su Mac scarica l'ultima versione dal sito o da GitHub (tasto destro → Apri sul .dmg). L'aggiornamento automatico in-app non è disponibile senza firma Apple.";
+  }
+  return null;
 }
 
 function readDismissedVersion(): string | null {

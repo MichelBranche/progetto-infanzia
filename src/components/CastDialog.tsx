@@ -275,9 +275,10 @@ export function CastDialog({
         </div>
 
         <p className="mt-4 text-[11px] leading-relaxed text-text-muted">
-          PC e TV sulla stessa rete (Wi‑Fi o cavo). Su Windows consenti Branchefy
-          sul firewall per reti private (porta 17890). Attiva DLNA sulla TV.
-          I file MP4 partono più facilmente; MKV non è supportato da tutte le TV.
+          PC e TV sulla stessa rete (Wi‑Fi o cavo). Consenti Branchefy sul
+          firewall (su Mac: Impostazioni → Privacy e sicurezza → Rete locale)
+          per la porta 17890. Attiva DLNA sulla TV. I file MP4 partono più
+          facilmente; MKV non è supportato da tutte le TV.
         </p>
       </motion.div>
     </div>

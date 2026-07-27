@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useCloudFriendAlerts } from "../hooks/useCloudFriendAlerts";
 
 interface CloudFriendAlertsContextValue {
@@ -10,7 +10,12 @@ const CloudFriendAlertsContext =
   createContext<CloudFriendAlertsContextValue | null>(null);
 
 export function CloudFriendAlertsProvider({ children }: { children: ReactNode }) {
-  const value = useCloudFriendAlerts();
+  const { pendingCount, refreshFriendAlerts } = useCloudFriendAlerts();
+  // Il poll a 60s non deve invalidare i consumer se il conteggio non cambia.
+  const value = useMemo(
+    () => ({ pendingCount, refreshFriendAlerts }),
+    [pendingCount, refreshFriendAlerts],
+  );
   return (
     <CloudFriendAlertsContext.Provider value={value}>
       {children}

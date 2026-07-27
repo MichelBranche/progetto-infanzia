@@ -24,7 +24,11 @@ import {
   Languages,
 } from "lucide-react";
 import { castTransport, getCastPosition, saveWatchProgress } from "../lib/api";
-import { saveStreamingWatchProgress } from "../lib/addonsApi";
+import {
+  invalidateScStreamUrl,
+  saveStreamingWatchProgress,
+} from "../lib/addonsApi";
+import { PlayerLoadingScreen } from "./PlayerLoadingScreen";
 import { logCloudWatchEvent } from "../lib/cloudWatchSync";
 import {
   endWatchSession,
@@ -93,6 +97,8 @@ interface VideoPlayerProps {
   onStreamAudioLanguageChange?: (
     lang: PlayerStreamAudioLanguage,
   ) => void | Promise<void>;
+  /** Primo frame / playback avviato: spegne la schermata di avvio del parent. */
+  onReady?: () => void;
 }
 
 export interface VideoPlayerHandle {
@@ -173,6 +179,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       watchPartySession: watchPartySessionProp,
       onWatchPartySessionChange,
       onStreamAudioLanguageChange,
+      onReady,
     },
     ref,
   ) {
@@ -204,6 +211,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const applyingPartyRemoteRef = useRef(false);
   const syncSeekInFlightRef = useRef(false);
   const hostLiveTimeRef = useRef(0);
+  const uiTimeFlushAtRef = useRef(0);
+  const lastCueTextRef = useRef<string | null>(null);
+  const TIME_UI_MS = 200;
   const notifyPartySeekRef = useRef<(position: number, nextPlaying?: boolean) => void>(
     () => {},
   );
@@ -229,7 +239,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const [showEpisodes, setShowEpisodes] = useState(false);
   const [showUpNext, setShowUpNext] = useState(false);
   const [autoplaySeconds, setAutoplaySeconds] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+  /** Solo avvio / cambio stream: schermata a tutto schermo. */
+  const [bootLoading, setBootLoading] = useState(true);
+  /** Rebuffer a metà film: spinner piccolo, non la schermata di avvio. */
+  const [buffering, setBuffering] = useState(false);
+  const bootDoneRef = useRef(false);
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
   const [showCast, setShowCast] = useState(false);
   const [showPartyPanel, setShowPartyPanel] = useState(false);
   const [partySession, setPartySession] = useState<WatchPartySession | null>(
@@ -441,15 +457,37 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   );
 
   const toggleFullscreen = useCallback(async () => {
-    if (document.fullscreenElement) {
-      await document.exitFullscreen();
-    } else {
-      await containerRef.current?.requestFullscreen();
+    const el = containerRef.current as
+      | (HTMLElement & {
+          webkitRequestFullscreen?: () => Promise<void> | void;
+        })
+      | null;
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+    };
+    const active = doc.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+    if (active) {
+      if (doc.exitFullscreen) await doc.exitFullscreen();
+      else await doc.webkitExitFullscreen?.();
+      return;
     }
+    if (el?.requestFullscreen) await el.requestFullscreen();
+    else await el?.webkitRequestFullscreen?.();
   }, []);
 
   const exitFullscreen = useCallback(() => {
-    if (document.fullscreenElement) document.exitFullscreen();
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+    };
+    if (doc.fullscreenElement) {
+      void doc.exitFullscreen();
+      return;
+    }
+    if (doc.webkitFullscreenElement) {
+      void doc.webkitExitFullscreen?.();
+    }
   }, []);
 
   const playEpisode = useCallback(
@@ -480,12 +518,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     setAutoplaySeconds(null);
   }, []);
 
+  const markBootDone = useCallback(() => {
+    setBootLoading(false);
+    setBuffering(false);
+    if (!bootDoneRef.current) {
+      bootDoneRef.current = true;
+      onReadyRef.current?.();
+    }
+  }, []);
+
   useEffect(() => {
     autoplayCancelledRef.current = false;
     episodeNavTriggeredRef.current = false;
     setShowUpNext(false);
     setAutoplaySeconds(null);
-    setLoading(true);
+    bootDoneRef.current = false;
+    setBootLoading(true);
+    setBuffering(false);
     setGuestBlocked(isGuest && guestAccessBlocked);
     setPlaying(!(isGuest && guestAccessBlocked));
     setCastDevice(null);
@@ -571,6 +620,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const hls = new Hls({
         enableWorker: true,
         enableWebVTT: true,
+        // Playlist via proxy locale, segmenti diretti al CDN: buffer ampio
+        // assorbe comunque i cambi di livello ABR.
+        maxBufferLength: 60,
+        maxMaxBufferLength: 120,
+        maxBufferSize: 90 * 1000 * 1000,
+        backBufferLength: 30,
+        // Non scaricare un 4K dentro una finestra 720p.
+        capLevelToPlayerSize: true,
+        startFragPrefetch: true,
+        abrEwmaDefaultEstimate: 1_500_000,
+        fragLoadingMaxRetry: 4,
+        manifestLoadingMaxRetry: 3,
       });
       hlsRef.current = hls;
 
@@ -609,7 +670,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       };
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        setLoading(false);
         syncQualityOptions();
         syncSubtitleOptions();
         syncAudioOptions();
@@ -630,11 +690,28 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
         setSelectedQuality(data.level);
       });
+      let recoveryAttempts = 0;
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          setLoading(false);
-          setPlaying(false);
+        if (!data.fatal) return;
+
+        // Prima di arrendersi: hls.js recupera la maggior parte degli errori
+        // di rete e di buffer senza far uscire l'utente dal player.
+        if (recoveryAttempts < 3) {
+          recoveryAttempts += 1;
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            hls.startLoad();
+            return;
+          }
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            hls.recoverMediaError();
+            return;
+          }
         }
+
+        // Lo stream è davvero morto: la cache non deve riproporlo al retry.
+        invalidateScStreamUrl(effectiveStreamUrl);
+        markBootDone();
+        setPlaying(false);
       });
       hls.loadSource(effectiveStreamUrl);
       hls.attachMedia(video);
@@ -649,7 +726,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       video.removeAttribute("src");
       video.load();
     };
-  }, [effectiveStreamUrl, effectiveIsHls, castDevice]);
+  }, [effectiveStreamUrl, effectiveIsHls, castDevice, markBootDone]);
 
   const stopCast = useCallback(async () => {
     if (!castDevice) return;
@@ -871,7 +948,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     onGuestContent: (url, guestHls) => {
       setPartyStreamUrl((prev) => {
         if (prev === url) return prev;
-        setLoading(true);
+        bootDoneRef.current = false;
+        setBootLoading(true);
+        setBuffering(false);
         return url;
       });
       setPartyIsHls(guestHls);
@@ -1012,6 +1091,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     if (!video || castDevice) return;
 
     const onPause = () => {
+      setCurrentTime(video.currentTime);
+      hostLiveTimeRef.current = video.currentTime;
+      uiTimeFlushAtRef.current = Date.now();
       if (applyingPartyRemoteRef.current || syncSeekInFlightRef.current) return;
       setPlaying(false);
       saveProgress(video.currentTime, video.duration);
@@ -1022,7 +1104,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     const onPlaying = () => {
       // Sempre spegni lo spinner: i seek di sync non devono lasciare il loading acceso.
-      setLoading(false);
+      markBootDone();
       if (applyingPartyRemoteRef.current || syncSeekInFlightRef.current) return;
       if (partySessionRef.current?.role === "host") {
         notifyPartySeekRef.current(video.currentTime, true);
@@ -1031,7 +1113,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     const onLoaded = () => {
       setDuration(video.duration);
-      setLoading(false);
       const guestSession = partySessionRef.current;
       if (guestSession?.role === "guest") {
         const target = remoteSyncTargetRef.current;
@@ -1070,15 +1151,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     };
 
     const onTimeUpdate = () => {
-      hostLiveTimeRef.current = video.currentTime;
-      setCurrentTime(video.currentTime);
-      if (video.buffered.length > 0) {
-        setBuffered(video.buffered.end(video.buffered.length - 1));
-      }
+      const t = video.currentTime;
+      hostLiveTimeRef.current = t;
       const now = Date.now();
+      // Evita re-render dell'intero chrome a ogni timeupdate (~4Hz UI basta).
+      if (now - uiTimeFlushAtRef.current >= TIME_UI_MS) {
+        uiTimeFlushAtRef.current = now;
+        setCurrentTime(t);
+        if (video.buffered.length > 0) {
+          setBuffered(video.buffered.end(video.buffered.length - 1));
+        }
+      }
       if (now - lastSave.current > 2000) {
         lastSave.current = now;
-        saveProgress(video.currentTime, video.duration);
+        saveProgress(t, video.duration);
       }
       const lead = upNextLeadSeconds(video.duration);
       if (
@@ -1086,12 +1172,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         onPlayEpisode &&
         !autoplayCancelledRef.current &&
         video.duration > 0 &&
-        video.duration - video.currentTime <= lead
+        video.duration - t <= lead
       ) {
-        const secs = Math.max(0, Math.ceil(video.duration - video.currentTime));
+        const secs = Math.max(0, Math.ceil(video.duration - t));
         setShowUpNext(true);
         setAutoplaySeconds(secs);
-      } else if (video.duration - video.currentTime > lead) {
+      } else if (video.duration - t > lead) {
         setShowUpNext(false);
         setAutoplaySeconds(null);
       }
@@ -1117,9 +1203,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     };
 
     const onWaiting = () => {
-      // Non mostrare lo spinner per i seek di sincronizzazione watch party.
+      // Non mostrare nulla per i seek di sync watch party.
       if (applyingPartyRemoteRef.current || syncSeekInFlightRef.current) return;
-      setLoading(true);
+      // Rebuffer a metà: spinner piccolo. Mai di nuovo la schermata di avvio.
+      if (bootDoneRef.current) setBuffering(true);
     };
 
     video.addEventListener("loadedmetadata", onLoaded);
@@ -1138,7 +1225,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       video.removeEventListener("waiting", onWaiting);
       void saveProgress(video.currentTime, video.duration);
     };
-  }, [effectiveStreamUrl, resumeAt, saveProgress, nextEp, playNextEpisode, castDevice, onPlayEpisode, notify]);
+  }, [effectiveStreamUrl, resumeAt, saveProgress, nextEp, playNextEpisode, castDevice, onPlayEpisode, notify, markBootDone]);
 
   useEffect(() => {
     const flushOnHide = () => {
@@ -1166,7 +1253,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setCurrentTime(pos.positionSecs);
         if (pos.durationSecs > 0) setDuration(pos.durationSecs);
         setPlaying(pos.playing);
-        setLoading(false);
+        markBootDone();
         const now = Date.now();
         if (now - lastSave.current > 5000) {
           lastSave.current = now;
@@ -1183,7 +1270,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [castDevice, saveProgress]);
+  }, [castDevice, saveProgress, markBootDone]);
 
   useEffect(() => {
     if (
@@ -1277,9 +1364,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   ]);
 
   useEffect(() => {
-    const onFs = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    const onFs = () => {
+      const doc = document as Document & {
+        webkitFullscreenElement?: Element | null;
+      };
+      setIsFullscreen(
+        Boolean(doc.fullscreenElement ?? doc.webkitFullscreenElement),
+      );
+    };
     document.addEventListener("fullscreenchange", onFs);
-    return () => document.removeEventListener("fullscreenchange", onFs);
+    document.addEventListener("webkitfullscreenchange", onFs);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFs);
+      document.removeEventListener("webkitfullscreenchange", onFs);
+    };
   }, []);
 
   const changeVolume = (value: number) => {
@@ -1345,10 +1443,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !isHls || selectedSubtitle < 0 || castDevice) {
+    if (!video || !effectiveIsHls || selectedSubtitle < 0 || castDevice) {
       setActiveCueText(null);
+      lastCueTextRef.current = null;
       return;
     }
+
+    const applyCueText = (next: string | null) => {
+      if (next === lastCueTextRef.current) return;
+      lastCueTextRef.current = next;
+      setActiveCueText(next);
+    };
 
     const readActiveCues = () => {
       const lines: string[] = [];
@@ -1362,16 +1467,32 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           }
         }
       }
-      setActiveCueText(lines.length > 0 ? lines.join("\n") : null);
+      applyCueText(lines.length > 0 ? lines.join("\n") : null);
     };
 
-    video.addEventListener("timeupdate", readActiveCues);
+    const onCueChange = () => readActiveCues();
+
+    for (let i = 0; i < video.textTracks.length; i++) {
+      video.textTracks[i].addEventListener("cuechange", onCueChange);
+    }
     video.addEventListener("seeked", readActiveCues);
+    // Fallback throttled: alcuni player HLS non emettono cuechange affidabile.
+    let lastRead = 0;
+    const onTimeFallback = () => {
+      const now = performance.now();
+      if (now - lastRead < 250) return;
+      lastRead = now;
+      readActiveCues();
+    };
+    video.addEventListener("timeupdate", onTimeFallback);
     readActiveCues();
 
     return () => {
-      video.removeEventListener("timeupdate", readActiveCues);
+      for (let i = 0; i < video.textTracks.length; i++) {
+        video.textTracks[i].removeEventListener("cuechange", onCueChange);
+      }
       video.removeEventListener("seeked", readActiveCues);
+      video.removeEventListener("timeupdate", onTimeFallback);
     };
   }, [selectedSubtitle, effectiveIsHls, effectiveStreamUrl, castDevice]);
 
@@ -1429,23 +1550,43 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       <PlayerActionFeedback pulse={actionPulse} />
 
-      <div className="pointer-events-none absolute inset-0 z-[34]">
-        <div className="absolute left-0 top-0 px-4 pb-2 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pt-5">
+      <motion.div
+        className="pointer-events-none absolute inset-0 z-[34]"
+        animate={{ opacity: chromeInteractive ? 1 : 0 }}
+        transition={{ duration: 0.2 }}
+      >
+        <div
+          className={`absolute left-0 top-0 px-4 pb-2 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pt-5 ${
+            chromeInteractive ? "pointer-events-auto" : "pointer-events-none"
+          }`}
+        >
           <PlayerChromeButton
             size="lg"
             onClick={handleBack}
             aria-label="Esci dal player"
             title="Indietro"
-            className="pointer-events-auto border-white/20 bg-black/55"
+            className="border-white/20 bg-black/55"
           >
             <ArrowLeft className="h-5 w-5 sm:h-[1.35rem] sm:w-[1.35rem]" strokeWidth={2} />
           </PlayerChromeButton>
         </div>
-      </div>
+      </motion.div>
 
-      {loading && !castDevice && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="h-12 w-12 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+      {bootLoading && !castDevice && (
+        <PlayerLoadingScreen
+          variant="inline"
+          title={media.seriesTitle ?? media.title}
+          subtitle={media.seriesTitle ? media.title : undefined}
+          backdropUrl={media.backgroundUrl ?? media.posterUrl}
+          logoUrl={media.logoUrl}
+        />
+      )}
+
+      {buffering && !bootLoading && !castDevice && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
+          <div className="rounded-full border border-white/15 bg-black/45 p-3 shadow-lg">
+            <Loader2 className="h-7 w-7 animate-spin text-white/85" />
+          </div>
         </div>
       )}
 
@@ -2050,7 +2191,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         }
         onCasting={(device) => {
           setCastDevice(device);
-          setLoading(false);
+          markBootDone();
           setPlaying(true);
           const video = videoRef.current;
           if (video) video.pause();

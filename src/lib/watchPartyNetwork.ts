@@ -23,7 +23,7 @@ export function lanWatchPartyErrorMessage(hostIp?: string): string {
   }
   return (
     "Connessione non riuscita in LAN. Verifica stessa rete Wi‑Fi, IP host corretto " +
-    "e che il firewall Windows consenta Branchefy sulla porta 17890. " +
+    "e che il firewall (o Privacy → Rete locale su Mac) consenta Branchefy sulla porta 17890. " +
     "Per reti diverse usa la modalità Online con account Branchefy."
   );
 }

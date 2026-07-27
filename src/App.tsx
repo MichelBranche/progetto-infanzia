@@ -1,9 +1,7 @@
-import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense, startTransition, type ReactNode } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, startTransition } from "react";
 import { useStreamingSearch } from "./lib/useStreamingSearch";
 import { LoadingScreen } from "./components/LoadingScreen";
 import {
-  getBootCatalogCache,
-  hasUsableCatalog,
   waitForUsableBootCatalog,
 } from "./lib/bootCatalog";
 import { prefetchBootFriends } from "./lib/bootFriends";
@@ -15,12 +13,11 @@ import { AppMobileNavBar } from "./components/AppMobileNavBar";
 import { LiquidBackground } from "./components/LiquidBackground";
 import { HomeHeroBackdrop } from "./components/HomeHeroBackdrop";
 import { BrowseAmbientSetup } from "./components/BrowseAmbientSetup";
-import { HeroAmbientProvider, useHeroAmbientControls } from "./context/HeroAmbientContext";
+import { HeroAmbientProvider } from "./context/HeroAmbientContext";
 import { HomeKeepAliveView } from "./components/HomeKeepAliveView";
 import { SectionBrowsePage } from "./components/SectionBrowsePage";
 import { CartoniBrowsePage } from "./components/CartoniBrowsePage";
 import { ProfilePage, type ProfileTab } from "./components/ProfilePage";
-import { FriendProfilePage } from "./components/FriendProfilePage";
 import type { FriendProfileTarget } from "./components/chat/FriendProfileSheet";
 import { AppUpdaterProvider } from "./context/AppUpdaterContext";
 import { WebEssentialUpdateBanner } from "./components/WebEssentialUpdateBanner";
@@ -53,6 +50,8 @@ import { WebAppInstallPage } from "./components/WebAppInstallPage";
 import { isEmailConfirmedPath } from "./lib/authRoutes";
 import { isWebAppInstallPath } from "./lib/webAppRoutes";
 import { GuestUsageWidget } from "./components/GuestUsageWidget";
+import { StickyYouTubeDock } from "./components/StickyYouTubeDock";
+import { AmbientAudioProvider, useAmbientAudioControls } from "./context/AmbientAudioContext";
 import { GuestHotSinglesToast } from "./components/GuestHotSinglesToast";
 import { GuestLimitBlockedScreen } from "./components/GuestLimitBlockedScreen";
 import { PreviewAudioProvider } from "./context/PreviewAudioContext";
@@ -112,160 +111,31 @@ import {
   WATCH_PARTY_JOIN_EVENT,
 } from "./lib/watchPartyInviteNavigation";
 import { guestSessionFromInvitePayload } from "./lib/watchPartyInviteChatMessage";
-import { getUserAmbientPalette } from "./lib/ambientThemes";
-import { boostAmbientPalette } from "./lib/imagePalette";
 import { getMangaProgress } from "./lib/mangaProgress";
-
-const WatchPage = lazy(() =>
-  import("./components/WatchPage").then((m) => ({ default: m.WatchPage })),
-);
-const VideoPlayer = lazy(() =>
-  import("./components/VideoPlayer").then((m) => ({ default: m.VideoPlayer })),
-);
-const SettingsPage = lazy(() =>
-  import("./components/SettingsPage").then((m) => ({ default: m.SettingsPage })),
-);
-const ParentalActivityPage = lazy(() =>
-  import("./components/ParentalActivityPage").then((m) => ({
-    default: m.ParentalActivityPage,
-  })),
-);
-const DevConsolePage = lazy(() =>
-  import("./components/DevConsolePage").then((m) => ({
-    default: m.DevConsolePage,
-  })),
-);
-const FeedbackPage = lazy(() =>
-  import("./components/FeedbackPage").then((m) => ({
-    default: m.FeedbackPage,
-  })),
-);
-const InviteFriendsPage = lazy(() =>
-  import("./components/InviteFriendsPage").then((m) => ({
-    default: m.InviteFriendsPage,
-  })),
-);
-const ChatsPage = lazy(() =>
-  import("./components/ChatsPage").then((m) => ({ default: m.ChatsPage })),
-);
-const StreamingPage = lazy(() =>
-  import("./components/StreamingPage").then((m) => ({ default: m.StreamingPage })),
-);
-const AnimePage = lazy(() =>
-  import("./components/AnimePage").then((m) => ({ default: m.AnimePage })),
-);
-const MangaPage = lazy(() =>
-  import("./components/MangaPage").then((m) => ({ default: m.MangaPage })),
-);
-const MangaDetailPage = lazy(() =>
-  import("./components/MangaDetailPage").then((m) => ({ default: m.MangaDetailPage })),
-);
-const MangaReaderPage = lazy(() =>
-  import("./components/MangaReaderPage").then((m) => ({ default: m.MangaReaderPage })),
-);
-const BooksPage = lazy(() =>
-  import("./components/BooksPage").then((m) => ({ default: m.BooksPage })),
-);
-const BookDetailPage = lazy(() =>
-  import("./components/BookDetailPage").then((m) => ({ default: m.BookDetailPage })),
-);
-const BookReaderPage = lazy(() =>
-  import("./components/BookReaderPage").then((m) => ({ default: m.BookReaderPage })),
-);
-const SearchOverlay = lazy(() =>
-  import("./components/SearchOverlay").then((m) => ({ default: m.SearchOverlay })),
-);
-const AddonWatchPage = lazy(() =>
-  import("./components/AddonWatchPage").then((m) => ({
-    default: m.AddonWatchPage,
-  })),
-);
-
-function RouteFallback() {
-  return (
-    <div className="flex h-full min-h-[40vh] items-center justify-center bg-void">
-      <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/10 border-t-accent" />
-    </div>
-  );
-}
-
-function SuspenseRoute({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
-}
-
-const APP_FRAME_CLASS =
-  "relative flex h-full min-h-0 flex-col lordflix-shell lordflix-app-frame";
-
-function AppFrame({ children }: { children: ReactNode }) {
-  return <div className={APP_FRAME_CLASS}>{children}</div>;
-}
-
-function RouteFrame({
-  children,
-}: {
-  routeKey?: string;
-  children: ReactNode;
-}) {
-  // Niente remount su cambio sezione: HomeKeepAliveSlot deve restare nel DOM
-  // (web e desktop) cosi' scroll/ritorno home restano istantanei.
-  return <>{children}</>;
-}
-
-/** Aurora: colori hero solo in homepage; altrove tema utente. */
-function HeroAmbientNavBridge({
-  activeNav,
-  seriesKey,
-  overlayOpen,
-}: {
-  activeNav: string;
-  seriesKey: string | null;
-  overlayOpen: boolean;
-}) {
-  const { setActive, setBackdropUrl, setPalette } = useHeroAmbientControls();
-
-  useEffect(() => {
-    const onHome = activeNav === "home" && !seriesKey && !overlayOpen;
-    if (onHome) {
-      setActive(true);
-      return;
-    }
-    setActive(false);
-    setBackdropUrl(null);
-    setPalette(boostAmbientPalette(getUserAmbientPalette()));
-  }, [activeNav, seriesKey, overlayOpen, setActive, setBackdropUrl, setPalette]);
-
-  useEffect(() => {
-    const onTheme = () => {
-      const onHome = activeNav === "home" && !seriesKey && !overlayOpen;
-      if (onHome) return;
-      setPalette(boostAmbientPalette(getUserAmbientPalette()));
-    };
-    window.addEventListener("branchefy:ambient-theme", onTheme);
-    return () => window.removeEventListener("branchefy:ambient-theme", onTheme);
-  }, [activeNav, seriesKey, overlayOpen, setPalette]);
-
-  return null;
-}
-
-function seedHeroItemsFromBoot(): MediaItem[] {
-  const boot = getBootCatalogCache();
-  if (!hasUsableCatalog(boot)) return [];
-  const previews = buildHeroStreamingPreviews(
-    boot!.index,
-    boot!.index,
-    boot!.rows,
-  );
-  if (previews.length === 0) return [];
-  return buildRandomHeroItems(
-    [],
-    previews,
-    (preview) =>
-      previewToMediaItem(
-        enrichStreamingPreview(mergePreviewForHero(preview, boot!.index)),
-      ),
-    8,
-  );
-}
+import {
+  AppFrame,
+  HeroAmbientNavBridge,
+  RouteFrame,
+  SuspenseRoute,
+  seedHeroItemsFromBoot,
+  usePreloadPlayerChunk,
+} from "./app/AppShell";
+import { WatchOverlayStack } from "./app/WatchOverlayStack";
+import {
+  AnimePage,
+  BookDetailPage,
+  BooksPage,
+  ChatsPage,
+  DevConsolePage,
+  FeedbackPage,
+  InviteFriendsPage,
+  MangaDetailPage,
+  MangaPage,
+  ParentalActivityPage,
+  SearchOverlay,
+  SettingsPage,
+  StreamingPage,
+} from "./app/lazyPages";
 
 function AppContent({
   onHomeReady,
@@ -283,6 +153,7 @@ function AppContent({
   const { notify } = useNotifications();
   const devMode = isDevAdminEmail(cloudProfile?.email);
   usePresenceHeartbeat(Boolean(cloudProfile));
+  usePreloadPlayerChunk();
   const { pendingCount: pendingFriendRequests, refreshFriendAlerts } =
     useCloudFriendAlertsContext();
   const {
@@ -1215,6 +1086,16 @@ function AppContent({
   const watchOverlayOpen = Boolean(
     partyGuestSession || addonWatch || watchingId || friendProfile,
   );
+  const stickyYtPaused = Boolean(
+    watchOverlayOpen || mangaReader || bookReader,
+  );
+  const { setForcePaused } = useAmbientAudioControls();
+
+  useEffect(() => {
+    setForcePaused(stickyYtPaused);
+    return () => setForcePaused(false);
+  }, [stickyYtPaused, setForcePaused]);
+
   const homeAnimateEntrance = !homeEntranceDoneRef.current;
 
   const sectionInfo = sectionMeta[activeNav];
@@ -1236,9 +1117,9 @@ function AppContent({
     />
     <AppFrame>
       <BrowseAmbientSetup activeNav={activeNav} seriesKey={seriesKey} />
-      {!deferAmbient && <LiquidBackground />}
+      {!deferAmbient && <LiquidBackground paused={watchOverlayOpen} />}
       <HomeHeroBackdrop />
-      <div className="noise-overlay pointer-events-none fixed inset-0 z-[2] opacity-[0.04]" />
+      <div className="lf-app-noise noise-overlay pointer-events-none fixed inset-0 z-[2] opacity-[0.04]" />
 
       {/* Shell resta montata sotto gli overlay watch: ritorno istantaneo. */}
       <div
@@ -1550,157 +1431,34 @@ function AppContent({
         </main>
       </div>
 
-      {partyGuestSession && (() => {
-        const guestContent = partyGuestSession.room.content;
-        const streamingTarget =
-          guestContent.contentKind === "streaming"
-            ? parseStreamingMediaId(guestContent.mediaId)
-            : null;
-
-        if (streamingTarget) {
-          return (
-            <div className="fixed inset-0 z-[70] bg-void">
-              <SuspenseRoute>
-                <AddonWatchPage
-                  profileId={activeProfile.id}
-                  contentType={streamingTarget.contentType}
-                  metaId={streamingTarget.metaId}
-                  videoId={streamingTarget.videoId}
-                  slug={streamingTarget.slug}
-                  catalogPrefix={streamingTarget.catalogPrefix}
-                  watchPartySession={partyGuestSession}
-                  onWatchPartySessionChange={setPartyGuestSession}
-                  onBack={async () => {
-                    setPartyGuestSession(null);
-                    await refreshStreamingContinue();
-                  }}
-                  onRefreshContinue={refreshStreamingContinue}
-                />
-              </SuspenseRoute>
-            </div>
-          );
-        }
-
-        const guestMedia: MediaItem = {
-          id: guestContent.mediaId || `party:${partyGuestSession.room.code}`,
-          title: guestContent.title,
-          mediaType: "film",
-          filePath: "",
-          fileName: "",
-          posterUrl: guestContent.posterUrl,
-          isFavorite: false,
-          kidFriendly: true,
-          streamingServices: [],
-          genres: [],
-          gradient: "from-indigo-950 via-slate-900 to-violet-950",
-          createdAt: new Date(0).toISOString(),
-        };
-
-        return (
-          <div className="fixed inset-0 z-[70] bg-void">
-            <SuspenseRoute>
-              <VideoPlayer
-                streamUrl={guestContent.streamUrl}
-                media={guestMedia}
-                isHls={guestContent.isHls}
-                watchPartySession={partyGuestSession}
-                onWatchPartySessionChange={setPartyGuestSession}
-                onBack={async () => {
-                  setPartyGuestSession(null);
-                  await refreshStreamingContinue();
-                }}
-              />
-            </SuspenseRoute>
-          </div>
-        );
-      })()}
-
-      {!partyGuestSession && addonWatch && (
-        <div className="fixed inset-0 z-[70] overflow-y-auto overflow-x-hidden bg-void">
-          <SuspenseRoute>
-            <AddonWatchPage
-              key={`${addonWatch.catalogPrefix ?? "sc"}:${addonWatch.metaId}:${addonWatch.slug ?? ""}:${addonWatch.videoId ?? ""}:${addonWatch.preferredVideoId ?? ""}`}
-              profileId={activeProfile.id}
-              contentType={addonWatch.contentType}
-              metaId={addonWatch.metaId}
-              videoId={addonWatch.videoId}
-              preferredVideoId={addonWatch.preferredVideoId}
-              slug={addonWatch.slug}
-              catalogPrefix={addonWatch.catalogPrefix}
-              onBack={() => {
-                setAddonWatch(null);
-                setDetailSimilar([]);
-                void refreshStreamingContinue();
-                refreshFriendAlerts();
-              }}
-              onRefreshContinue={refreshStreamingContinue}
-              relatedItems={detailSimilar}
-              onOpenDetail={handleOpenBrowseDetail}
-              onPlayRelated={handlePlay}
-              onPlayStreamingRelated={handlePlayStreaming}
-              onOpenSeries={handleOpenSeries}
-              onToggleStreamingList={handleToggleStreamingList}
-            />
-          </SuspenseRoute>
-        </div>
-      )}
-
-      {!partyGuestSession && !addonWatch && watchingId && (
-        <div className="fixed inset-0 z-[70] bg-void">
-          <SuspenseRoute>
-            <WatchPage
-              mediaId={watchingId}
-              autoplay={watchAutoplay}
-              relatedItems={detailSimilar}
-              onBack={handleBackFromWatch}
-              onPlayEpisode={handlePlayNow}
-              onOpenDetail={handleOpenBrowseDetail}
-              onPlayStreaming={handlePlayStreaming}
-              onOpenSeries={handleOpenSeries}
-              onToggleStreamingList={handleToggleStreamingList}
-            />
-          </SuspenseRoute>
-        </div>
-      )}
-
-      {!partyGuestSession && !addonWatch && !watchingId && friendProfile && (
-        <div className="fixed inset-0 z-[70] overflow-y-auto overflow-x-hidden bg-void">
-          <FriendProfilePage
-            friend={friendProfile}
-            onBack={() => setFriendProfile(null)}
-            onPlayStreaming={(preview) => {
-              setFriendProfile(null);
-              handlePlayStreaming(preview);
-            }}
-            onOpenChat={() => setFriendProfile(null)}
-          />
-        </div>
-      )}
-
-      {mangaReader && (
-        <SuspenseRoute>
-          <MangaReaderPage
-            mangaId={mangaReader.mangaId}
-            chapterId={mangaReader.chapterId}
-            mangaTitle={mangaReader.mangaTitle}
-            profileId={activeProfile.id}
-            initialPage={mangaReader.initialPage}
-            allowAdult={isParent}
-            onBack={() => setMangaReader(null)}
-            onChapterChange={handleMangaReaderChapterChange}
-          />
-        </SuspenseRoute>
-      )}
-
-      {bookReader && (
-        <SuspenseRoute>
-          <BookReaderPage
-            book={bookReader.book}
-            kind={bookReader.kind}
-            onBack={() => setBookReader(null)}
-          />
-        </SuspenseRoute>
-      )}
+      <WatchOverlayStack
+        profileId={activeProfile.id}
+        isParent={isParent}
+        partyGuestSession={partyGuestSession}
+        setPartyGuestSession={setPartyGuestSession}
+        addonWatch={addonWatch}
+        setAddonWatch={setAddonWatch}
+        watchingId={watchingId}
+        watchAutoplay={watchAutoplay}
+        friendProfile={friendProfile}
+        setFriendProfile={setFriendProfile}
+        detailSimilar={detailSimilar}
+        setDetailSimilar={setDetailSimilar}
+        mangaReader={mangaReader}
+        setMangaReader={setMangaReader}
+        bookReader={bookReader}
+        setBookReader={setBookReader}
+        refreshStreamingContinue={refreshStreamingContinue}
+        refreshFriendAlerts={refreshFriendAlerts}
+        handleBackFromWatch={handleBackFromWatch}
+        handlePlayNow={handlePlayNow}
+        handleOpenBrowseDetail={handleOpenBrowseDetail}
+        handlePlayStreaming={handlePlayStreaming}
+        handlePlay={handlePlay}
+        handleOpenSeries={handleOpenSeries}
+        handleToggleStreamingList={handleToggleStreamingList}
+        handleMangaReaderChapterChange={handleMangaReaderChapterChange}
+      />
     </AppFrame>
     </HeroAmbientProvider>
     </FriendsMenuProvider>
@@ -1829,7 +1587,7 @@ function AppGate() {
     (bootDone || (bootPhase === "preparing" && guestAutoPath));
 
   return (
-    <>
+    <AmbientAudioProvider>
       <AppAccessBootstrap />
       {showBootLoader ? (
         <LoadingScreen
@@ -1849,6 +1607,13 @@ function AppGate() {
           }}
         />
       ) : null}
+
+      {/* Audio ambient: parte in preparing (sotto il loading) e resta sticky in app. */}
+      {(bootPhase === "preparing" || bootDone) && (
+        <AmbientStickyYouTube
+          layout={showBootLoader ? "boot" : "sticky"}
+        />
+      )}
 
       {/* Niente wrapper fixed/invisible: spezzava h-full e bloccava lo scroll. */}
       {mountAppShell && activeProfile && (
@@ -1894,8 +1659,13 @@ function AppGate() {
           }}
         />
       )}
-    </>
+    </AmbientAudioProvider>
   );
+}
+
+function AmbientStickyYouTube({ layout }: { layout: "boot" | "sticky" }) {
+  const { forcePaused } = useAmbientAudioControls();
+  return <StickyYouTubeDock layout={layout} forcePaused={forcePaused} />;
 }
 
 function App() {

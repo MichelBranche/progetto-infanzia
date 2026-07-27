@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, BookOpen, Check, Loader2, Plus } from "lucide-react";
 import type { MangaBrowseItem, MangaChapterItem } from "../types/mangadex";
 import { fetchMangaChapters, fetchMangaDetail } from "../lib/mangadexApi";
+import { mangaCoverFallbacks, proxifyMangaCoverUrl } from "../lib/mangadexCovers";
 import { isMangaSaved, toggleSavedManga } from "../lib/mangaLibrary";
 import { getMangaProgress } from "../lib/mangaProgress";
 
@@ -76,7 +77,18 @@ export function MangaDetailPage({
   const [chaptersLoading, setChaptersLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(() => isMangaSaved(profileId, mangaId));
+  const [coverIndex, setCoverIndex] = useState(0);
   const progress = getMangaProgress(profileId, mangaId);
+
+  const coverCandidates = mangaCoverFallbacks(manga?.coverUrl ?? null);
+  const coverSrc =
+    coverCandidates[coverIndex] ??
+    proxifyMangaCoverUrl(manga?.coverUrl) ??
+    null;
+
+  useEffect(() => {
+    setCoverIndex(0);
+  }, [manga?.coverUrl, mangaId]);
 
   const handleToggleSave = useCallback(() => {
     if (!manga) return;
@@ -159,12 +171,17 @@ export function MangaDetailPage({
         <div className="flex flex-col items-center gap-6">
           <div className="w-40 shrink-0 sm:w-48">
             <div className="aspect-[2/3] overflow-hidden rounded-xl ring-1 ring-white/10">
-              {manga.coverUrl ? (
+              {coverSrc ? (
                 <img
-                  src={manga.coverUrl}
+                  src={coverSrc}
                   alt={manga.title}
                   loading="eager"
                   decoding="async"
+                  onError={() => {
+                    if (coverIndex + 1 < coverCandidates.length) {
+                      setCoverIndex((i) => i + 1);
+                    }
+                  }}
                   className="h-full w-full object-cover"
                 />
               ) : (

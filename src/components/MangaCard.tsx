@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Check, Plus } from "lucide-react";
 import type { MangaBrowseItem } from "../types/mangadex";
-import { mangaCoverThumbUrl } from "../lib/mangadexCovers";
+import { mangaCoverFallbacks } from "../lib/mangadexCovers";
 import { SparkleActionButton } from "./SparkleActionButton";
 
 function isAdultRating(rating?: string) {
@@ -33,17 +33,19 @@ export const MangaCard = memo(function MangaCard({
   onToggleSave,
 }: MangaCardProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const [imageSrc, setImageSrc] = useState<string | null>(() =>
-    mangaCoverThumbUrl(item.coverUrl, 256),
-  );
+  const candidatesRef = useRef(mangaCoverFallbacks(item.coverUrl, 256));
+  const [srcIndex, setSrcIndex] = useState(0);
   const [showImage, setShowImage] = useState(
     eagerImage || variant === "row",
   );
 
   useEffect(() => {
-    setImageSrc(mangaCoverThumbUrl(item.coverUrl, 256));
+    candidatesRef.current = mangaCoverFallbacks(item.coverUrl, 256);
+    setSrcIndex(0);
     setShowImage(eagerImage || variant === "row");
   }, [item.coverUrl, eagerImage, variant]);
+
+  const imageSrc = candidatesRef.current[srcIndex] ?? null;
 
   useEffect(() => {
     if (showImage || variant === "row") return;
@@ -99,8 +101,8 @@ export const MangaCard = memo(function MangaCard({
             decoding="async"
             fetchPriority={eagerImage ? "high" : "low"}
             onError={() => {
-              if (item.coverUrl && imageSrc !== item.coverUrl) {
-                setImageSrc(item.coverUrl);
+              if (srcIndex + 1 < candidatesRef.current.length) {
+                setSrcIndex((i) => i + 1);
               }
             }}
             className="absolute inset-0 h-full w-full object-cover"

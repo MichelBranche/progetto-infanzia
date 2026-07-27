@@ -208,6 +208,8 @@ export function LoadingScreen({
             <p className="mt-6 text-center text-[11px] font-medium uppercase tracking-[0.28em] text-white/55">
               {PREPARE_LABELS[labelIdx]}
             </p>
+            {/* Spazio riservato al mini-player audio (montato in AppGate, layout boot). */}
+            <div className="mt-8 h-[52px] w-[min(18rem,calc(100vw-3rem))]" aria-hidden />
           </div>
         </div>
       )}

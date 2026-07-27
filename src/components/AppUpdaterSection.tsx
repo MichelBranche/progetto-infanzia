@@ -1,5 +1,6 @@
 import { Download, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { useAppUpdaterContext } from "../context/AppUpdaterContext";
+import { updaterUnsupportedReason } from "../lib/appUpdater";
 import {
   SettingsAlert,
   SettingsButton,
@@ -20,6 +21,7 @@ export function AppUpdaterSection() {
 
   const checking = phase === "checking";
   const showUpToDate = phase === "up-to-date";
+  const unsupportedReason = supported ? null : updaterUnsupportedReason();
 
   return (
     <SettingsSection
@@ -31,10 +33,9 @@ export function AppUpdaterSection() {
           : "Controllo versione in corso…"
       }
     >
-      {!supported && (
+      {unsupportedReason && (
         <p className="text-[12px] leading-relaxed text-text-muted">
-          Gli aggiornamenti automatici sono disponibili solo nell&apos;app
-          installata (non in modalità sviluppo).
+          {unsupportedReason}
         </p>
       )}
 

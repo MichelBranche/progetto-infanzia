@@ -55,20 +55,34 @@ export function AppAccessProvider({ children }: { children: ReactNode }) {
   const [guestSecondsUsed, setGuestSecondsUsed] = useState(
     getGuestSecondsUsedToday,
   );
-
+  const [guestCooldownRemainingMs, setGuestCooldownRemainingMs] = useState(
+    getGuestCooldownRemainingMs,
+  );
   const [guestTick, setGuestTick] = useState(0);
   const [guestWatching, setGuestWatching] = useState(false);
 
   const refreshGuestUsage = useCallback(() => {
-    setGuestSecondsUsed(getGuestSecondsUsedToday());
-    setGuestTick(Date.now());
+    const used = getGuestSecondsUsedToday();
+    const cooldown = getGuestCooldownRemainingMs();
+    setGuestSecondsUsed((prev) => (prev === used ? prev : used));
+    setGuestCooldownRemainingMs((prev) => (prev === cooldown ? prev : cooldown));
+    // Tick solo se serve un countdown UI (cooldown attivo).
+    if (cooldown > 0) {
+      setGuestTick(Date.now());
+    }
   }, []);
 
   useEffect(() => {
     if (mode !== "guest") return;
+    // Interval solo mentre si guarda o durante cooldown (widget/banner).
+    const needsTick =
+      guestWatching ||
+      guestCooldownRemainingMs > 0 ||
+      isGuestAccessBlocked();
+    if (!needsTick) return;
     const id = window.setInterval(() => refreshGuestUsage(), 1000);
     return () => window.clearInterval(id);
-  }, [mode, refreshGuestUsage]);
+  }, [mode, guestWatching, guestCooldownRemainingMs, refreshGuestUsage]);
 
   useEffect(() => {
     setSetupComplete(isAppAccessSetupComplete());
@@ -136,7 +150,7 @@ export function AppAccessProvider({ children }: { children: ReactNode }) {
       ),
       guestLimitReached: mode === "guest" && isGuestLimitReached(),
       guestAccessBlocked: mode === "guest" && isGuestAccessBlocked(),
-      guestCooldownRemainingMs: getGuestCooldownRemainingMs(),
+      guestCooldownRemainingMs,
       guestWatching,
       completeGuestSetup,
       completeRegisteredSetup,
@@ -152,6 +166,7 @@ export function AppAccessProvider({ children }: { children: ReactNode }) {
       mode,
       guestSecondsUsed,
       guestTick,
+      guestCooldownRemainingMs,
       guestWatching,
       completeGuestSetup,
       completeRegisteredSetup,

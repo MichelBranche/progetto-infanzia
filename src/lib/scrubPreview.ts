@@ -13,6 +13,8 @@ export function scrubBucketForTime(timeSec: number, interval: number): number {
 }
 
 const MAX_FRAMES_PER_STREAM = 160;
+/** Oltre questa soglia i prefetch in attesa sono già obsoleti: meglio scartarli. */
+const MAX_PENDING_LOW_JOBS = 3;
 
 type CapturePriority = "high" | "low";
 
@@ -60,7 +62,9 @@ export class ScrubPreviewEngine {
     const direct = this.frames.get(bucket);
     if (direct) return direct;
 
-    for (let step = 1; step <= 4; step += 1) {
+    // Meglio un frame vicino subito che un riquadro vuoto: la cattura precisa
+    // arriva un attimo dopo e sostituisce l'immagine.
+    for (let step = 1; step <= 12; step += 1) {
       const delta = step * this.interval;
       const before = this.frames.get(bucket - delta);
       if (before) return before;
@@ -102,14 +106,28 @@ export class ScrubPreviewEngine {
     return promise;
   }
 
+  /** Il puntatore si è spostato: i prefetch attorno al punto vecchio non servono. */
+  cancelPending() {
+    if (this.queue.length === 0) return;
+    const dropped = this.queue.filter((job) => job.priority === "low");
+    this.queue = this.queue.filter((job) => job.priority === "high");
+    for (const job of dropped) job.resolve(null);
+  }
+
   private enqueue(job: QueueJob) {
     if (this.destroyed) {
       job.resolve(null);
       return;
     }
     if (job.priority === "high") {
+      // Una richiesta dell'utente non deve mettersi in fila dietro i prefetch.
+      this.cancelPending();
       this.queue.unshift(job);
     } else {
+      if (this.queue.length >= MAX_PENDING_LOW_JOBS) {
+        job.resolve(null);
+        return;
+      }
       this.queue.push(job);
     }
     void this.drainQueue();
@@ -152,48 +170,31 @@ export class ScrubPreviewEngine {
     }
   }
 
+  /**
+   * Poche marche sparse, una volta sola: bastano a coprire la barra con
+   * un'immagine plausibile. Troppe catture all'avvio rubano banda al player.
+   */
   private startWarmup() {
-    const marks = [0, 0.08, 0.18, 0.32, 0.5, 0.68, 0.82, 0.92].map((ratio) =>
+    const marks = [0.1, 0.35, 0.6, 0.85].map((ratio) =>
       scrubBucketForTime(ratio * this.duration, this.interval),
     );
     const unique = [...new Set(marks.filter((t) => t >= 0 && t <= this.duration))];
-    for (const t of unique) {
-      void this.ensureFrame(t, "low");
-    }
-    this.scheduleProgressiveFill(0);
-  }
 
-  private scheduleProgressiveFill(startBucket: number) {
-    if (this.destroyed) return;
-
-    const run = () => {
-      if (this.destroyed) return;
-      let bucket = startBucket;
-      while (
-        bucket <= this.duration &&
-        (this.frames.has(bucket) || this.inflight.has(bucket))
-      ) {
-        bucket += this.interval;
-      }
-      if (bucket > this.duration) return;
-
-      void this.ensureFrame(bucket, "low").finally(() => {
-        if (this.destroyed) return;
-        const next = bucket + this.interval;
+    const warm = (index: number) => {
+      if (this.destroyed || index >= unique.length) return;
+      void this.ensureFrame(unique[index], "low").finally(() => {
         if (typeof requestIdleCallback === "function") {
-          requestIdleCallback(() => this.scheduleProgressiveFill(next), {
-            timeout: 300,
-          });
+          requestIdleCallback(() => warm(index + 1), { timeout: 2500 });
         } else {
-          window.setTimeout(() => this.scheduleProgressiveFill(next), 32);
+          window.setTimeout(() => warm(index + 1), 400);
         }
       });
     };
 
     if (typeof requestIdleCallback === "function") {
-      requestIdleCallback(run, { timeout: 800 });
+      requestIdleCallback(() => warm(0), { timeout: 3500 });
     } else {
-      window.setTimeout(run, 120);
+      window.setTimeout(() => warm(0), 800);
     }
   }
 }

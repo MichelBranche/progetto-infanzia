@@ -22,10 +22,14 @@ jobs:
             echo 'body<<RELEASE_EOF'
             cat release-notes.md
             echo ''
+            echo '### Windows'
+            echo '- Installer `.exe` con aggiornamento automatico in-app'
+            echo ''
             echo '### macOS (Intel e Apple Silicon)'
             echo '- Scarica il file `.dmg` universale'
             echo '- Firma ad-hoc: tasto destro sull app → **Apri** → conferma'
             echo '- Aggiornamento automatico in-app non disponibile su Mac'
+            echo '- Al primo avvio concedi **Rete locale** se usi Watch Party LAN o cast'
             echo 'RELEASE_EOF'
           } >> "$GITHUB_OUTPUT"
 
@@ -85,6 +89,12 @@ jobs:
             echo ''
             echo '### Windows'
             echo '- Installer `.exe` con aggiornamento automatico in-app'
+            echo ''
+            echo '### macOS (Intel e Apple Silicon)'
+            echo '- Scarica il file `.dmg` universale'
+            echo '- Firma ad-hoc: tasto destro sull app → **Apri** → conferma'
+            echo '- Aggiornamento automatico in-app non disponibile su Mac'
+            echo '- Al primo avvio concedi **Rete locale** se usi Watch Party LAN o cast'
             echo 'RELEASE_EOF'
           } >> "$GITHUB_OUTPUT"
 

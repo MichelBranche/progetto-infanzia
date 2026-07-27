@@ -46,7 +46,7 @@ export function useCloudFriendPresence(active = true) {
     Boolean(cloudProfile) && !hasBootFriendsCache(),
   );
 
-  usePresenceHeartbeat(Boolean(cloudProfile) && active);
+  // L'heartbeat è globale (App.tsx): qui creerebbe solo un secondo timer.
 
   const refresh = useCallback(async () => {
     if (!cloudProfile) {
@@ -88,17 +88,21 @@ export function useCloudFriendPresence(active = true) {
     }
   }, [cloudProfile]);
 
+  // Il primo caricamento serve anche a UI chiuse (badge amici online in nav).
   useEffect(() => {
-    if (!active) return;
     void refresh();
-  }, [active, refresh]);
+  }, [refresh]);
 
   useEffect(() => {
-    if (!cloudProfile || !active) return;
+    if (!cloudProfile) return;
     const ids = friends.map((f) => f.userId);
     if (ids.length === 0) return;
 
-    const poll = window.setInterval(() => void refresh(), HEARTBEAT_MS);
+    // Realtime sempre: è push, costa quanto una connessione già aperta.
+    // Il poll periodico invece rifà fetch + setState, quindi solo a UI aperta.
+    const poll = active
+      ? window.setInterval(() => void refresh(), HEARTBEAT_MS)
+      : null;
     let unsub = () => {};
     try {
       unsub = subscribeFriendsPresence(ids, () => void refresh());
@@ -107,7 +111,7 @@ export function useCloudFriendPresence(active = true) {
     }
 
     return () => {
-      window.clearInterval(poll);
+      if (poll !== null) window.clearInterval(poll);
       unsub();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ids joined avoids resubscribe loops

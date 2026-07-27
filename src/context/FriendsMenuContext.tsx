@@ -69,7 +69,7 @@ export function FriendsMenuProvider({
   const sheetDragControls = useDragControls();
 
   const { friends, onlineCount, refreshing, refreshAll } =
-    useAppTopNavFriendsList(profileId, profileName, true, cloudProfile);
+    useAppTopNavFriendsList(profileId, profileName, open, cloudProfile);
   const { status, setStatus } = useMyPresenceStatus(Boolean(cloudProfile));
 
   const updatePanelPos = useCallback((anchor?: HTMLElement | null) => {

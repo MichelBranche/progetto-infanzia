@@ -128,6 +128,7 @@ export const HomeKeepAliveView = memo(
           <HeroBanner
             fullPage
             syncAmbient={show}
+            paused={!show}
             items={heroItems}
             scrollContainerRef={scrollContainerRef}
             onPlay={onPlay}

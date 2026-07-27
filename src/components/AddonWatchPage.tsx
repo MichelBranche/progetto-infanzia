@@ -40,12 +40,18 @@ import { useWatchPartySync } from "../hooks/useWatchPartySync";
 import { useProfile } from "../context/ProfileContext";
 import { useCloudAccount } from "../context/CloudAccountContext";
 import { VideoPlayer } from "./VideoPlayer";
+import { PlayerLoadingScreen } from "./PlayerLoadingScreen";
 import { YouTubePlayer, youtubeVideoIdFromStreamUrl } from "./YouTubePlayer";
 import { StreamingTitlePage } from "./StreamingTitlePage";
 
 import type { BrowseItem } from "../lib/browse";
 import { nextEpisode } from "../lib/browse";
 import { RelatedTitlesSection } from "./RelatedTitlesSection";
+
+interface StreamResume {
+  watchPosition?: number;
+  watchDuration?: number;
+}
 
 interface AddonWatchPageProps extends AddonWatchTarget {
   profileId: string;
@@ -171,6 +177,10 @@ export function AddonWatchPage({
     watchDuration?: number;
   } | null>(null);
   const [resolving, setResolving] = useState(false);
+  const [launching, setLaunching] = useState<{
+    title: string;
+    subtitle?: string;
+  } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [myListLoading, setMyListLoading] = useState(false);
   const [episodeProgress, setEpisodeProgress] = useState<
@@ -284,30 +294,41 @@ export function AddonWatchPage({
     [isBuiltin, isSc, isLoonex, isYoutube, metaId, slug],
   );
 
+  const loadStreamResume = useCallback(
+    async (videoId: string): Promise<StreamResume> => {
+      if (!isBuiltin || !slug) {
+        return { watchPosition: undefined, watchDuration: undefined };
+      }
+      try {
+        const progress = await getStreamingWatchProgress(
+          profileId,
+          catalogPrefix ?? "sc",
+          contentType,
+          metaId,
+          slug,
+          videoId,
+        );
+        if (!progress) return { watchPosition: undefined, watchDuration: undefined };
+        return {
+          watchPosition: progress[0],
+          watchDuration: progress[1] ?? undefined,
+        };
+      } catch {
+        return { watchPosition: undefined, watchDuration: undefined };
+      }
+    },
+    [isBuiltin, slug, profileId, catalogPrefix, contentType, metaId],
+  );
+
   const playStream = useCallback(
-    async (stream: PlayableStream, videoId: string, videoTitle: string) => {
-      const loadProgress = async () => {
-        if (!isBuiltin || !slug) {
-          return { watchPosition: undefined, watchDuration: undefined };
-        }
-        try {
-          const progress = await getStreamingWatchProgress(
-            profileId,
-            catalogPrefix ?? "sc",
-            contentType,
-            metaId,
-            slug,
-            videoId,
-          );
-          if (!progress) return { watchPosition: undefined, watchDuration: undefined };
-          return {
-            watchPosition: progress[0],
-            watchDuration: progress[1] ?? undefined,
-          };
-        } catch {
-          return { watchPosition: undefined, watchDuration: undefined };
-        }
-      };
+    async (
+      stream: PlayableStream,
+      videoId: string,
+      videoTitle: string,
+      /** Progresso già avviato in parallelo alla risoluzione dello stream. */
+      pendingResume?: Promise<StreamResume>,
+    ) => {
+      const loadProgress = () => pendingResume ?? loadStreamResume(videoId);
 
       if (!stream.needsDebrid) {
         const resume =
@@ -345,7 +366,7 @@ export function AddonWatchPage({
         setResolving(false);
       }
     },
-    [profileId, isBuiltin, catalogPrefix, slug, contentType, metaId, watchPartySession],
+    [profileId, watchPartySession, loadStreamResume],
   );
 
   useEffect(() => {
@@ -420,6 +441,16 @@ export function AddonWatchPage({
       setStreamsLoading(true);
       setStreamPick(null);
       setError(null);
+      setLaunching({
+        title: meta.name,
+        subtitle: videoTitle !== meta.name ? videoTitle : undefined,
+      });
+      // Stream e progresso sono indipendenti: partono insieme, non in fila.
+      const progressVideoId = isMovie ? meta.id : episodeId;
+      const pendingResume =
+        watchPartySession?.role === "guest"
+          ? undefined
+          : loadStreamResume(progressVideoId);
       try {
         const audioLang = readPlayerAudioLanguage();
         const streams = isSc
@@ -445,24 +476,72 @@ export function AddonWatchPage({
           );
           return;
         }
-        const progressVideoId = isMovie ? meta.id : episodeId;
         if (streams.length === 1) {
-          await playStream(streams[0], progressVideoId, videoTitle);
+          await playStream(streams[0], progressVideoId, videoTitle, pendingResume);
         } else {
+          // Scelta multipla: torna alla scheda, niente schermata di avvio.
+          setLaunching(null);
           setStreamPick({ videoId: progressVideoId, videoTitle, streams });
         }
       } catch (err) {
         if (generation === playbackGenerationRef.current) {
           setError(err instanceof Error ? err.message : String(err));
+          setLaunching(null);
         }
       } finally {
         if (generation === playbackGenerationRef.current) {
           setStreamsLoading(false);
+          // launching resta acceso finché VideoPlayer non emette onReady:
+          // così non c'è un secondo "caricamento" diverso dopo la resolve.
         }
       }
     },
-    [meta, profileId, playStream, isSc, isSaturn, isLoonex, isYoutube, metaId, slug],
+    [
+      meta,
+      profileId,
+      playStream,
+      isSc,
+      isSaturn,
+      isLoonex,
+      isYoutube,
+      metaId,
+      slug,
+      loadStreamResume,
+      watchPartySession,
+    ],
   );
+
+  /**
+   * Solo SC: la risoluzione ha una cache lato client, quindi anticiparla
+   * trasforma il click su Play in un hit immediato. Gli altri provider
+   * pagherebbero la richiesta senza poterla riusare.
+   */
+  const prefetchPlayback = useCallback(
+    (videoId: string) => {
+      if (!isSc || !slug || !meta) return;
+      const isMovie = meta.type === "movie";
+      const episodeId = isMovie ? undefined : videoId.trim();
+      if (!isMovie && !episodeId) return;
+      void resolveScStream(
+        metaId,
+        slug,
+        episodeId,
+        readPlayerAudioLanguage(),
+      ).catch(() => {
+        // Prefetch best-effort: l'errore vero lo mostra il play reale.
+      });
+    },
+    [isSc, slug, meta, metaId],
+  );
+
+  const cancelLaunch = useCallback(() => {
+    // Invalida la generazione in corso: il resolve che arriva dopo viene scartato.
+    playbackGenerationRef.current += 1;
+    setLaunching(null);
+    setStreamsLoading(false);
+    setResolving(false);
+    setPlayback(null);
+  }, []);
 
   const handleStreamAudioLanguage = useCallback(
     async (lang: PlayerStreamAudioLanguage) => {
@@ -630,55 +709,76 @@ export function AddonWatchPage({
       playback.videoTitle !== meta.name ? playback.videoTitle : undefined;
 
     return (
-      <VideoPlayer
-        streamUrl={playback.stream.url}
-        isHls={playback.stream.isHls}
-        remotePlayback={{
-          contentType: meta.type,
-          videoId: playback.videoId,
-          catalogPrefix: isBuiltin ? catalogPrefix : undefined,
-          titleId: metaId,
-          slug: slug ?? undefined,
-          titleName: meta.name,
-          episodeLabel,
-          poster: meta.poster,
-        }}
-        media={playbackMedia}
-        episodes={seriesEpisodes}
-        onPlayEpisode={(videoId) => {
-          const video = meta.videos.find((v) => v.id === videoId);
-          void startPlayback(videoId, video?.title?.trim() || meta.name);
-        }}
-        watchPartySession={watchPartySession}
-        onWatchPartySessionChange={onWatchPartySessionChange}
-        onStreamAudioLanguageChange={
-          isSc ? handleStreamAudioLanguage : undefined
-        }
-        onBack={() => {
-          if (watchPartySession) {
-            onWatchPartySessionChange?.(null);
-            void onBack();
-            return;
+      <>
+        <VideoPlayer
+          streamUrl={playback.stream.url}
+          isHls={playback.stream.isHls}
+          remotePlayback={{
+            contentType: meta.type,
+            videoId: playback.videoId,
+            catalogPrefix: isBuiltin ? catalogPrefix : undefined,
+            titleId: metaId,
+            slug: slug ?? undefined,
+            titleName: meta.name,
+            episodeLabel,
+            poster: meta.poster,
+          }}
+          media={playbackMedia}
+          episodes={seriesEpisodes}
+          onPlayEpisode={(videoId) => {
+            const video = meta.videos.find((v) => v.id === videoId);
+            void startPlayback(videoId, video?.title?.trim() || meta.name);
+          }}
+          watchPartySession={watchPartySession}
+          onWatchPartySessionChange={onWatchPartySessionChange}
+          onStreamAudioLanguageChange={
+            isSc ? handleStreamAudioLanguage : undefined
           }
-          setPlayback(null);
-          void loadEpisodeProgress();
-          void onRefreshContinue?.();
-          if (initialVideoId) void onBack();
-        }}
-      />
+          onReady={() => setLaunching(null)}
+          onBack={() => {
+            if (watchPartySession) {
+              onWatchPartySessionChange?.(null);
+              void onBack();
+              return;
+            }
+            setLaunching(null);
+            setPlayback(null);
+            void loadEpisodeProgress();
+            void onRefreshContinue?.();
+            if (initialVideoId) void onBack();
+          }}
+        />
+        {launching && (
+          <PlayerLoadingScreen
+            title={launching.title}
+            subtitle={launching.subtitle}
+            backdropUrl={meta.background ?? meta.poster}
+            logoUrl={meta.logo}
+            onCancel={cancelLaunch}
+          />
+        )}
+      </>
     );
   }
 
   if (loading) {
     const guestParty = watchPartySession?.role === "guest";
+    // Chi arriva già diretto al player vede la stessa schermata di avvio,
+    // non uno spinner intermedio con un'estetica diversa.
+    if (initialVideoId || guestParty) {
+      return (
+        <PlayerLoadingScreen
+          subtitle={
+            guestParty ? "Caricamento del titolo condiviso dall'host…" : undefined
+          }
+          onCancel={onBack}
+        />
+      );
+    }
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 bg-void px-8 text-center">
         <Loader2 className="h-8 w-8 animate-spin text-text-muted" />
-        <p className="max-w-sm text-[14px] text-text-secondary">
-          {guestParty
-            ? "Caricamento del titolo condiviso dall'host…"
-            : "Caricamento…"}
-        </p>
+        <p className="max-w-sm text-[14px] text-text-secondary">Caricamento…</p>
       </div>
     );
   }
@@ -706,10 +806,11 @@ export function AddonWatchPage({
         meta={meta}
         episodeProgress={episodeProgress}
         preferredVideoId={initialPreferredVideoId}
-        loading={streamsLoading || resolving}
+        loading={(streamsLoading || resolving) && !launching}
         error={error}
         onBack={onBack}
         onPlay={(videoId, videoTitle) => void startPlayback(videoId, videoTitle)}
+        onPrefetchPlay={isSc ? prefetchPlayback : undefined}
         onPlayPreview={
           isSc && meta.hasPreview ? () => void startPreview() : undefined
         }
@@ -734,6 +835,15 @@ export function AddonWatchPage({
           ) : undefined
         }
       />
+      {launching && (
+        <PlayerLoadingScreen
+          title={launching.title}
+          subtitle={launching.subtitle}
+          backdropUrl={meta.background ?? meta.poster}
+          logoUrl={meta.logo}
+          onCancel={cancelLaunch}
+        />
+      )}
       {streamPick && (
         <StreamPickModal
           streamPick={streamPick}

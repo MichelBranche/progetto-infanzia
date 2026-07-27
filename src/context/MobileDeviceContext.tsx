@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useLayoutEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -26,7 +27,16 @@ export function MobileDeviceProvider({ children }: { children: ReactNode }) {
   );
 
   useLayoutEffect(() => {
-    const refresh = () => setLayout(syncShellLayoutClasses());
+    // Il resize arriva a raffica: aggiorna lo state solo se il layout cambia
+    // davvero, altrimenti ogni pixel di drag re-renderizza i consumer.
+    const refresh = () => {
+      const next = syncShellLayoutClasses();
+      setLayout((prev) =>
+        prev.mobile === next.mobile && prev.compact === next.compact
+          ? prev
+          : next,
+      );
+    };
 
     refresh();
     const mq = window.matchMedia(COMPACT_SHELL_MEDIA);
@@ -41,12 +51,15 @@ export function MobileDeviceProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const value: MobileDeviceContextValue = {
-    mobile: layout.mobile,
-    compact: layout.compact,
-    isMobileDevice: layout.mobile,
-    isCompactShell: layout.compact,
-  };
+  const value = useMemo<MobileDeviceContextValue>(
+    () => ({
+      mobile: layout.mobile,
+      compact: layout.compact,
+      isMobileDevice: layout.mobile,
+      isCompactShell: layout.compact,
+    }),
+    [layout.mobile, layout.compact],
+  );
 
   return (
     <MobileDeviceContext.Provider value={value}>

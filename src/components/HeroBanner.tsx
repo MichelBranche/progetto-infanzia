@@ -29,7 +29,7 @@ import {
   resolveAmbientPalette,
   resolveAmbientPaletteAsync,
 } from "../lib/imagePalette";
-import { heroUrlQualityScore, pickBestHeroUrl, pickBestLogoUrl } from "../lib/posterUrl";
+import { heroUrlQualityScore, pickBestHeroUrl, pickBestLogoUrl, posterUrlFallbacks } from "../lib/posterUrl";
 import { useMobileDevice, useCompactShell } from "../context/MobileDeviceContext";
 
 interface HeroBannerProps {
@@ -38,6 +38,8 @@ interface HeroBannerProps {
   fullPage?: boolean;
   /** Solo homepage: aurora liquida segue i colori della hero. */
   syncAmbient?: boolean;
+  /** Hero fuori schermo (home parcheggiata): ferma slideshow e parallax. */
+  paused?: boolean;
   onPlay: (id: string) => void;
   onOpenSeries?: (media: MediaItem) => void;
   onOpenDetail?: (browse: BrowseItem) => void;
@@ -194,6 +196,7 @@ export const HeroBanner = memo(function HeroBanner({
   scrollContainerRef,
   fullPage = false,
   syncAmbient = false,
+  paused = false,
   onPlay,
   onOpenSeries,
   onOpenDetail,
@@ -208,6 +211,8 @@ export const HeroBanner = memo(function HeroBanner({
   const [index, setIndex] = useState(0);
   const [heroImageById, setHeroImageById] = useState<Record<string, string>>({});
   const [heroLogoUrl, setHeroLogoUrl] = useState<string | undefined>();
+  const [heroLogoFallbacks, setHeroLogoFallbacks] = useState<string[]>([]);
+  const [heroLogoIndex, setHeroLogoIndex] = useState(0);
   const [heroSwipeDragX, setHeroSwipeDragX] = useState(0);
   const [isHeroSwiping, setIsHeroSwiping] = useState(false);
   const slideTimerRef = useRef<number | null>(null);
@@ -228,7 +233,7 @@ export const HeroBanner = memo(function HeroBanner({
     mediaLayerRef,
     contentLayerRef,
     scrollContainerRef ?? { current: null },
-    Boolean(scrollContainerRef),
+    Boolean(scrollContainerRef) && !paused,
   );
 
   const safeIndex = items.length > 0 ? index % items.length : 0;
@@ -287,7 +292,11 @@ export const HeroBanner = memo(function HeroBanner({
 
     const heroItem = toHeroItem(media);
     let cancelled = false;
-    setHeroLogoUrl(pickBestLogoUrl(heroItem.logoUrl));
+    const seedLogo = pickBestLogoUrl(heroItem.logoUrl);
+    const seedFallbacks = seedLogo ? posterUrlFallbacks(seedLogo, "high") : [];
+    setHeroLogoUrl(seedFallbacks[0] ?? seedLogo);
+    setHeroLogoFallbacks(seedFallbacks);
+    setHeroLogoIndex(0);
 
     void (async () => {
       const [image, logo] = await Promise.all([
@@ -308,7 +317,12 @@ export const HeroBanner = memo(function HeroBanner({
         void prefetchHeroPalette(media.id, image, media.gradient);
       }
 
-      if (logo) setHeroLogoUrl(logo);
+      if (logo) {
+        const nextFallbacks = posterUrlFallbacks(logo, "high");
+        setHeroLogoFallbacks(nextFallbacks);
+        setHeroLogoIndex(0);
+        setHeroLogoUrl(nextFallbacks[0] ?? logo);
+      }
     })();
 
     return () => {
@@ -415,15 +429,25 @@ export const HeroBanner = memo(function HeroBanner({
   );
 
   useEffect(() => {
-    if (!media || items.length <= 1) return;
+    if (paused || !media || items.length <= 1) return;
 
-    clearSlideTimer();
-    slideTimerRef.current = window.setTimeout(() => {
-      selectSlide((safeIndex + 1) % items.length);
-    }, HERO_POSTER_MS);
+    // Finestra in background: niente slide, si riparte al ritorno.
+    const schedule = () => {
+      clearSlideTimer();
+      if (document.hidden) return;
+      slideTimerRef.current = window.setTimeout(() => {
+        selectSlide((safeIndex + 1) % items.length);
+      }, HERO_POSTER_MS);
+    };
 
-    return clearSlideTimer;
-  }, [media?.id, items.length, safeIndex, selectSlide]);
+    schedule();
+    document.addEventListener("visibilitychange", schedule);
+
+    return () => {
+      document.removeEventListener("visibilitychange", schedule);
+      clearSlideTimer();
+    };
+  }, [paused, media?.id, items.length, safeIndex, selectSlide]);
 
   const goToSlide = useCallback(
     (dotIndex: number) => {
@@ -540,14 +564,14 @@ export const HeroBanner = memo(function HeroBanner({
   );
 
   useEffect(() => {
-    if (items.length === 0) return;
+    if (paused || items.length === 0) return;
     const next = items[(safeIndex + 1) % items.length];
     if (!next) return;
     prefetchHeroImage(next);
     const heroItem = toHeroItem(next);
     const imageUrl = heroImageForItem(heroItem, heroImageById[next.id]);
     void prefetchHeroPalette(next.id, imageUrl, next.gradient);
-  }, [items, safeIndex, heroImageById]);
+  }, [paused, items, safeIndex, heroImageById]);
 
   if (!media) return null;
 
@@ -691,6 +715,15 @@ export const HeroBanner = memo(function HeroBanner({
                 data-hero-part
                 src={heroLogoUrl}
                 alt={heroTitle}
+                onError={() => {
+                  const next = heroLogoIndex + 1;
+                  if (next < heroLogoFallbacks.length) {
+                    setHeroLogoIndex(next);
+                    setHeroLogoUrl(heroLogoFallbacks[next]);
+                    return;
+                  }
+                  setHeroLogoUrl(undefined);
+                }}
                 className={`lf-hero__logo w-auto object-contain object-center drop-shadow-[0_8px_32px_rgba(0,0,0,0.55)] ${
                   touchLayout
                     ? "mx-auto mb-3"

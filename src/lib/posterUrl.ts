@@ -5,23 +5,67 @@ import {
   type PosterQualityTier,
 } from "./posterQuality";
 import { isWebShell } from "./runtimeInvoke";
+import { scServerBase } from "./scServerFallback";
 
 const TMDB_SIZE_RE = /\/t\/p\/w\d+\//i;
 const LOW_RES_WIDTH_RE = /[?&](?:w|width)=\d{1,3}(?:&|$)/i;
+/** CDN SC/Unity: browser spesso bloccato (ISP/CF) — sempre via proxy. */
 const SC_CDN_IMAGE_RE =
-  /^https?:\/\/cdn\.streamingcommunity[^/]+\/images\/(.+)$/i;
+  /^https?:\/\/cdn\.(?:streamingcommunity|streamingunity)[^/]+\/images\/(.+)$/i;
 const SC_BARE_IMAGE_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i;
+const SC_IMAGE_PATH_RE = /\/sc-image\/(.+)$/i;
 const SATURN_CDN_IMAGE_RE = /^https?:\/\/img\.saturncdn\.net\/(.+)$/i;
 const LOONEX_SITE_IMAGE_RE =
   /^https?:\/\/(?:www\.)?loonex\.eu\/cartoni\/(.+)$/i;
 const LOCALHOST_ASSET_RE = /^https?:\/\/127\.0\.0\.1:\d+/i;
 const BACKEND_ASSET_PATH_RE =
   /^\/(sc-image|poster|series-poster|saturn-poster|loonex-poster|welib-book|welib-audio|welib-cover)\//;
+const TAURI_STREAM_ORIGIN = "http://127.0.0.1:17890";
 
 function webAssetOrigin(): string {
   if (typeof window === "undefined") return "";
   return window.location.origin.replace(/\/$/, "");
+}
+
+/** Estrae il path relativo sotto /images/ per il proxy sc-image. */
+export function extractScImageRel(url: string): string | null {
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("/sc-image/")) {
+    return trimmed
+      .slice("/sc-image/".length)
+      .replace(/^\/+/, "")
+      .replace(/^images\//, "");
+  }
+
+  const cdn = trimmed.match(SC_CDN_IMAGE_RE);
+  if (cdn?.[1]) {
+    return cdn[1].replace(/^\/+/, "").replace(/^images\//, "");
+  }
+
+  if (SC_BARE_IMAGE_RE.test(trimmed)) return trimmed;
+
+  const path = trimmed.match(SC_IMAGE_PATH_RE);
+  if (path?.[1]) {
+    return path[1].replace(/^\/+/, "").replace(/^images\//, "");
+  }
+
+  return null;
+}
+
+function scImageProxyUrl(rel: string): string {
+  const clean = rel.replace(/^\/+/, "").replace(/^images\//, "");
+  if (isWebShell()) {
+    return normalizeWebAssetUrl(`/sc-image/${clean}`) ?? `/sc-image/${clean}`;
+  }
+  return `${TAURI_STREAM_ORIGIN}/sc-image/${clean}`;
+}
+
+function scImageServerFallbackUrl(rel: string): string {
+  const clean = rel.replace(/^\/+/, "").replace(/^images\//, "");
+  return `${scServerBase().replace(/\/$/, "")}/sc-image/${clean}`;
 }
 
 /** Riscrive URL asset localhost o API esterna verso l'origine web (proxy Vercel/dev). */
@@ -58,27 +102,20 @@ export function normalizeWebAssetUrl(
   return trimmed;
 }
 
-/** Same-origin proxy per immagini SC in dev/web (evita CORS nel browser). */
+/**
+ * Proxy immagini SC: web → same-origin /sc-image; desktop → stream locale :17890.
+ * Evita hotlink/CORS e i blocchi browser/ISP sul dominio CDN.
+ */
 export function proxifyCdnImageUrl(
   url: string | undefined,
 ): string | undefined {
   if (!url?.trim()) return url;
 
   const trimmed = url.trim();
+  const scRel = extractScImageRel(trimmed);
+  if (scRel) return scImageProxyUrl(scRel);
 
   if (!isWebShell()) return trimmed;
-
-  if (trimmed.startsWith("/sc-image/")) return normalizeWebAssetUrl(trimmed);
-
-  const match = trimmed.match(SC_CDN_IMAGE_RE);
-  if (match) {
-    const rel = match[1].replace(/^\/+/, "");
-    return normalizeWebAssetUrl(`/sc-image/${rel}`);
-  }
-
-  if (SC_BARE_IMAGE_RE.test(trimmed)) {
-    return normalizeWebAssetUrl(`/sc-image/${trimmed}`);
-  }
 
   const saturn = trimmed.match(SATURN_CDN_IMAGE_RE);
   if (saturn) {
@@ -129,6 +166,14 @@ export function posterUrlFallbacks(
   }
 
   const trimmed = url.trim();
+  const scRel = extractScImageRel(trimmed);
+  if (scRel) {
+    // Se il proxy locale/Vercel fallisce (IP bloccato), prova Railway.
+    push(scImageServerFallbackUrl(scRel));
+    // Ultimo tentativo: CDN diretto (desktop senza stream server).
+    push(`https://cdn.streamingcommunityz.tech/images/${scRel}`);
+  }
+
   const saturn = trimmed.match(SATURN_CDN_IMAGE_RE);
   if (saturn) {
     push(normalizeWebAssetUrl(`/saturn-poster/${saturn[1].replace(/^\/+/, "")}`));

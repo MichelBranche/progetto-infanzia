@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -20,6 +27,7 @@ import {
 import { EpisodeThumbnail } from "./EpisodeThumbnail";
 import { LordFlixTrailerCard } from "./LordFlixTrailerCard";
 import { SparkleActionButton } from "./SparkleActionButton";
+import { usePrefetchIntent } from "../hooks/usePrefetchIntent";
 import { fetchCastPhotos } from "../lib/castPhotos";
 
 export interface TitleDetailPageProps {
@@ -28,6 +36,8 @@ export interface TitleDetailPageProps {
   error?: string | null;
   onBack: () => void;
   onPlay: (episodeId: string, episodeTitle: string) => void;
+  /** Risolve lo stream in anticipo quando l'utente punta il tasto Play. */
+  onPrefetchPlay?: (episodeId: string) => void;
   onPlayPreview?: () => void;
   previewLoading?: boolean;
   extraHeroActions?: ReactNode;
@@ -374,6 +384,7 @@ function useSeasonSelection(
 function EpisodeList({
   loading,
   onPlay,
+  onPrefetchPlay,
   renderEpisodeExtra,
   seasons,
   activeSeason,
@@ -386,6 +397,7 @@ function EpisodeList({
 }: {
   loading: boolean;
   onPlay: (episodeId: string, episodeTitle: string) => void;
+  onPrefetchPlay?: (episodeId: string) => void;
   renderEpisodeExtra?: (episode: TitleDetailEpisode) => ReactNode;
   seasons: number[];
   activeSeason: number;
@@ -398,6 +410,35 @@ function EpisodeList({
   seasonLoading?: boolean;
   seasonLoadError?: string | null;
 }) {
+  const prefetchTimerRef = useRef<number | null>(null);
+  const prefetchedRef = useRef(new Set<string>());
+
+  const disarmPrefetch = () => {
+    if (prefetchTimerRef.current !== null) {
+      window.clearTimeout(prefetchTimerRef.current);
+      prefetchTimerRef.current = null;
+    }
+  };
+
+  const runPrefetch = (episodeId: string) => {
+    if (!onPrefetchPlay || prefetchedRef.current.has(episodeId)) return;
+    prefetchedRef.current.add(episodeId);
+    onPrefetchPlay(episodeId);
+  };
+
+  // Solo un hover fermo conta come intenzione: scorrere la lista non deve
+  // far partire una risoluzione per ogni episodio sfiorato.
+  const armPrefetch = (episodeId: string) => {
+    if (!onPrefetchPlay || prefetchedRef.current.has(episodeId)) return;
+    disarmPrefetch();
+    prefetchTimerRef.current = window.setTimeout(
+      () => runPrefetch(episodeId),
+      220,
+    );
+  };
+
+  useEffect(() => disarmPrefetch, []);
+
   return (
     <div>
       {showSeasonPicker && (
@@ -439,6 +480,10 @@ function EpisodeList({
                 type="button"
                 disabled={loading}
                 onClick={() => onPlay(episode.id, episode.title)}
+                onPointerEnter={() => armPrefetch(episode.id)}
+                onPointerLeave={disarmPrefetch}
+                onPointerDown={() => runPrefetch(episode.id)}
+                onFocus={() => runPrefetch(episode.id)}
                 className="lf-title-detail__episode-thumb"
               >
                 <EpisodeThumbnail
@@ -498,6 +543,7 @@ export function TitleDetailPage({
   error,
   onBack,
   onPlay,
+  onPrefetchPlay,
   onPlayPreview,
   previewLoading = false,
   extraHeroActions,
@@ -549,6 +595,12 @@ export function TitleDetailPage({
     onPlay(primaryEpisodeId, episodeTitle);
   };
 
+  const primaryPlayIntent = usePrefetchIntent(
+    onPrefetchPlay && primaryEpisodeId
+      ? () => onPrefetchPlay(primaryEpisodeId)
+      : undefined,
+  );
+
   return (
     <div className="lf-title-detail min-h-full bg-void pb-20">
       <section className="lf-title-detail__hero relative w-full overflow-hidden">
@@ -563,14 +615,17 @@ export function TitleDetailPage({
         )}
         <div className="lf-title-detail__hero-scrim" aria-hidden />
 
-        <button
+        <motion.button
           type="button"
           onClick={onBack}
           className="lf-title-detail__back"
           aria-label="Indietro"
+          whileTap={{ scale: 0.9 }}
+          whileHover={{ scale: 1.07 }}
+          transition={{ type: "spring", stiffness: 520, damping: 28 }}
         >
           <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
-        </button>
+        </motion.button>
 
         <div className="lf-title-detail__hero-inner page-px">
           <div className="lf-title-detail__hero-grid">
@@ -596,6 +651,7 @@ export function TitleDetailPage({
                   type="button"
                   disabled={loading || !primaryEpisodeId}
                   onClick={playPrimary}
+                  {...primaryPlayIntent}
                   className="lf-title-detail__play-btn"
                 >
                   {loading ? (
@@ -737,6 +793,7 @@ export function TitleDetailPage({
             <EpisodeList
               loading={loading}
               onPlay={onPlay}
+              onPrefetchPlay={onPrefetchPlay}
               renderEpisodeExtra={renderEpisodeExtra}
               seasons={seasons}
               activeSeason={activeSeason}
