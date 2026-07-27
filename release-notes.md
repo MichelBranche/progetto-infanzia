@@ -1,19 +1,26 @@
-# Branchefy v0.2.24
+# Branchefy v0.2.25
 
-## Hotfix robusto player
+## Hotfix definitivo player (`keyLoadError · HTTP 404`)
 
-Causa dello schermo nero (0.2.22–0.2.23): nel **master** HLS le righe nude (varianti qualità) venivano trattate come segmenti opachi. Il player riceveva playlist grezze → chiavi relative e segmenti senza Referer → buffering infinito / nero.
+### Causa dimostrata (probe live su Railway 0.2.23)
 
-### Cosa cambia
+La media playlist veniva **servita grezza** (varianti master registrate opache). Dentro c’era:
 
-- **Master vs media**: le varianti del master restano playlist riscrivibili; solo i segmenti della media sono opachi
-- **Sniff del body**: se arriva `#EXTM3U` si riscrive sempre; se è una chiave AES (16 byte) non si tocca un byte — rete di sicurezza contro le classificazioni sbagliate
-- **ID corti** di nuovo (niente ticket lunghi nelle playlist: in 0.2.23 gonfiavano ogni URL segmento)
-- **Niente più schermo nero silenzioso**: overlay di errore con messaggio diagnostico + pulsante **Riprova** (rigenera lo stream)
-- Auto-retry se gli URL `/remote/…` non esistono più (riavvio app / redeploy)
+```text
+#EXT-X-KEY:METHOD=AES-128,URI="/storage/enc.key"
+```
+
+hls.js risolverà quella URI sull’origin del proxy → `…/storage/enc.key` → **404**. Non è un token scaduto: è la chiave relativa non proxata.
+
+### Fix
+
+- Varianti del master sempre riscrivibili (già in 0.2.24)
+- Sniff obbligatorio se l’URL upstream è una playlist (`type=video` / `/playlist/`), anche se registrata opaca
+- `/health` espone `version` per verificare il deploy Railway
+- Test di regressione sul caso `/storage/enc.key`
+
+Dopo il deploy: hard refresh, Riprova. `/health` deve rispondere `"version":"0.2.25"`.
 
 ## Piattaforme
 
-- **Windows**: installer `.exe` con aggiornamento automatico in-app
-- **macOS**: `.dmg` universale — tasto destro → Apri alla prima apertura
-- **Web**: Vercel da `main` + Railway
+- Windows / macOS / Web come di consueto

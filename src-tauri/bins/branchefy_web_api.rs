@@ -74,7 +74,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn health() -> impl IntoResponse {
-    (StatusCode::OK, Json(json!({ "ok": true, "service": "branchefy-web-api" })))
+    (
+        StatusCode::OK,
+        Json(json!({
+            "ok": true,
+            "service": "branchefy-web-api",
+            "version": env!("CARGO_PKG_VERSION"),
+        })),
+    )
 }
 
 async fn invoke(

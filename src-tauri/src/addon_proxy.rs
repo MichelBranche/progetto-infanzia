@@ -243,14 +243,22 @@ pub fn should_sniff_manifest(entry: &ProxyEntry, content_type: Option<&str>) -> 
     if entry.rewrite_manifest {
         return true;
     }
+    // Varianti master registrate per sbaglio come opache (0.2.22–0.2.23)
+    // avevano `type=video` / `/playlist/` nell'URL: senza sniff la media
+    // restava grezza e la chiave relativa `/storage/enc.key` finiva in 404.
     if is_hls_playlist_url(&entry.upstream_url) {
         return true;
     }
     match content_type {
         Some(ct) => {
             let lower = ct.to_ascii_lowercase();
-            lower.contains("mpegurl") || lower.contains("m3u")
+            lower.contains("mpegurl")
+                || lower.contains("m3u8")
+                || lower.contains("m3u")
+                || lower.contains("text/plain")
         }
+        // Senza Content-Type non rischiamo di bufferizzare i .ts:
+        // i segmenti hanno quasi sempre un tipo media esplicito.
         None => false,
     }
 }
@@ -511,5 +519,21 @@ https://cdn.example/seg/001.ts"#;
             created_at: Instant::now(),
         };
         assert!(!should_sniff_manifest(&key, Some("application/octet-stream")));
+
+        // Esatto bug live 0.2.23: variante video registrata opaca (`r:false` nel
+        // ticket). Senza sniff la media playlist restava grezza.
+        let misclassified = ProxyEntry {
+            upstream_url: "https://vixcloud.cc/playlist/775090?type=video&rendition=720p"
+                .into(),
+            request_headers: HashMap::new(),
+            rewrite_manifest: false,
+            use_proxy: false,
+            created_at: Instant::now(),
+        };
+        assert!(
+            should_sniff_manifest(&misclassified, Some("application/vnd.apple.mpegurl")),
+            "variante video opaca deve essere sniffata e riscritta"
+        );
+        assert!(should_sniff_manifest(&misclassified, None));
     }
 }
