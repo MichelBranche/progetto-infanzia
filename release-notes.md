@@ -1,12 +1,11 @@
-# Branchefy v0.2.17
+# Branchefy v0.2.18
 
 ## Novità
 
-- **Top 10 Home (Area Dev)**: sorgente configurabile — Streaming Community, più visti Branchefy, o selezione manuale condivisa
-- **Messaggi admin**: popup a tutti gli utenti a nome di Amministrazione Branchefy
-- **Scherzi admin**: jumpscare video, finto ban, shake, invert, e *You are an idiot* (sull’app desktop apre più finestre sincronizzate)
-- **Aurora homepage**: i colori del background liquid seguono la hero solo in home; nel resto dell’app resta il tema scelto dall’utente
-- **Area Dev**: overview live, metriche web/Vercel, console restyling
+- **Streaming Community auto-discovery**: l’app trova da sola il mirror attivo (lista Branchefy online + community + redirect), senza dover rilasciare ogni volta che SC cambia dominio
+- **Lista mirror aggiornabile**: `sc-mirrors.json` su `branchefy.it` / GitHub — aggiornabile con un push, senza nuova build desktop
+- **Fallback server per tutti**: se SC non risponde dall’IP di casa, i comandi SC ripiegano automaticamente sul server Railway (come la web app)
+- **Più mirror hardcoded** di emergenza (`.gives`, `.buzz`, `.space`, `.ceo`, `.lat`, `.ltd`, …)
 
 ## Piattaforme
 

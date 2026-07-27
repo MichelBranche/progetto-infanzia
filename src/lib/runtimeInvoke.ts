@@ -1,5 +1,10 @@
 import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
-import { scServerBase, shouldRouteScToServer } from "./scServerFallback";
+import {
+  SC_COMMANDS,
+  isScUnreachableError,
+  scServerBase,
+  shouldForceScToServer,
+} from "./scServerFallback";
 
 export type RuntimeInvokeArgs = Record<string, unknown>;
 
@@ -139,11 +144,25 @@ export async function runtimeInvoke<T>(
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
   if (isTauri()) {
-    // Account autorizzato con IP bloccato: i soli comandi SC passano dal server.
-    if (shouldRouteScToServer(command)) {
+    // Account noti con IP bloccato: SC sempre via server.
+    if (shouldForceScToServer(command)) {
       return postInvoke<T>(scServerBase(), command, args, timeoutMs);
     }
-    return tauriInvoke<T>(command, args);
+
+    try {
+      return await tauriInvoke<T>(command, args);
+    } catch (error) {
+      // Altri utenti: se SC non risponde dall'IP di casa, ripiega sul server
+      // (stesso percorso della web app). Catalogo/seed locale restano ok.
+      if (SC_COMMANDS.has(command) && isScUnreachableError(error)) {
+        try {
+          return await postInvoke<T>(scServerBase(), command, args, timeoutMs);
+        } catch {
+          throw error;
+        }
+      }
+      throw error;
+    }
   }
 
   return postInvoke<T>(webApiBase(), command, args, timeoutMs);

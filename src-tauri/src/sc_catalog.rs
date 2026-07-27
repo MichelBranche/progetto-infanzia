@@ -20,7 +20,35 @@ const DEFAULT_APP_URL: &str = "https://streamingcommunityz.tech";
 const DEFAULT_CDN_URL: &str = "https://cdn.streamingcommunityz.tech";
 const DEFAULT_LANG: &str = "it";
 const META_SC_RESOLVED_APP: &str = "sc_resolved_app_url";
-const FALLBACK_APP_URLS: &[&str] = &["https://streamingunity.dog"];
+const META_SC_REMOTE_MIRRORS: &str = "sc_remote_mirrors_json";
+const META_SC_REMOTE_MIRRORS_TS: &str = "sc_remote_mirrors_ts";
+/// Cache lista remota ~6h: si aggiorna senza nuova release Tauri.
+const REMOTE_MIRRORS_TTL_SECS: i64 = 6 * 3600;
+/// Mirror hardcoded di emergenza (ISP italiani ne bloccano spesso uno sì e uno no).
+/// L'ordine conta poco: `discover_app_url` / `fetch_sliders_for_db` li provano tutti.
+const FALLBACK_APP_URLS: &[&str] = &[
+    "https://streamingunity.dog",
+    "https://streamingunity.buzz",
+    "https://streamingcommunityz.gives",
+    "https://streamingcommunityz.buzz",
+    "https://streamingcommunityz.space",
+    "https://streamingcommunityz.ceo",
+    "https://streamingcommunityz.community",
+    "https://streamingcommunityz.lat",
+    "https://streamingcommunityz.ltd",
+    "https://streamingcommunityz.pizza",
+];
+/// Liste aggiornate a runtime (push su main / community) senza rilasciare l'app.
+const REMOTE_MIRROR_SOURCES: &[&str] = &[
+    // Lista ufficiale Branchefy (aggiornabile con un commit, senza release desktop).
+    "https://branchefy.it/sc-mirrors.json",
+    "https://raw.githubusercontent.com/MichelBranche/progetto-infanzia/main/public/sc-mirrors.json",
+    "https://cdn.jsdelivr.net/gh/MichelBranche/progetto-infanzia@main/public/sc-mirrors.json",
+    // Liste community (formato domains.json StreamingCommunity / VibraVid).
+    "https://cdn.jsdelivr.net/gh/sana888999/GinxStream@main/Test/Downloads/Conf/domains.json",
+    "https://cdn.jsdelivr.net/gh/TopEnt3r/MultiDownloader@main/Downloader/StreamingCommunity/StreamingCommunity-main/.github/.domain/domains.json",
+    "https://cdn.jsdelivr.net/gh/falcosan/StreamVault@main/assets/domains.json",
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -432,13 +460,198 @@ fn fetch_sliders_from_base(
     Ok(rows)
 }
 
+fn normalize_origin_url(value: &str) -> Option<String> {
+    let trimmed = value.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    let with_scheme = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        trimmed.to_string()
+    } else {
+        format!("https://{trimmed}")
+    };
+    let Ok(parsed) = reqwest::Url::parse(&with_scheme) else {
+        return None;
+    };
+    let host = parsed.host_str()?.to_lowercase();
+    if host.is_empty() {
+        return None;
+    }
+    let scheme = if parsed.scheme() == "http" {
+        "http"
+    } else {
+        "https"
+    };
+    Some(format!("{scheme}://{host}"))
+}
+
+fn infer_cdn_from_app(app_base: &str) -> Option<String> {
+    let origin = normalize_origin_url(app_base)?;
+    let Ok(parsed) = reqwest::Url::parse(&origin) else {
+        return None;
+    };
+    let host = parsed.host_str()?.to_lowercase();
+    if host.starts_with("cdn.") {
+        return Some(origin);
+    }
+    Some(format!("{}://cdn.{}", parsed.scheme(), host))
+}
+
+fn remember_resolved_app(db: &Database, app_base: &str) {
+    let _ = db.set_meta(META_SC_RESOLVED_APP, app_base);
+}
+
+fn now_unix_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn extract_sc_urls_from_remote_json(value: &serde_json::Value) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    let mut push = |raw: &str| {
+        if let Some(url) = normalize_origin_url(raw) {
+            let host = reqwest::Url::parse(&url)
+                .ok()
+                .and_then(|u| u.host_str().map(|h| h.to_lowercase()))
+                .unwrap_or_default();
+            if host.starts_with("cdn.") {
+                return;
+            }
+            let looks_sc = host.contains("streamingcommunity")
+                || host.contains("streamingunity")
+                || host.contains("streaming-community");
+            if looks_sc && seen.insert(url.clone()) {
+                out.push(url);
+            }
+        }
+    };
+
+    // Formato Branchefy: { "appUrls": ["https://..."] }
+    if let Some(arr) = value.get("appUrls").and_then(|v| v.as_array()) {
+        for item in arr {
+            if let Some(s) = item.as_str() {
+                push(s);
+            }
+        }
+    }
+
+    // Formato community domains.json: { "streamingcommunity": { "full_url": "..." }, ... }
+    if let Some(map) = value.as_object() {
+        for (key, entry) in map {
+            let key_l = key.to_lowercase();
+            if !(key_l.contains("streamingcommunity") || key_l.contains("streamingunity")) {
+                continue;
+            }
+            if let Some(full) = entry.get("full_url").and_then(|v| v.as_str()) {
+                push(full);
+            } else if let Some(s) = entry.as_str() {
+                push(s);
+            }
+        }
+    }
+
+    out
+}
+
+fn fetch_remote_mirror_lists(client: &Client) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    let Ok(quick) = http_client_with_timeout(8) else {
+        return out;
+    };
+
+    for source in REMOTE_MIRROR_SOURCES {
+        let Ok(resp) = quick
+            .get(*source)
+            .header("Accept", "application/json,text/plain,*/*")
+            .send()
+        else {
+            continue;
+        };
+        if !resp.status().is_success() {
+            continue;
+        }
+        let Ok(text) = resp.text() else {
+            continue;
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        for url in extract_sc_urls_from_remote_json(&json) {
+            if seen.insert(url.clone()) {
+                out.push(url);
+            }
+        }
+    }
+
+    // Insegui i redirect dai seed noti: quando SC cambia dominio, i vecchi
+    // mirror spesso reindirizzano al nuovo — stesso trucco dei client community.
+    let seeds: Vec<String> = std::iter::once(DEFAULT_APP_URL.to_string())
+        .chain(FALLBACK_APP_URLS.iter().map(|s| (*s).to_string()))
+        .chain(out.iter().cloned())
+        .collect();
+    for seed in seeds {
+        let Ok(resp) = client
+            .get(format!("{}/", seed.trim_end_matches('/')))
+            .header("Accept", "text/html,application/xhtml+xml")
+            .send()
+        else {
+            continue;
+        };
+        if let Some(final_url) = normalize_origin_url(resp.url().as_str()) {
+            let host = reqwest::Url::parse(&final_url)
+                .ok()
+                .and_then(|u| u.host_str().map(|h| h.to_lowercase()))
+                .unwrap_or_default();
+            if host.starts_with("cdn.") {
+                continue;
+            }
+            if seen.insert(final_url.clone()) {
+                out.push(final_url);
+            }
+        }
+    }
+
+    out
+}
+
+fn cached_or_fetch_remote_mirrors(db: &Database, client: &Client) -> Vec<String> {
+    let now = now_unix_secs();
+    if let Ok(Some(ts_raw)) = db.get_meta(META_SC_REMOTE_MIRRORS_TS) {
+        if let Ok(ts) = ts_raw.parse::<i64>() {
+            if now.saturating_sub(ts) < REMOTE_MIRRORS_TTL_SECS {
+                if let Ok(Some(cached)) = db.get_meta(META_SC_REMOTE_MIRRORS) {
+                    if let Ok(list) = serde_json::from_str::<Vec<String>>(&cached) {
+                        if !list.is_empty() {
+                            return list;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let fresh = fetch_remote_mirror_lists(client);
+    if !fresh.is_empty() {
+        if let Ok(json) = serde_json::to_string(&fresh) {
+            let _ = db.set_meta(META_SC_REMOTE_MIRRORS, &json);
+            let _ = db.set_meta(META_SC_REMOTE_MIRRORS_TS, &now.to_string());
+        }
+    }
+    fresh
+}
+
 fn app_url_candidates(db: &Database) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     let mut push = |value: &str| {
-        let url = value.trim().trim_end_matches('/').to_string();
-        if !url.is_empty() && seen.insert(url.clone()) {
-            out.push(url);
+        if let Some(url) = normalize_origin_url(value) {
+            if seen.insert(url.clone()) {
+                out.push(url);
+            }
         }
     };
 
@@ -447,6 +660,13 @@ fn app_url_candidates(db: &Database) -> Vec<String> {
     }
     if let Ok(Some(custom)) = db.get_meta("sc_app_url") {
         push(&custom);
+    }
+    if let Ok(Some(cached)) = db.get_meta(META_SC_REMOTE_MIRRORS) {
+        if let Ok(list) = serde_json::from_str::<Vec<String>>(&cached) {
+            for url in list {
+                push(&url);
+            }
+        }
     }
     push(DEFAULT_APP_URL);
     for fallback in FALLBACK_APP_URLS {
@@ -478,14 +698,29 @@ fn probe_app_reachable(client: &Client, app_base: &str, locale: &str) -> bool {
 
 pub fn discover_app_url(db: &Database) -> Result<String, String> {
     let client = http_client()?;
-    for base in app_url_candidates(db) {
+    // Aggiorna la lista remota (Branchefy + community + redirect) prima di sondare.
+    let remote = cached_or_fetch_remote_mirrors(db, &client);
+    let mut candidates = app_url_candidates(db);
+    let mut seen: HashSet<String> = candidates.iter().cloned().collect();
+    for url in remote {
+        if seen.insert(url.clone()) {
+            candidates.push(url);
+        }
+    }
+
+    for base in candidates {
         if probe_app_reachable(&client, &base, &lang(db)) {
-            let _ = db.set_meta(META_SC_RESOLVED_APP, &base);
+            remember_resolved_app(db, &base);
             return Ok(base);
         }
     }
     let _ = db.set_meta(META_SC_RESOLVED_APP, "");
-    Err("Nessun server catalogo Streaming Community raggiungibile".into())
+    Err(
+        "Nessun mirror Streaming Community raggiungibile dall'app. \
+Nel browser può funzionare un altro dominio: Branchefy prova i mirror noti, \
+li aggiorna online e, se serve, ripiega sul server. Aggiorna l'app o cambia DNS/VPN."
+            .into(),
+    )
 }
 
 pub fn resolve_app_url(db: &Database) -> Result<String, String> {
@@ -514,7 +749,7 @@ pub fn fetch_sliders_for_db(
     for base in app_url_candidates(db) {
         match fetch_sliders_from_base(&client, &base, cdn, locale) {
             Ok(rows) if !rows.is_empty() => {
-                let _ = db.set_meta(META_SC_RESOLVED_APP, &base);
+                remember_resolved_app(db, &base);
                 return Ok(rows);
             }
             Ok(_) => last_err = Some("Catalogo vuoto".into()),
@@ -2285,11 +2520,20 @@ pub fn app_url(db: &crate::db::Database) -> String {
 }
 
 pub fn cdn_url(db: &crate::db::Database) -> String {
-    db.get_meta("sc_cdn_url")
+    if let Some(cdn) = db
+        .get_meta("sc_cdn_url")
         .ok()
         .flatten()
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_CDN_URL.to_string())
+    {
+        return cdn.trim_end_matches('/').to_string();
+    }
+    if let Ok(Some(app)) = db.get_meta(META_SC_RESOLVED_APP) {
+        if let Some(cdn) = infer_cdn_from_app(&app) {
+            return cdn;
+        }
+    }
+    DEFAULT_CDN_URL.to_string()
 }
 
 pub fn lang(db: &crate::db::Database) -> String {

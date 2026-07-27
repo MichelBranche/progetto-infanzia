@@ -53,7 +53,7 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const syncInFlightRef = useRef<Promise<unknown> | null>(null);
 
-  // Abilita il fallback SC via server per l'account autorizzato (solo desktop).
+  // Abilita il fallback SC forzato via server per account allowlist (desktop).
   useEffect(() => {
     setScFallbackEmail(user?.email ?? null);
   }, [user?.email]);
