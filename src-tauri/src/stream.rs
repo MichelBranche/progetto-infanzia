@@ -730,24 +730,73 @@ async fn remote_proxy_response(
 
     let resp = req.send().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
 
-    if entry.rewrite_manifest {
-        if !resp.status().is_success() {
-            return Err(StatusCode::BAD_GATEWAY);
+    let upstream_content_type = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+
+    // Rete di sicurezza: decidiamo cosa fare guardando il **body**, non solo la
+    // classificazione fatta al momento della registrazione. Così una playlist
+    // registrata per sbaglio come opaca viene comunque riscritta (regressione
+    // 0.2.22) e una chiave AES registrata per sbaglio come playlist non viene
+    // corrotta (regressione 0.2.19–0.2.21).
+    let ranged = headers.contains_key(header::RANGE);
+    let sniff = !ranged
+        && resp.status().is_success()
+        && crate::addon_proxy::should_sniff_manifest(&entry, upstream_content_type.as_deref());
+
+    if sniff {
+        let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        let body = resp.bytes().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
+
+        if crate::addon_proxy::looks_like_hls_manifest(&body) {
+            let text = String::from_utf8_lossy(&body);
+            let rewritten = state.addon_proxy.rewrite_hls_manifest(
+                &text,
+                &entry.upstream_url,
+                &entry.request_headers,
+                entry.use_proxy,
+            );
+            let rewritten = rewrite_localhost_stream_urls(&rewritten);
+            let mut builder = Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")
+                .header(header::CACHE_CONTROL, "no-cache")
+                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+            if head_only {
+                builder = builder.header(header::CONTENT_LENGTH, rewritten.len());
+                return builder
+                    .body(Body::empty())
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+            }
+            return builder
+                .body(Body::from(rewritten))
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
         }
-        let body = resp.text().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
-        let rewritten = state.addon_proxy.rewrite_hls_manifest(
-            &body,
-            &entry.upstream_url,
-            &entry.request_headers,
-            entry.use_proxy,
-        );
-        let rewritten = rewrite_localhost_stream_urls(&rewritten);
-        return Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")
+
+        // Non è una playlist (tipicamente la chiave AES da 16 byte): passa
+        // intatta, senza toccare un solo byte.
+        let mut builder = Response::builder()
+            .status(status)
             .header(header::CACHE_CONTROL, "no-cache")
-            .body(Body::from(rewritten))
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+            .header(header::CONTENT_LENGTH, body.len());
+        if let Some(ct) = upstream_content_type.as_deref() {
+            builder = builder.header(header::CONTENT_TYPE, ct);
+        }
+        if head_only {
+            return builder
+                .body(Body::empty())
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+        }
+        return builder
+            .body(Body::from(body))
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    if entry.rewrite_manifest && !resp.status().is_success() {
+        return Err(StatusCode::BAD_GATEWAY);
     }
 
     let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);

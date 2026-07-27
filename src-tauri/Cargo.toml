@@ -1,6 +1,6 @@
 [package]
 name = "tauri-app"
-version = "0.2.23"
+version = "0.2.24"
 description = "Branchefy - streaming locale per famiglia"
 authors = ["miche"]
 edition = "2021"
@@ -54,7 +54,6 @@ tokio-util = { version = "0.7", features = ["io"] }
 librqbit = "8"
 parking_lot = "0.12"
 base64 = "0.22"
-sha2 = "0.10"
 tauri-plugin-process = "2"
 tauri-plugin-notification = "2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }

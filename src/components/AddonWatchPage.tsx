@@ -736,6 +736,9 @@ export function AddonWatchPage({
             isSc ? handleStreamAudioLanguage : undefined
           }
           onReady={() => setLaunching(null)}
+          onRetryStream={() => {
+            void startPlayback(playback.videoId, playback.videoTitle);
+          }}
           onBack={() => {
             if (watchPartySession) {
               onWatchPartySessionChange?.(null);

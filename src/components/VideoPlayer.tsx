@@ -75,6 +75,34 @@ import {
 } from "../lib/playerAudioLanguage";
 import { normalizePlaybackUrl } from "../lib/streamUrl";
 
+/**
+ * Messaggio d'errore leggibile ma diagnosticabile: l'utente deve poterlo
+ * riferire e noi capire da dove arriva senza aprire la console.
+ */
+function describeHlsError(data: {
+  type?: string;
+  details?: string;
+  response?: { code?: number };
+}): string {
+  const status = data.response?.code;
+  const code = [data.details, status ? `HTTP ${status}` : null]
+    .filter(Boolean)
+    .join(" · ");
+  if (status === 403) {
+    return `Il server dei contenuti ha rifiutato la richiesta (${code}). Riprova: il link di streaming è probabilmente scaduto.`;
+  }
+  if (status === 404 || status === 410) {
+    return `Lo stream non è più disponibile (${code}). Premi Riprova per rigenerarlo.`;
+  }
+  if (data.type === "networkError") {
+    return `Errore di rete durante il caricamento del video (${code}). Controlla la connessione e riprova.`;
+  }
+  if (data.type === "mediaError") {
+    return `Il video non può essere decodificato da questo dispositivo (${code}).`;
+  }
+  return `Impossibile avviare lo stream${code ? ` (${code})` : ""}. Riprova tra qualche secondo.`;
+}
+
 interface VideoPlayerProps {
   streamUrl: string;
   media: MediaItem;
@@ -99,6 +127,12 @@ interface VideoPlayerProps {
   ) => void | Promise<void>;
   /** Primo frame / playback avviato: spegne la schermata di avvio del parent. */
   onReady?: () => void;
+  /**
+   * Ri-risolve lo stream da zero. Serve quando gli URL `/remote/...` non sono
+   * più validi (riavvio app desktop o redeploy del server): la registry del
+   * proxy è in memoria, quindi l'unico recupero è chiedere un nuovo URL.
+   */
+  onRetryStream?: () => void;
 }
 
 export interface VideoPlayerHandle {
@@ -180,6 +214,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       onWatchPartySessionChange,
       onStreamAudioLanguageChange,
       onReady,
+      onRetryStream,
     },
     ref,
   ) {
@@ -243,9 +278,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const [bootLoading, setBootLoading] = useState(true);
   /** Rebuffer a metà film: spinner piccolo, non la schermata di avvio. */
   const [buffering, setBuffering] = useState(false);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
   const bootDoneRef = useRef(false);
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
+  const onRetryStreamRef = useRef(onRetryStream);
+  onRetryStreamRef.current = onRetryStream;
   const [showCast, setShowCast] = useState(false);
   const [showPartyPanel, setShowPartyPanel] = useState(false);
   const [partySession, setPartySession] = useState<WatchPartySession | null>(
@@ -527,6 +565,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     }
   }, []);
 
+  const failPlayback = useCallback(
+    (message: string) => {
+      invalidateScStreamUrl(effectiveStreamUrl);
+      setPlaybackError(message);
+      setPlaying(false);
+      markBootDone();
+    },
+    [effectiveStreamUrl, markBootDone],
+  );
+
   useEffect(() => {
     autoplayCancelledRef.current = false;
     episodeNavTriggeredRef.current = false;
@@ -535,6 +583,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     bootDoneRef.current = false;
     setBootLoading(true);
     setBuffering(false);
+    setPlaybackError(null);
     setGuestBlocked(isGuest && guestAccessBlocked);
     setPlaying(!(isGuest && guestAccessBlocked));
     setCastDevice(null);
@@ -675,8 +724,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         const play = video.play();
         if (play && typeof play.catch === "function") {
           play.catch(() => {
-            // Dopo resolve async il gesto utente può essere scaduto: prova muted
-            // poi unmute, e in ogni caso togli la schermata di avvio.
             video.muted = true;
             void video
               .play()
@@ -686,7 +733,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               })
               .catch(() => {
                 setPlaying(false);
-                markBootDone();
+                // Non togliere il loading qui: aspetta `playing` o errore fatale.
               });
           });
         }
@@ -714,12 +761,26 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setSelectedQuality(data.level);
       });
       let recoveryAttempts = 0;
+      let reresolveDone = false;
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data.fatal) return;
 
-        // Prima di arrendersi: hls.js recupera la maggior parte degli errori
-        // di rete e di buffer senza far uscire l'utente dal player.
-        if (recoveryAttempts < 3) {
+        // La registry del proxy vive in memoria: dopo un riavvio dell'app o un
+        // redeploy del server gli URL `/remote/...` non esistono più. Nessun
+        // retry di rete può recuperarli, serve ri-risolvere lo stream.
+        const registryLost =
+          (data.response?.code === 404 || data.response?.code === 410) &&
+          typeof data.url === "string" &&
+          data.url.includes("/remote/");
+
+        if (registryLost && !reresolveDone && onRetryStreamRef.current) {
+          reresolveDone = true;
+          invalidateScStreamUrl(effectiveStreamUrl);
+          onRetryStreamRef.current();
+          return;
+        }
+
+        if (!registryLost && recoveryAttempts < 3) {
           recoveryAttempts += 1;
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
             hls.startLoad();
@@ -731,10 +792,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           }
         }
 
-        // Lo stream è davvero morto: la cache non deve riproporlo al retry.
-        invalidateScStreamUrl(effectiveStreamUrl);
-        markBootDone();
-        setPlaying(false);
+        failPlayback(describeHlsError(data));
       });
       hls.loadSource(effectiveStreamUrl);
       hls.attachMedia(video);
@@ -749,7 +807,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       video.removeAttribute("src");
       video.load();
     };
-  }, [effectiveStreamUrl, effectiveIsHls, castDevice, markBootDone]);
+  }, [effectiveStreamUrl, effectiveIsHls, castDevice, markBootDone, failPlayback]);
 
   const stopCast = useCallback(async () => {
     if (!castDevice) return;
@@ -1127,16 +1185,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     const onPlaying = () => {
       // Sempre spegni lo spinner: i seek di sync non devono lasciare il loading acceso.
+      setPlaybackError(null);
       markBootDone();
       if (applyingPartyRemoteRef.current || syncSeekInFlightRef.current) return;
       if (partySessionRef.current?.role === "host") {
         notifyPartySeekRef.current(video.currentTime, true);
       }
-    };
-
-    const onCanPlay = () => {
-      // Primo frame pronto: togli l'overlay anche se autoplay è bloccato.
-      markBootDone();
     };
 
     const onLoaded = () => {
@@ -1165,10 +1219,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         const shouldPlay = target?.playing ?? guestSession.room.playing;
         setPlaying(shouldPlay);
         if (shouldPlay) {
-          void video.play().catch(() => {
-            setPlaying(false);
-            markBootDone();
-          });
+          void video.play().catch(() => setPlaying(false));
         } else {
           video.pause();
           markBootDone();
@@ -1179,10 +1230,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         video.currentTime = resumeAt;
         setCurrentTime(resumeAt);
       }
-      void video.play().catch(() => {
-        setPlaying(false);
-        markBootDone();
-      });
+      void video.play().catch(() => setPlaying(false));
     };
 
     const onTimeUpdate = () => {
@@ -1244,32 +1292,52 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       if (bootDoneRef.current) setBuffering(true);
     };
 
+    // Sorgenti dirette (mp4, HLS nativo Safari): senza questo un errore
+    // dell'elemento <video> lascia soltanto uno schermo nero.
+    const onMediaError = () => {
+      const err = video.error;
+      if (!err) return;
+      const reason =
+        err.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+          ? "Formato video non supportato da questo dispositivo"
+          : err.code === MediaError.MEDIA_ERR_NETWORK
+            ? "Connessione interrotta durante il caricamento del video"
+            : err.code === MediaError.MEDIA_ERR_DECODE
+              ? "Il video non può essere decodificato"
+              : "Riproduzione interrotta";
+      failPlayback(`${reason} (codice ${err.code}).`);
+    };
+
     video.addEventListener("loadedmetadata", onLoaded);
-    video.addEventListener("canplay", onCanPlay);
     video.addEventListener("pause", onPause);
     video.addEventListener("playing", onPlaying);
     video.addEventListener("timeupdate", onTimeUpdate);
     video.addEventListener("ended", onEnded);
     video.addEventListener("waiting", onWaiting);
+    video.addEventListener("error", onMediaError);
 
-    // Safety: non lasciare l'animazione di avvio in loop infinito se HLS
-    // resta in retry di rete senza mai emettere canplay/playing.
+    // Se dopo 45s non c'è ancora il primo frame, non lasciare schermo nero:
+    // mostra errore e invalida la cache stream.
     const bootSafety = window.setTimeout(() => {
-      markBootDone();
-    }, 20_000);
+      if (!bootDoneRef.current) {
+        failPlayback(
+          "Il film non parte. Torna indietro e riprova tra qualche secondo.",
+        );
+      }
+    }, 45_000);
 
     return () => {
       window.clearTimeout(bootSafety);
       video.removeEventListener("loadedmetadata", onLoaded);
-      video.removeEventListener("canplay", onCanPlay);
       video.removeEventListener("pause", onPause);
       video.removeEventListener("playing", onPlaying);
       video.removeEventListener("timeupdate", onTimeUpdate);
       video.removeEventListener("ended", onEnded);
       video.removeEventListener("waiting", onWaiting);
+      video.removeEventListener("error", onMediaError);
       void saveProgress(video.currentTime, video.duration);
     };
-  }, [effectiveStreamUrl, resumeAt, saveProgress, nextEp, playNextEpisode, castDevice, onPlayEpisode, notify, markBootDone]);
+  }, [effectiveStreamUrl, resumeAt, saveProgress, nextEp, playNextEpisode, castDevice, onPlayEpisode, notify, markBootDone, failPlayback]);
 
   useEffect(() => {
     const flushOnHide = () => {
@@ -1616,7 +1684,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         </div>
       </motion.div>
 
-      {bootLoading && !castDevice && (
+      {bootLoading && !castDevice && !playbackError && (
         <PlayerLoadingScreen
           variant="inline"
           title={media.seriesTitle ?? media.title}
@@ -1626,7 +1694,41 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         />
       )}
 
-      {buffering && !bootLoading && !castDevice && (
+      {playbackError && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/85 px-6">
+          <div className="max-w-md text-center">
+            <p className="font-display text-xl font-semibold text-white">
+              Riproduzione non riuscita
+            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-white/75">
+              {playbackError}
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              {onRetryStream && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlaybackError(null);
+                    onRetryStream();
+                  }}
+                  className="rounded-full bg-white px-5 py-2.5 text-[13px] font-semibold text-black"
+                >
+                  Riprova
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleBack}
+                className="rounded-full border border-white/20 px-5 py-2.5 text-[13px] font-semibold text-white"
+              >
+                Torna indietro
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {buffering && !bootLoading && !castDevice && !playbackError && (
         <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
           <div className="rounded-full border border-white/15 bg-black/45 p-3 shadow-lg">
             <Loader2 className="h-7 w-7 animate-spin text-white/85" />

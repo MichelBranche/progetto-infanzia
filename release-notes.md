@@ -1,14 +1,19 @@
-# Branchefy v0.2.23
+# Branchefy v0.2.24
 
-## Hotfix critico player
+## Hotfix robusto player
 
-- **Proxy HLS stateless**: gli URL `/remote/…` sono ticket firmati, non ID solo in memoria. Dopo un redeploy Railway (o con più repliche) i film non restano più bloccati su 404 / buffering infinito
-- **Schermata di avvio**: si spegne su `canplay` (non solo su `playing`), con fallback autoplay muted e timeout di sicurezza
-- Cache stream SC più corta (90s) + timeout resolve 45s
-- Chiavi AES restano opache (fix 0.2.22)
+Causa dello schermo nero (0.2.22–0.2.23): nel **master** HLS le righe nude (varianti qualità) venivano trattate come segmenti opachi. Il player riceveva playlist grezze → chiavi relative e segmenti senza Referer → buffering infinito / nero.
+
+### Cosa cambia
+
+- **Master vs media**: le varianti del master restano playlist riscrivibili; solo i segmenti della media sono opachi
+- **Sniff del body**: se arriva `#EXTM3U` si riscrive sempre; se è una chiave AES (16 byte) non si tocca un byte — rete di sicurezza contro le classificazioni sbagliate
+- **ID corti** di nuovo (niente ticket lunghi nelle playlist: in 0.2.23 gonfiavano ogni URL segmento)
+- **Niente più schermo nero silenzioso**: overlay di errore con messaggio diagnostico + pulsante **Riprova** (rigenera lo stream)
+- Auto-retry se gli URL `/remote/…` non esistono più (riavvio app / redeploy)
 
 ## Piattaforme
 
 - **Windows**: installer `.exe` con aggiornamento automatico in-app
-- **macOS**: `.dmg` universale (Intel + Apple Silicon) — tasto destro → Apri alla prima apertura
-- **Web app**: deploy automatico su Vercel da `main` + redeploy Railway obbligatorio
+- **macOS**: `.dmg` universale — tasto destro → Apri alla prima apertura
+- **Web**: Vercel da `main` + Railway
