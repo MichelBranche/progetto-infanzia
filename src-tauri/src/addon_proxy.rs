@@ -90,7 +90,10 @@ impl AddonProxyRegistry {
         // Sempre proxy locale: i CDN VixCloud/SC richiedono Referer/Origin
         // che il browser non può impostare su fetch diretti dei segmenti.
         // `use_proxy` controlla solo l'hop SOCKS/VPN al fetch dell'entry.
-        let rewrite = needs_local_proxy(&absolute);
+        // `rewrite_manifest` SOLO per playlist .m3u8 — mai per chiavi AES
+        // (binarie): altrimenti il body chiave viene riscritto come testo e
+        // la decrittazione HLS fallisce → buffering infinito.
+        let rewrite = is_hls_playlist_url(&absolute);
         let id = self.register(absolute, request_headers.clone(), rewrite, use_proxy);
         self.playback_url(&id)
     }
@@ -155,6 +158,7 @@ fn is_hls_playlist_url(url: &str) -> bool {
         || url.contains("type=video")
 }
 
+#[allow(dead_code)]
 fn is_hls_key_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
     lower.contains("ext-x-key")
@@ -162,12 +166,6 @@ fn is_hls_key_url(url: &str) -> bool {
         || lower.contains("type=key")
         || lower.ends_with(".key")
         || lower.contains(".key?")
-}
-
-/// Playlist e chiavi devono essere riscritte di nuovo quando vengono fetchate
-/// (contengono altri URI). I segmenti media restano opachi.
-fn needs_local_proxy(url: &str) -> bool {
-    is_hls_playlist_url(url) || is_hls_key_url(url)
 }
 
 fn resolve_url(base: Option<&url::Url>, reference: &str) -> String {
@@ -229,6 +227,28 @@ https://cdn.example/seg/002.m4s?token=s2"#;
         assert_eq!(rewritten.matches("/remote/").count(), 3, "{rewritten}");
         assert!(!rewritten.contains("cdn.example/seg/"), "{rewritten}");
         assert!(!rewritten.contains("vixcloud.co/key/"), "{rewritten}");
+
+        // La chiave è proxata ma NON come rewrite_manifest (body binario).
+        let key_id = rewritten
+            .lines()
+            .find_map(|line| {
+                let start = line.find("/remote/")?;
+                let rest = &line[start + "/remote/".len()..];
+                let end = rest
+                    .find(|c: char| !c.is_ascii_hexdigit())
+                    .unwrap_or(rest.len());
+                if line.contains("EXT-X-KEY") {
+                    Some(rest[..end].to_string())
+                } else {
+                    None
+                }
+            })
+            .expect("key remote id");
+        let key_entry = proxy.get(&key_id).expect("key entry");
+        assert!(
+            !key_entry.rewrite_manifest,
+            "AES keys must be proxied opaque, not rewritten as m3u8"
+        );
     }
 
     #[test]
