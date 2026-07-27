@@ -9,8 +9,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::time::Duration;
 
-/// vixcloud.co non risolve più in DNS; SC continua a restituire quel host negli embed.
-/// Il dominio attivo viene scoperto automaticamente da `vix_embed` all'avvio e in playback.
+/// SC espone `scws_url` (oggi `vixcloud.co`) e gli embed `/embed/{id}`.
+/// Host e mirror vengono scoperti/aggiornati da `vix_embed` e `sc_catalog`.
 
 pub fn fetch_title_meta(
     app: &str,
@@ -1093,7 +1093,7 @@ mod tests {
         let db = crate::db::Database::open(std::path::Path::new(":memory:")).expect("db");
         crate::vix_embed::bootstrap(&db);
         let stream = resolve_playback(
-            "https://streamingcommunityz.tech",
+            "https://streamingcommunityz.vin",
             "it",
             63783,
             "messaggi-per-isabelle",

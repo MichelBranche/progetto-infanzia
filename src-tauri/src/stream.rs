@@ -428,7 +428,7 @@ fn referer_for_image_url(url: &str) -> &'static str {
     } else if lower.contains("saturncdn.net") {
         "https://www.animesaturn.ac/"
     } else if lower.contains("streamingcommunity") || lower.contains("streamingunity") {
-        "https://streamingcommunityz.tech/"
+        "https://streamingcommunityz.vin/"
     } else if lower.contains("mangadex.org") {
         "https://mangadex.org/"
     } else if lower.contains("x-cdn-x.com") || lower.contains("welib.org") {

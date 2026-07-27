@@ -1,4 +1,4 @@
 {
-  "hosts": ["vixsrc.to"],
-  "legacy": ["vixcloud.co", "www.vixcloud.co"]
+  "hosts": ["vixcloud.co", "vixcloud.cc", "vixsrc.to", "vixsrc.co"],
+  "legacy": []
 }

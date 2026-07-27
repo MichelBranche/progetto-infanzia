@@ -6,7 +6,8 @@ use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 const META_VIX_EMBED_HOST: &str = "sc_vix_embed_host";
-const DEFAULT_VIX_HOST: &str = "vixsrc.to";
+/// SC (lug 2026) espone ancora `scws_url=https://vixcloud.co` e gli embed vivono lì.
+const DEFAULT_VIX_HOST: &str = "vixcloud.co";
 const REMOTE_CONFIG_URL: &str =
     "https://raw.githubusercontent.com/MichelBranche/progetto-infanzia/main/config/vix-embed-hosts.json";
 const REMOTE_REFRESH_INTERVAL: Duration = Duration::from_secs(6 * 3600);
@@ -14,12 +15,17 @@ const REMOTE_REFRESH_INTERVAL: Duration = Duration::from_secs(6 * 3600);
 /// Host noti incorporati nell'app: provati in automatico senza intervento dell'utente.
 const DEFAULT_FALLBACK_HOSTS: &[&str] = &[
     DEFAULT_VIX_HOST,
+    "vixcloud.cc",
+    "vixsrc.to",
     "vixsrc.co",
     "vixsrc.net",
     "vixsrc.xyz",
 ];
-const DEFAULT_LEGACY_HOSTS: &[&str] = &["vixcloud.co", "www.vixcloud.co"];
+/// Host davvero morti da riscrivere. Non includere `vixcloud.co`: SC lo usa ancora.
+const DEFAULT_LEGACY_HOSTS: &[&str] = &[];
 const HEURISTIC_VIX_HOSTS: &[&str] = &[
+    "vixcloud.co",
+    "vixcloud.cc",
     "vixsrc.to",
     "vixsrc.co",
     "vixsrc.net",
@@ -482,7 +488,7 @@ pub fn fetch_embed_html(
     db: &Database,
     html_hints: Option<&str>,
 ) -> Result<String, String> {
-    let referer_url = referer.unwrap_or("https://streamingcommunityz.tech/");
+    let referer_url = referer.unwrap_or("https://streamingcommunityz.vin/");
 
     if let Ok(html) = try_fetch_embed_html(client, embed_url, referer_url, db, html_hints) {
         return Ok(html);
@@ -532,24 +538,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rewrite_embed_url_replaces_legacy_host() {
+    fn rewrite_embed_url_keeps_active_vixcloud_host() {
         let db = crate::db::Database::open(std::path::Path::new(":memory:")).expect("db");
-        remember_working_host(&db, "vixsrc.to");
+        remember_working_host(&db, "vixcloud.cc");
         let raw = "https://vixcloud.co/embed/123?token=abc";
-        assert_eq!(
-            rewrite_embed_url(raw, &db),
-            "https://vixsrc.to/embed/123?token=abc"
-        );
+        assert_eq!(rewrite_embed_url(raw, &db), raw);
     }
 
     #[test]
     fn candidate_urls_include_fallback_hosts() {
         let db = crate::db::Database::open(std::path::Path::new(":memory:")).expect("db");
-        remember_working_host(&db, "vixsrc.to");
+        remember_working_host(&db, "vixcloud.co");
         let raw = "https://vixcloud.co/embed/9?token=abc";
         let candidates = candidate_embed_urls(raw, &db, None);
-        assert!(candidates.iter().any(|u| u.contains("vixsrc.to")));
         assert!(candidates.iter().any(|u| u.contains("vixcloud.co")));
+        assert!(candidates.iter().any(|u| u.contains("vixcloud.cc")));
     }
 
     #[test]
