@@ -162,7 +162,8 @@ function normalizeStream<T extends { url: string }>(stream: T): T {
  * Cache breve + dedupe delle richieste in volo: riaprire lo stesso episodio
  * (o cliccare Play dopo un prefetch su hover) parte istantaneo.
  */
-const SC_STREAM_TTL_MS = 8 * 60 * 1000;
+// Corto: gli URL /remote/ dopo un redeploy Railway non devono restare in cache.
+const SC_STREAM_TTL_MS = 90 * 1000;
 const scStreamCache = new Map<string, { at: number; stream: PlayableStream }>();
 const scStreamInFlight = new Map<string, Promise<PlayableStream>>();
 
@@ -202,12 +203,16 @@ export async function resolveScStream(
   if (inFlight) return inFlight;
 
   const request = (async () => {
-    const stream = await invoke<PlayableStream>("resolve_sc_stream_cmd", {
-      titleId: Number(titleId),
-      slug,
-      episodeId: episodeId ? Number(episodeId) : null,
-      audioLang: audioLang ?? null,
-    });
+    const stream = await invoke<PlayableStream>(
+      "resolve_sc_stream_cmd",
+      {
+        titleId: Number(titleId),
+        slug,
+        episodeId: episodeId ? Number(episodeId) : null,
+        audioLang: audioLang ?? null,
+      },
+      45_000,
+    );
     const normalized = normalizeStream(stream);
     scStreamCache.set(key, { at: Date.now(), stream: normalized });
     return normalized;

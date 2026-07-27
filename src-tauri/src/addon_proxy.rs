@@ -1,11 +1,13 @@
 use crate::network::stream_remote_url;
-use std::collections::hash_map::DefaultHasher;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const ENTRY_TTL: Duration = Duration::from_secs(4 * 3600);
+const TICKET_PREFIX: &str = "t1.";
 
 #[derive(Debug, Clone)]
 pub struct ProxyEntry {
@@ -16,6 +18,15 @@ pub struct ProxyEntry {
     /// Il rewrite HLS passa comunque sempre dal proxy locale (Referer/Origin).
     pub use_proxy: bool,
     pub created_at: Instant,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ProxyTicketV1 {
+    u: String,
+    h: Vec<(String, String)>,
+    r: bool,
+    p: bool,
+    e: u64,
 }
 
 pub struct AddonProxyRegistry {
@@ -43,16 +54,6 @@ impl AddonProxyRegistry {
         use_proxy: bool,
     ) -> String {
         self.cleanup_old();
-        let id = format!("{:016x}", {
-            let mut h = DefaultHasher::new();
-            upstream_url.hash(&mut h);
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-                .hash(&mut h);
-            h.finish()
-        });
         let entry = ProxyEntry {
             upstream_url,
             request_headers,
@@ -60,6 +61,9 @@ impl AddonProxyRegistry {
             use_proxy,
             created_at: Instant::now(),
         };
+        // Ticket firmato: qualsiasi replica Railway può servire /remote/…
+        // anche dopo un redeploy (niente più 404 su ID solo in-memory).
+        let id = encode_ticket(&entry);
         self.entries
             .lock()
             .expect("proxy registry lock")
@@ -68,11 +72,16 @@ impl AddonProxyRegistry {
     }
 
     pub fn get(&self, id: &str) -> Option<ProxyEntry> {
-        self.entries
+        if let Some(entry) = self
+            .entries
             .lock()
             .expect("proxy registry lock")
             .get(id)
             .cloned()
+        {
+            return Some(entry);
+        }
+        decode_ticket(id)
     }
 
     pub fn playback_url(&self, id: &str) -> String {
@@ -155,6 +164,72 @@ impl AddonProxyRegistry {
     }
 }
 
+fn proxy_signing_secret() -> Vec<u8> {
+    match std::env::var("BRANCHEFY_PROXY_SECRET") {
+        Ok(value) if !value.trim().is_empty() => value.into_bytes(),
+        _ => b"branchefy-proxy-v1".to_vec(),
+    }
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn encode_ticket(entry: &ProxyEntry) -> String {
+    let mut headers: Vec<(String, String)> = entry
+        .request_headers
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    headers.sort_by(|a, b| a.0.cmp(&b.0));
+    let ticket = ProxyTicketV1 {
+        u: entry.upstream_url.clone(),
+        h: headers,
+        r: entry.rewrite_manifest,
+        p: entry.use_proxy,
+        e: unix_now().saturating_add(ENTRY_TTL.as_secs()),
+    };
+    let payload = serde_json::to_vec(&ticket).unwrap_or_default();
+    let body = URL_SAFE_NO_PAD.encode(payload);
+    let mac = ticket_mac(body.as_bytes());
+    format!("{TICKET_PREFIX}{body}.{mac}")
+}
+
+fn decode_ticket(id: &str) -> Option<ProxyEntry> {
+    let raw = id.strip_prefix(TICKET_PREFIX)?;
+    let (body, mac) = raw.rsplit_once('.')?;
+    if body.is_empty() || mac.is_empty() {
+        return None;
+    }
+    if ticket_mac(body.as_bytes()) != mac {
+        return None;
+    }
+    let bytes = URL_SAFE_NO_PAD.decode(body.as_bytes()).ok()?;
+    let ticket: ProxyTicketV1 = serde_json::from_slice(&bytes).ok()?;
+    if ticket.e < unix_now() {
+        return None;
+    }
+    Some(ProxyEntry {
+        upstream_url: ticket.u,
+        request_headers: ticket.h.into_iter().collect(),
+        rewrite_manifest: ticket.r,
+        use_proxy: ticket.p,
+        created_at: Instant::now(),
+    })
+}
+
+fn ticket_mac(body: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(proxy_signing_secret());
+    hasher.update(b"|");
+    hasher.update(body);
+    let digest = hasher.finalize();
+    URL_SAFE_NO_PAD.encode(&digest[..16])
+}
+
 fn is_hls_playlist_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
     // type=key è una chiave AES (binaria), non una playlist — anche se
@@ -184,6 +259,16 @@ fn resolve_url(base: Option<&url::Url>, reference: &str) -> String {
 
 pub fn stream_needs_proxy(not_web_ready: bool, request_headers: &HashMap<String, String>) -> bool {
     not_web_ready || !request_headers.is_empty()
+}
+
+#[cfg(test)]
+fn remote_id_from_line(line: &str) -> Option<String> {
+    let start = line.find("/remote/")? + "/remote/".len();
+    let rest = &line[start..];
+    let end = rest
+        .find(|c: char| c == '"' || c.is_whitespace() || c == ',')
+        .unwrap_or(rest.len());
+    Some(rest[..end].to_string())
 }
 
 #[cfg(test)]
@@ -225,26 +310,14 @@ https://cdn.example/seg/002.m4s?token=s2"#;
             false,
         );
 
-        // Chiave + segmenti tutti via /remote/ (Referer applicato dal proxy).
         assert_eq!(rewritten.matches("/remote/").count(), 3, "{rewritten}");
         assert!(!rewritten.contains("cdn.example/seg/"), "{rewritten}");
         assert!(!rewritten.contains("vixcloud.co/key/"), "{rewritten}");
 
-        // La chiave è proxata ma NON come rewrite_manifest (body binario).
         let key_id = rewritten
             .lines()
-            .find_map(|line| {
-                let start = line.find("/remote/")?;
-                let rest = &line[start + "/remote/".len()..];
-                let end = rest
-                    .find(|c: char| !c.is_ascii_hexdigit())
-                    .unwrap_or(rest.len());
-                if line.contains("EXT-X-KEY") {
-                    Some(rest[..end].to_string())
-                } else {
-                    None
-                }
-            })
+            .find(|line| line.contains("EXT-X-KEY"))
+            .and_then(remote_id_from_line)
             .expect("key remote id");
         let key_entry = proxy.get(&key_id).expect("key entry");
         assert!(
@@ -257,7 +330,6 @@ https://cdn.example/seg/002.m4s?token=s2"#;
     fn vixcloud_playlist_path_keys_stay_opaque() {
         let proxy = AddonProxyRegistry::new();
         let headers = HashMap::new();
-        // VixCloud mette spesso le chiavi sotto /playlist/… — non sono m3u8.
         let media = r#"#EXTM3U
 #EXT-X-KEY:METHOD=AES-128,URI="https://vixcloud.co/playlist/abcd?type=key&token=k"
 #EXTINF:4.0,
@@ -271,17 +343,8 @@ https://cdn.example/seg/001.ts"#;
         );
         let key_id = rewritten
             .lines()
-            .find_map(|line| {
-                if !line.contains("EXT-X-KEY") {
-                    return None;
-                }
-                let start = line.find("/remote/")?;
-                let rest = &line[start + "/remote/".len()..];
-                let end = rest
-                    .find(|c: char| !c.is_ascii_hexdigit())
-                    .unwrap_or(rest.len());
-                Some(rest[..end].to_string())
-            })
+            .find(|line| line.contains("EXT-X-KEY"))
+            .and_then(remote_id_from_line)
             .expect("key id");
         let entry = proxy.get(&key_id).expect("key entry");
         assert!(!entry.rewrite_manifest);
@@ -305,5 +368,27 @@ https://cdn.example/seg/001.ts"#;
 
         assert!(!rewritten.contains("cdn.example"), "{rewritten}");
         assert!(rewritten.contains("/remote/"), "{rewritten}");
+    }
+
+    #[test]
+    fn ticket_survives_without_memory() {
+        let proxy = AddonProxyRegistry::new();
+        let headers = HashMap::from([("Referer".to_string(), "https://vixsrc.to/".to_string())]);
+        let id = proxy.register(
+            "https://cdn.example/seg/001.ts".into(),
+            headers.clone(),
+            false,
+            false,
+        );
+        assert!(id.starts_with(TICKET_PREFIX));
+        // Simula altra replica / processo fresco.
+        let cold = AddonProxyRegistry::new();
+        let entry = cold.get(&id).expect("decode ticket");
+        assert_eq!(entry.upstream_url, "https://cdn.example/seg/001.ts");
+        assert_eq!(
+            entry.request_headers.get("Referer").map(String::as_str),
+            Some("https://vixsrc.to/")
+        );
+        assert!(!entry.rewrite_manifest);
     }
 }

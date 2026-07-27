@@ -1,10 +1,11 @@
-# Branchefy v0.2.22
+# Branchefy v0.2.23
 
 ## Hotfix critico player
 
-- **Chiavi AES VixCloud**: spesso stanno sotto `/playlist/…?type=key` — in 0.2.21 venivano ancora trattate come m3u8 → chiave corrotta, caricamento infinito
-- Ora `#EXT-X-KEY` / `SESSION-KEY` / `MAP` e `type=key` sono sempre **opachi** (binari), anche se il path contiene `/playlist/`
-- Segmenti e playlist restano sul proxy locale
+- **Proxy HLS stateless**: gli URL `/remote/…` sono ticket firmati, non ID solo in memoria. Dopo un redeploy Railway (o con più repliche) i film non restano più bloccati su 404 / buffering infinito
+- **Schermata di avvio**: si spegne su `canplay` (non solo su `playing`), con fallback autoplay muted e timeout di sicurezza
+- Cache stream SC più corta (90s) + timeout resolve 45s
+- Chiavi AES restano opache (fix 0.2.22)
 
 ## Piattaforme
 

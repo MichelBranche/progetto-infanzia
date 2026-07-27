@@ -670,6 +670,28 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         }
       };
 
+      const tryPlay = () => {
+        video.muted = false;
+        const play = video.play();
+        if (play && typeof play.catch === "function") {
+          play.catch(() => {
+            // Dopo resolve async il gesto utente può essere scaduto: prova muted
+            // poi unmute, e in ogni caso togli la schermata di avvio.
+            video.muted = true;
+            void video
+              .play()
+              .then(() => {
+                video.muted = false;
+                setPlaying(true);
+              })
+              .catch(() => {
+                setPlaying(false);
+                markBootDone();
+              });
+          });
+        }
+      };
+
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         syncQualityOptions();
         syncSubtitleOptions();
@@ -677,7 +699,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         hls.subtitleDisplay = false;
         hls.subtitleTrack = -1;
         setSelectedSubtitle(-1);
-        video.play().catch(() => setPlaying(false));
+        tryPlay();
       });
       hls.on(Hls.Events.LEVELS_UPDATED, syncQualityOptions);
       hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, syncSubtitleOptions);
@@ -1112,6 +1134,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       }
     };
 
+    const onCanPlay = () => {
+      // Primo frame pronto: togli l'overlay anche se autoplay è bloccato.
+      markBootDone();
+    };
+
     const onLoaded = () => {
       setDuration(video.duration);
       const guestSession = partySessionRef.current;
@@ -1138,9 +1165,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         const shouldPlay = target?.playing ?? guestSession.room.playing;
         setPlaying(shouldPlay);
         if (shouldPlay) {
-          void video.play().catch(() => setPlaying(false));
+          void video.play().catch(() => {
+            setPlaying(false);
+            markBootDone();
+          });
         } else {
           video.pause();
+          markBootDone();
         }
         return;
       }
@@ -1148,7 +1179,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         video.currentTime = resumeAt;
         setCurrentTime(resumeAt);
       }
-      video.play().catch(() => setPlaying(false));
+      void video.play().catch(() => {
+        setPlaying(false);
+        markBootDone();
+      });
     };
 
     const onTimeUpdate = () => {
@@ -1211,14 +1245,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     };
 
     video.addEventListener("loadedmetadata", onLoaded);
+    video.addEventListener("canplay", onCanPlay);
     video.addEventListener("pause", onPause);
     video.addEventListener("playing", onPlaying);
     video.addEventListener("timeupdate", onTimeUpdate);
     video.addEventListener("ended", onEnded);
     video.addEventListener("waiting", onWaiting);
 
+    // Safety: non lasciare l'animazione di avvio in loop infinito se HLS
+    // resta in retry di rete senza mai emettere canplay/playing.
+    const bootSafety = window.setTimeout(() => {
+      markBootDone();
+    }, 20_000);
+
     return () => {
+      window.clearTimeout(bootSafety);
       video.removeEventListener("loadedmetadata", onLoaded);
+      video.removeEventListener("canplay", onCanPlay);
       video.removeEventListener("pause", onPause);
       video.removeEventListener("playing", onPlaying);
       video.removeEventListener("timeupdate", onTimeUpdate);
