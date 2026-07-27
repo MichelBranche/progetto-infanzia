@@ -1,5 +1,6 @@
 # Railway: deploy dell API Rust (non il frontend Vercel).
 # Dashboard → Settings → se vedi ancora l app su /health, imposta Builder = Dockerfile.
+# Force rebuild stamp: 2026-07-27-v0.2.25-key404
 
 [build]
 builder = "DOCKERFILE"
