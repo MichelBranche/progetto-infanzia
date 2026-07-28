@@ -9,7 +9,8 @@ export function isBuiltinStreamingCatalog(catalogPrefix?: string): boolean {
     catalogPrefix === "sc" ||
     catalogPrefix === "saturn" ||
     catalogPrefix === "loonex" ||
-    catalogPrefix === "youtube"
+    catalogPrefix === "youtube" ||
+    catalogPrefix === "raiplay"
   );
 }
 

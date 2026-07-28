@@ -3,7 +3,7 @@ import { browseItemMedia, browseItemTitle } from "./browse";
 import { isCartoniBrowseItem } from "./unifiedBrowse";
 import type { StremioMetaPreview } from "../types/stremio";
 
-export type CartoniGridFilter = "all" | "popular" | "local" | "streaming";
+export type CartoniGridFilter = "all" | "popular" | "local" | "streaming" | "raiplay";
 
 export interface CartoniCollection {
   label: string;
@@ -33,6 +33,7 @@ const COLLECTION_SKIP = new Set([
 export interface CartoniBrowseStats {
   total: number;
   loonex: number;
+  raiplay: number;
   streaming: number;
   local: number;
 }
@@ -40,15 +41,18 @@ export interface CartoniBrowseStats {
 export function cartoniBrowseStats(items: BrowseItem[]): CartoniBrowseStats {
   let loonex = 0;
   let youtube = 0;
+  let raiplay = 0;
   for (const item of items) {
     if (item.kind !== "streaming") continue;
     if (item.preview.catalogPrefix === "loonex") loonex += 1;
     if (item.preview.catalogPrefix === "youtube") youtube += 1;
+    if (item.preview.catalogPrefix === "raiplay") raiplay += 1;
   }
   return {
     total: items.length,
     loonex,
-    streaming: loonex + youtube,
+    raiplay,
+    streaming: loonex + youtube + raiplay,
     local: 0,
   };
 }
@@ -75,8 +79,14 @@ function isYoutube(
   return item.kind === "streaming" && item.preview.catalogPrefix === "youtube";
 }
 
+function isRaiplay(
+  item: BrowseItem,
+): item is Extract<BrowseItem, { kind: "streaming" }> {
+  return item.kind === "streaming" && item.preview.catalogPrefix === "raiplay";
+}
+
 function isCatalogStreaming(item: BrowseItem): boolean {
-  return isLoonex(item) || isYoutube(item);
+  return isLoonex(item) || isYoutube(item) || isRaiplay(item);
 }
 
 function withResume(item: BrowseItem): boolean {
@@ -93,6 +103,7 @@ export function buildCartoniBrowseLayout(items: BrowseItem[]): CartoniBrowseLayo
 
   const loonex = streaming.filter(isLoonex);
   const youtube = streaming.filter(isYoutube);
+  const raiplay = streaming.filter(isRaiplay);
   const withPoster = cartoniItems.filter(hasPoster);
 
   const heroPosters = withPoster
@@ -101,6 +112,8 @@ export function buildCartoniBrowseLayout(items: BrowseItem[]): CartoniBrowseLayo
     .filter(Boolean);
 
   const communityPick =
+    raiplay.find((item) => item.preview.description?.trim()) ??
+    raiplay[0] ??
     loonex.find((item) => item.preview.description?.trim()) ??
     loonex[0] ??
     youtube[0] ??
@@ -108,10 +121,15 @@ export function buildCartoniBrowseLayout(items: BrowseItem[]): CartoniBrowseLayo
     cartoniItems[0] ??
     null;
 
-  const novita = (loonex.length > 0 ? loonex : youtube.length > 0 ? youtube : streaming).slice(
-    0,
-    14,
-  );
+  const novita = (
+    raiplay.length > 0
+      ? raiplay
+      : loonex.length > 0
+        ? loonex
+        : youtube.length > 0
+          ? youtube
+          : streaming
+  ).slice(0, 14);
 
   const popular = [...cartoniItems]
     .filter(withResume)
@@ -161,6 +179,8 @@ export function filterCartoniGrid(
       return cartoniItems.filter(
         (item) => item.kind === "streaming" && item.preview.catalogPrefix === "loonex",
       );
+    case "raiplay":
+      return cartoniItems.filter(isRaiplay);
     case "popular":
       return cartoniItems.filter(withResume).length > 0
         ? cartoniItems.filter(withResume)

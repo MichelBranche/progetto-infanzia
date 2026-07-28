@@ -331,6 +331,25 @@ export async function resolveYoutubeStream(
   });
 }
 
+export async function fetchRaiplayMeta(slug: string): Promise<StremioMeta> {
+  return invoke<StremioMeta>("fetch_raiplay_meta_cmd", { slug });
+}
+
+export async function fetchRaiplayOnAir(): Promise<StremioMetaPreview[]> {
+  return invoke<StremioMetaPreview[]>("fetch_raiplay_on_air_cmd", {});
+}
+
+export async function resolveRaiplayStream(
+  slug: string,
+  episodeId?: string,
+): Promise<PlayableStream> {
+  const stream = await invoke<PlayableStream>("resolve_raiplay_stream_cmd", {
+    slug,
+    episodeId: episodeId ?? null,
+  });
+  return normalizeStream(stream);
+}
+
 export async function saveStreamingWatchProgress(
   profileId: string,
   input: StreamingWatchProgressInput,

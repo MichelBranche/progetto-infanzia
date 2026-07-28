@@ -30,6 +30,7 @@ pub async fn init_web_state() -> Result<Arc<AppState>, String> {
         let _ = crate::saturn_catalog::ensure_defaults(&db);
         let _ = crate::loonex_catalog::ensure_defaults(&db);
         let _ = crate::youtube_catalog::ensure_defaults(&db);
+        let _ = crate::raiplay_catalog::ensure_defaults(&db);
         let _ = db.sync_empty_child_allowlists();
         let db_bootstrap = db.clone();
         crate::vix_embed::bootstrap(db_bootstrap.as_ref());
@@ -484,6 +485,58 @@ pub async fn dispatch_web_command(
             });
             ok(task.await.map_err(|e| format!("Errore youtube stream: {e}"))??)
         }
+        "fetch_raiplay_on_air_cmd" => {
+            if !crate::raiplay_catalog::enabled(&state.db) {
+                return ok(Vec::<crate::stremio::StremioMetaPreview>::new());
+            }
+            let db = state.db.clone();
+            let task = tokio::task::spawn_blocking(move || {
+                crate::raiplay_catalog::fetch_on_air_live(db.as_ref())
+            });
+            ok(task.await.map_err(|e| format!("Errore raiplay on air: {e}"))??)
+        }
+        "fetch_raiplay_meta_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                slug: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            if !crate::raiplay_catalog::enabled(&state.db) {
+                return Err("Catalogo RaiPlay disabilitato".into());
+            }
+            let db = state.db.clone();
+            let slug = parsed.slug;
+            let task = tokio::task::spawn_blocking(move || {
+                crate::raiplay_playback::fetch_title_meta(db.as_ref(), &slug)
+            });
+            ok(task.await.map_err(|e| format!("Errore raiplay meta: {e}"))??)
+        }
+        "resolve_raiplay_stream_cmd" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                slug: String,
+                #[serde(default)]
+                episode_id: Option<String>,
+            }
+            let parsed: Args = parse_args(args)?;
+            if !crate::raiplay_catalog::enabled(&state.db) {
+                return Err("Catalogo RaiPlay disabilitato".into());
+            }
+            let episode_id = parsed.episode_id.filter(|s| !s.trim().is_empty());
+            let db = state.db.clone();
+            let proxy = state.addon_proxy.clone();
+            let slug = parsed.slug;
+            let task = tokio::task::spawn_blocking(move || {
+                crate::raiplay_playback::resolve_playback(
+                    db.as_ref(),
+                    &slug,
+                    episode_id.as_deref(),
+                    proxy.as_ref(),
+                )
+            });
+            ok(task.await.map_err(|e| format!("Errore raiplay stream: {e}"))??)
+        }
         "update_streaming_watch_progress_cmd" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
@@ -782,7 +835,8 @@ async fn search_catalog_page_web(
     let saturn_enabled = crate::saturn_catalog::enabled(&state.db);
     let loonex_enabled = crate::loonex_catalog::enabled(&state.db);
     let youtube_enabled = crate::youtube_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled {
+    let raiplay_enabled = crate::raiplay_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled && !raiplay_enabled {
         return Ok(crate::catalog_search::SearchCatalogPage {
             items: Vec::new(),
             total: 0,
@@ -803,6 +857,7 @@ async fn search_catalog_page_web(
             saturn_enabled,
             loonex_enabled,
             youtube_enabled,
+            raiplay_enabled,
             &cdn,
             &locale,
         )
@@ -818,7 +873,8 @@ async fn fetch_sc_catalog_web(
     let saturn_enabled = crate::saturn_catalog::enabled(&state.db);
     let loonex_enabled = crate::loonex_catalog::enabled(&state.db);
     let youtube_enabled = crate::youtube_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled {
+    let raiplay_enabled = crate::raiplay_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled && !raiplay_enabled {
         return Ok(crate::sc_catalog::ScCatalogResponse {
             rows: Vec::new(),
             index: Vec::new(),
@@ -889,8 +945,26 @@ async fn fetch_sc_catalog_web(
         }
     };
 
-    let (sc_result, saturn, loonex, youtube) =
-        tokio::join!(sc_future, saturn_future, loonex_future, youtube_future);
+    let raiplay_future = async {
+        if !raiplay_enabled {
+            return None;
+        }
+        let db = db.clone();
+        let task =
+            tokio::task::spawn_blocking(move || crate::raiplay_catalog::fetch_catalog(db.as_ref()));
+        match tokio::time::timeout(std::time::Duration::from_secs(60), task).await {
+            Ok(Ok(Ok(response))) => Some(response),
+            _ => None,
+        }
+    };
+
+    let (sc_result, saturn, loonex, youtube, raiplay) = tokio::join!(
+        sc_future,
+        saturn_future,
+        loonex_future,
+        youtube_future,
+        raiplay_future
+    );
     let mut response = sc_result?;
 
     if let Some(saturn) = saturn {
@@ -899,9 +973,24 @@ async fn fetch_sc_catalog_web(
     if let Some(loonex) = loonex {
         merge_catalog(&mut response, loonex.rows, loonex.index, loonex.synced_at);
         // Loonex incompleto non deve forzare sync/poll SC (blocca il boot).
+        if loonex.total_count < 120 {
+            response.needs_background_sync = true;
+            let db_bg = state.db.clone();
+            std::thread::spawn(move || {
+                let _ = crate::loonex_catalog::refresh_catalog_index(db_bg.as_ref());
+            });
+        }
     }
     if let Some(youtube) = youtube {
         merge_catalog(&mut response, youtube.rows, youtube.index, youtube.synced_at);
+    }
+    if let Some(raiplay) = raiplay {
+        merge_catalog(
+            &mut response,
+            raiplay.rows,
+            raiplay.index,
+            raiplay.synced_at,
+        );
     }
 
     if sc_enabled {
@@ -919,7 +1008,8 @@ async fn refresh_sc_catalog_web(
     let saturn_enabled = crate::saturn_catalog::enabled(&state.db);
     let loonex_enabled = crate::loonex_catalog::enabled(&state.db);
     let youtube_enabled = crate::youtube_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled {
+    let raiplay_enabled = crate::raiplay_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled && !raiplay_enabled {
         return Ok(crate::sc_catalog::ScCatalogResponse {
             rows: Vec::new(),
             index: Vec::new(),
@@ -933,84 +1023,148 @@ async fn refresh_sc_catalog_web(
     let locale = crate::sc_catalog::lang(&state.db);
     let db = state.db.clone();
 
-    // Sync SC completa (archivio). I cataloghi esterni usano fetch rapido per non
-    // bloccare la risposta per diversi minuti.
-    let mut response = if sc_enabled {
+    // SC e cataloghi esterni in parallelo: altrimenti Loonex/RaiPlay restano
+    // bloccati per minuti dietro al crawl SC.
+    let sc_future = {
         let db_sc = db.clone();
         let cdn_sc = cdn.clone();
         let locale_sc = locale.clone();
-        tokio::task::spawn_blocking(move || {
-            crate::sc_catalog::refresh_catalog_index(db_sc.as_ref(), "", &cdn_sc, &locale_sc)
-        })
-        .await
-        .map_err(|e| format!("Errore aggiornamento catalogo: {e}"))??
-    } else {
-        crate::sc_catalog::ScCatalogResponse {
-            rows: Vec::new(),
-            index: Vec::new(),
-            synced_at: 0,
-            total_count: 0,
-            needs_background_sync: false,
+        async move {
+            if !sc_enabled {
+                return Ok(crate::sc_catalog::ScCatalogResponse {
+                    rows: Vec::new(),
+                    index: Vec::new(),
+                    synced_at: 0,
+                    total_count: 0,
+                    needs_background_sync: false,
+                });
+            }
+            tokio::task::spawn_blocking(move || {
+                crate::sc_catalog::refresh_catalog_index(db_sc.as_ref(), "", &cdn_sc, &locale_sc)
+            })
+            .await
+            .map_err(|e| format!("Errore aggiornamento catalogo: {e}"))?
         }
     };
 
-    if saturn_enabled {
+    let saturn_future = async {
+        if !saturn_enabled {
+            return None;
+        }
         let db_s = db.clone();
-        if let Ok(Ok(Ok(saturn))) = tokio::time::timeout(
+        match tokio::time::timeout(
             std::time::Duration::from_secs(20),
             tokio::task::spawn_blocking(move || crate::saturn_catalog::fetch_catalog(db_s.as_ref())),
         )
         .await
         {
-            merge_catalog(
-                &mut response,
-                saturn.rows,
-                saturn.index,
-                saturn.synced_at,
-            );
+            Ok(Ok(Ok(v))) => Some(v),
+            _ => None,
         }
-    }
+    };
 
-    if loonex_enabled {
+    let loonex_future = async {
+        if !loonex_enabled {
+            return None;
+        }
         let db_l = db.clone();
         match tokio::time::timeout(
-            std::time::Duration::from_secs(25),
-            tokio::task::spawn_blocking(move || crate::loonex_catalog::fetch_catalog(db_l.as_ref())),
+            std::time::Duration::from_secs(90),
+            tokio::task::spawn_blocking(move || {
+                let current = crate::loonex_catalog::fetch_catalog(db_l.as_ref())?;
+                if current.total_count < 120 {
+                    crate::loonex_catalog::refresh_catalog_index(db_l.as_ref())
+                } else {
+                    Ok(current)
+                }
+            }),
         )
         .await
         {
-            Ok(Ok(Ok(loonex))) => {
-                merge_catalog(
-                    &mut response,
-                    loonex.rows,
-                    loonex.index,
-                    loonex.synced_at,
-                );
-                if loonex.total_count < 120 {
-                    response.needs_background_sync = true;
-                }
-            }
-            _ => {
-                response.needs_background_sync = true;
-            }
+            Ok(Ok(Ok(v))) => Some(v),
+            _ => None,
         }
-    }
+    };
 
-    if youtube_enabled {
+    let youtube_future = async {
+        if !youtube_enabled {
+            return None;
+        }
         let db_y = db.clone();
-        if let Ok(Ok(Ok(youtube))) = tokio::time::timeout(
+        match tokio::time::timeout(
             std::time::Duration::from_secs(20),
             tokio::task::spawn_blocking(move || crate::youtube_catalog::fetch_catalog(db_y.as_ref())),
         )
         .await
         {
-            merge_catalog(
-                &mut response,
-                youtube.rows,
-                youtube.index,
-                youtube.synced_at,
-            );
+            Ok(Ok(Ok(v))) => Some(v),
+            _ => None,
         }
+    };
+
+    let raiplay_future = async {
+        if !raiplay_enabled {
+            return None;
+        }
+        let db_r = db.clone();
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(90),
+            tokio::task::spawn_blocking(move || {
+                crate::raiplay_catalog::refresh_catalog_index(db_r.as_ref())
+            }),
+        )
+        .await
+        {
+            Ok(Ok(Ok(v))) => Some(v),
+            _ => None,
+        }
+    };
+
+    let (sc_result, saturn, loonex, youtube, raiplay) = tokio::join!(
+        sc_future,
+        saturn_future,
+        loonex_future,
+        youtube_future,
+        raiplay_future
+    );
+
+    let mut response = sc_result?;
+    if let Some(saturn) = saturn {
+        merge_catalog(
+            &mut response,
+            saturn.rows,
+            saturn.index,
+            saturn.synced_at,
+        );
+    }
+    if let Some(loonex) = loonex {
+        merge_catalog(
+            &mut response,
+            loonex.rows,
+            loonex.index,
+            loonex.synced_at,
+        );
+        if loonex.total_count < 120 {
+            response.needs_background_sync = true;
+        }
+    } else if loonex_enabled {
+        response.needs_background_sync = true;
+    }
+    if let Some(youtube) = youtube {
+        merge_catalog(
+            &mut response,
+            youtube.rows,
+            youtube.index,
+            youtube.synced_at,
+        );
+    }
+    if let Some(raiplay) = raiplay {
+        merge_catalog(
+            &mut response,
+            raiplay.rows,
+            raiplay.index,
+            raiplay.synced_at,
+        );
     }
 
     if sc_enabled {

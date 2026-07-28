@@ -1,5 +1,6 @@
 import {
   fetchLoonexMeta,
+  fetchRaiplayMeta,
   fetchSaturnMeta,
   fetchScMeta,
   fetchYoutubeMeta,
@@ -271,6 +272,9 @@ export async function resolveHeroImageUrl(
       url = pickBestHeroUrl(meta.background, meta.poster, item.backgroundUrl, item.posterUrl);
     } else if (target.catalogPrefix === "youtube") {
       const meta = await fetchYoutubeMeta(target.metaId);
+      url = pickBestHeroUrl(meta.background, meta.poster, item.backgroundUrl, item.posterUrl);
+    } else if (target.catalogPrefix === "raiplay" && target.slug) {
+      const meta = await fetchRaiplayMeta(target.slug);
       url = pickBestHeroUrl(meta.background, meta.poster, item.backgroundUrl, item.posterUrl);
     }
 

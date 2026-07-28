@@ -45,7 +45,7 @@ interface SectionBrowsePageProps {
 type FilterMenuId = "genre" | "year" | "sort" | "provider";
 
 function isLordFlixBrowseSection(sectionId: string): boolean {
-  return sectionId === "film" || sectionId === "serie";
+  return sectionId === "film" || sectionId === "serie" || sectionId === "sport";
 }
 
 function openBrowseItem(

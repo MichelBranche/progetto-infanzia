@@ -1,4 +1,4 @@
-import { captureScrubFrame } from "./videoFrame";
+import { captureScrubFrame, revokeFrameUrl } from "./videoFrame";
 
 export function scrubBucketInterval(durationSec: number): number {
   if (!Number.isFinite(durationSec) || durationSec <= 0) return 5;
@@ -43,6 +43,10 @@ export class ScrubPreviewEngine {
     this.destroyed = true;
     this.queue = [];
     this.inflight.clear();
+    for (const url of this.frames.values()) {
+      revokeFrameUrl(url);
+    }
+    this.frames.clear();
   }
 
   setDuration(durationSec: number) {
@@ -51,10 +55,9 @@ export class ScrubPreviewEngine {
 
     this.duration = durationSec;
     this.interval = scrubBucketInterval(durationSec);
-    if (!this.warmupStarted) {
-      this.warmupStarted = true;
-      this.startWarmup();
-    }
+    // Niente warmup automatico: le catture partono solo su hover fermo
+    // (altrimenti il 2° decoder compete col player appena si arma).
+    this.warmupStarted = true;
   }
 
   getNearestFrame(timeSec: number): string | null {
@@ -163,38 +166,16 @@ export class ScrubPreviewEngine {
   }
 
   private rememberFrame(bucket: number, frame: string) {
+    const prev = this.frames.get(bucket);
+    if (prev && prev !== frame) revokeFrameUrl(prev);
     this.frames.set(bucket, frame);
     if (this.frames.size > MAX_FRAMES_PER_STREAM) {
       const first = this.frames.keys().next().value;
-      if (first != null) this.frames.delete(first);
-    }
-  }
-
-  /**
-   * Poche marche sparse, una volta sola: bastano a coprire la barra con
-   * un'immagine plausibile. Troppe catture all'avvio rubano banda al player.
-   */
-  private startWarmup() {
-    const marks = [0.1, 0.35, 0.6, 0.85].map((ratio) =>
-      scrubBucketForTime(ratio * this.duration, this.interval),
-    );
-    const unique = [...new Set(marks.filter((t) => t >= 0 && t <= this.duration))];
-
-    const warm = (index: number) => {
-      if (this.destroyed || index >= unique.length) return;
-      void this.ensureFrame(unique[index], "low").finally(() => {
-        if (typeof requestIdleCallback === "function") {
-          requestIdleCallback(() => warm(index + 1), { timeout: 2500 });
-        } else {
-          window.setTimeout(() => warm(index + 1), 400);
-        }
-      });
-    };
-
-    if (typeof requestIdleCallback === "function") {
-      requestIdleCallback(() => warm(0), { timeout: 3500 });
-    } else {
-      window.setTimeout(() => warm(0), 800);
+      if (first != null) {
+        const old = this.frames.get(first);
+        this.frames.delete(first);
+        if (old && old !== frame) revokeFrameUrl(old);
+      }
     }
   }
 }

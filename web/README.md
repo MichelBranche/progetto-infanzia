@@ -99,6 +99,22 @@ Il file `railway.toml` in root forza già questo build.
 | Watch party LAN | No | Sì |
 | Aggiornamenti automatici | No | Sì |
 
+## RaiPlay
+
+Catalogo free da `www.raiplay.it` (prefix `raiplay`), playback HLS via relinker.
+
+| Sezione app | Sorgente RaiPlay |
+|-------------|------------------|
+| **Cartoni** | `/tipologia/bambini/index.json` |
+| **Film** | `/tipologia/film/index.json` |
+| **Serie TV** | `/tipologia/serieitaliane` + `serieinternazionali` |
+| **Home · In diretta** | `/dirette` + `/palinsesto/onAir.json` |
+
+- **Desktop (IP Italia):** playback free non-DRM supportato.
+- **Web (Railway):** catalogo sfogliabile; lo stream può fallire se l’egress API non è in Italia (geo-block). Messaggio esplicito in app.
+- Titoli **DRM** vengono saltati / rifiutati (niente Widevine).
+- Provider filtro browse: **RaiPlay** (anche Film/Serie).
+
 ## Supabase Auth — registrazione email
 
 Se la registrazione risponde **«email rate limit exceeded»**, il progetto Supabase ha esaurito il limite del **servizio email integrato** (circa **2 email/ora** per tutto il progetto).

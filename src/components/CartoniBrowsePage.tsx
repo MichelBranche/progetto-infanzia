@@ -51,6 +51,7 @@ const FILTERS: { id: CartoniGridFilter; label: string }[] = [
   { id: "popular", label: "Popolari" },
   { id: "streaming", label: "Loonex" },
   { id: "local", label: "YouTube" },
+  { id: "raiplay", label: "RaiPlay" },
 ];
 
 const CARTONI_WARM = "#e63946";
@@ -224,9 +225,14 @@ function CartoniHero({
               {stats.loonex.toLocaleString("it-IT")} Loonex
             </span>
           )}
-          {stats.streaming - stats.loonex > 0 && (
+          {stats.raiplay > 0 && (
             <span className="rounded-full border border-border bg-fill px-3 py-1 text-[11px] font-medium text-text-secondary backdrop-blur-md">
-              {(stats.streaming - stats.loonex).toLocaleString("it-IT")} YouTube
+              {stats.raiplay.toLocaleString("it-IT")} RaiPlay
+            </span>
+          )}
+          {stats.streaming - stats.loonex - stats.raiplay > 0 && (
+            <span className="rounded-full border border-border bg-fill px-3 py-1 text-[11px] font-medium text-text-secondary backdrop-blur-md">
+              {(stats.streaming - stats.loonex - stats.raiplay).toLocaleString("it-IT")} YouTube
             </span>
           )}
         </motion.div>

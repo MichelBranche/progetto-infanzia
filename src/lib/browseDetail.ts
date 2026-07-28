@@ -1,6 +1,11 @@
 import type { BrowseItem } from "./browse";
 import { browseItemId } from "./browse";
-import { isStreamingSeries, previewToDetailTarget } from "./streamingBrowse";
+import {
+  isRaiplayLiveTarget,
+  isStreamingSeries,
+  previewToDetailTarget,
+  previewToWatchTarget,
+} from "./streamingBrowse";
 import type { AddonWatchTarget } from "./streamingBrowse";
 import { STREMIO_ADDONS_ENABLED, isBuiltinStreamingCatalog } from "./features";
 
@@ -24,9 +29,13 @@ export function browseDetailAction(
       preview.catalogPrefix === "sc" ||
       preview.catalogPrefix === "saturn" ||
       preview.catalogPrefix === "loonex" ||
-      preview.catalogPrefix === "youtube"
+      preview.catalogPrefix === "youtube" ||
+      preview.catalogPrefix === "raiplay"
     ) {
-      const target = previewToDetailTarget(preview);
+      // Dirette RaiPlay: vai al player, salta la scheda titolo.
+      const target = isRaiplayLiveTarget(preview)
+        ? previewToWatchTarget(preview)
+        : previewToDetailTarget(preview);
       if (!target.slug) return null;
       return { type: "streaming", target };
     }

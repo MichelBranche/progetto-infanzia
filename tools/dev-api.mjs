@@ -8,6 +8,12 @@ const dataDir = path.join(root, ".branchefy-data");
 const browserOrigin =
   process.env.BRANCHEFY_BROWSER_ORIGIN ?? "http://localhost:5173";
 
+// Gli URL /remote/* devono puntare all'API (:8787), non a Vite (:5173):
+// il proxy Vite ha timeout corti e le dirette HLS (playlist grandi + refresh
+// ogni 2s) finivano in levelParsingError dopo ~10–15 secondi.
+const streamPublicUrl =
+  process.env.BRANCHEFY_PUBLIC_URL ?? "http://127.0.0.1:8787";
+
 const child = spawn(
   "cargo",
   [
@@ -26,7 +32,8 @@ const child = spawn(
     env: {
       ...process.env,
       BRANCHEFY_DATA_DIR: dataDir,
-      BRANCHEFY_PUBLIC_URL: browserOrigin,
+      BRANCHEFY_PUBLIC_URL: streamPublicUrl,
+      BRANCHEFY_BROWSER_ORIGIN: browserOrigin,
       PORT: "8787",
     },
   },

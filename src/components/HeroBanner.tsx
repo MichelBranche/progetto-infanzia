@@ -144,6 +144,7 @@ function heroSourceBadge(media: MediaItem): string {
   if (media.id.includes("saturn:")) return "Anime";
   if (media.id.includes("loonex:")) return "Archivio Cartoni";
   if (media.id.includes("youtube:")) return "YouTube";
+  if (media.id.includes("raiplay:")) return "RaiPlay";
   return "In streaming";
 }
 

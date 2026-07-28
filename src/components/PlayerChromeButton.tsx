@@ -1,7 +1,4 @@
-import { motion } from "framer-motion";
 import type { ReactNode } from "react";
-
-const SPRING = { type: "spring" as const, stiffness: 520, damping: 28 };
 
 interface PlayerChromeButtonProps {
   onClick: () => void;
@@ -14,6 +11,7 @@ interface PlayerChromeButtonProps {
   "aria-label"?: string;
 }
 
+/** Bottone chrome senza Framer — scale CSS, niente spring sul main thread. */
 export function PlayerChromeButton({
   onClick,
   children,
@@ -32,23 +30,20 @@ export function PlayerChromeButton({
         : "h-11 w-11";
 
   return (
-    <motion.button
+    <button
       type="button"
       title={title}
       aria-label={ariaLabel}
       disabled={disabled}
-      whileTap={disabled ? undefined : { scale: 0.9 }}
-      whileHover={disabled ? undefined : { scale: 1.07 }}
-      transition={SPRING}
       onTouchStart={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation();
         if (!disabled) onClick();
       }}
-      className={`flex shrink-0 touch-manipulation items-center justify-center rounded-full border border-white/15 bg-black/50 text-white/90 shadow-[0_4px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition-colors hover:bg-black/70 hover:text-white disabled:cursor-default disabled:opacity-40 ${dimension} ${className}`}
+      className={`player-chrome-btn flex shrink-0 touch-manipulation items-center justify-center rounded-full border border-white/15 bg-black/55 text-white/90 shadow-[0_4px_24px_rgba(0,0,0,0.35)] transition-[background-color,color,transform] duration-100 hover:bg-black/70 hover:text-white active:scale-95 disabled:cursor-default disabled:opacity-40 disabled:active:scale-100 ${dimension} ${className}`}
     >
       {children}
-    </motion.button>
+    </button>
   );
 }

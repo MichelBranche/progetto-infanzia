@@ -1,28 +1,8 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+﻿import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type MouseEvent } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import Hls, { type Level, type MediaPlaylist } from "hls.js";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  ArrowLeft,
-  Cast,
-  Pause,
-  Play,
-  Volume2,
-  VolumeX,
-  Maximize,
-  Minimize,
-  RotateCcw,
-  RotateCw,
-  ListVideo,
-  Loader2,
-  SkipForward,
-  SkipBack,
-  X,
-  Subtitles,
-  Settings2,
-  Users,
-  Languages,
-} from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { castTransport, getCastPosition, saveWatchProgress } from "../lib/api";
 import {
   invalidateScStreamUrl,
@@ -44,11 +24,9 @@ import { useCloudAccount } from "../context/CloudAccountContext";
 import { useAppAccess } from "../context/AppAccessContext";
 import { useGuestPlaybackMeter } from "../hooks/useGuestPlaybackMeter";
 import type { CastDevice, MediaItem } from "../types/media";
-import { formatDuration, mediaTypeLabel } from "../types/media";
 import { PosterImage } from "./PosterImage";
 import { CastDialog } from "./CastDialog";
-import { PlayerScrubBar } from "./PlayerScrubBar";
-import { PlayerChromeButton } from "./PlayerChromeButton";
+import { PlayerChromeShell } from "./PlayerChromeShell";
 import {
   PlayerActionFeedback,
   type PlayerActionKind,
@@ -75,6 +53,16 @@ import {
 } from "../lib/playerAudioLanguage";
 import { normalizePlaybackUrl } from "../lib/streamUrl";
 
+function formatPlayerClock(seconds: number): string {
+  const t = Math.max(0, Math.floor(seconds || 0));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  if (h > 0) {
+    return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  }
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 /**
  * Messaggio d'errore leggibile ma diagnosticabile: l'utente deve poterlo
  * riferire e noi capire da dove arriva senza aprire la console.
@@ -87,18 +75,18 @@ function describeHlsError(data: {
   const status = data.response?.code;
   const code = [data.details, status ? `HTTP ${status}` : null]
     .filter(Boolean)
-    .join(" · ");
+    .join(" Â· ");
   if (status === 403) {
-    return `Il server dei contenuti ha rifiutato la richiesta (${code}). Riprova: il link di streaming è probabilmente scaduto.`;
+    return `Il server dei contenuti ha rifiutato la richiesta (${code}). Riprova: il link di streaming Ã¨ probabilmente scaduto.`;
   }
   if (status === 404 || status === 410) {
-    return `Lo stream non è più disponibile (${code}). Premi Riprova per rigenerarlo.`;
+    return `Lo stream non Ã¨ piÃ¹ disponibile (${code}). Premi Riprova per rigenerarlo.`;
   }
   if (data.type === "networkError") {
     return `Errore di rete durante il caricamento del video (${code}). Controlla la connessione e riprova.`;
   }
   if (data.type === "mediaError") {
-    return `Il video non può essere decodificato da questo dispositivo (${code}).`;
+    return `Il video non puÃ² essere decodificato da questo dispositivo (${code}).`;
   }
   return `Impossibile avviare lo stream${code ? ` (${code})` : ""}. Riprova tra qualche secondo.`;
 }
@@ -129,8 +117,8 @@ interface VideoPlayerProps {
   onReady?: () => void;
   /**
    * Ri-risolve lo stream da zero. Serve quando gli URL `/remote/...` non sono
-   * più validi (riavvio app desktop o redeploy del server): la registry del
-   * proxy è in memoria, quindi l'unico recupero è chiedere un nuovo URL.
+   * piÃ¹ validi (riavvio app desktop o redeploy del server): la registry del
+   * proxy Ã¨ in memoria, quindi l'unico recupero Ã¨ chiedere un nuovo URL.
    */
   onRetryStream?: () => void;
 }
@@ -139,7 +127,7 @@ export interface VideoPlayerHandle {
   flushWatchProgress: () => Promise<void>;
 }
 
-/** Secondi prima della fine in cui mostrare "Continua a guardare" (5–10 min, ~12% runtime). */
+/** Secondi prima della fine in cui mostrare "Continua a guardare" (5â€“10 min, ~12% runtime). */
 function upNextLeadSeconds(duration: number): number {
   if (!Number.isFinite(duration) || duration <= 0) return 90;
   const fromPercent = duration * 0.12;
@@ -169,7 +157,7 @@ function qualityLabel(level: Level, index: number) {
   if (level.height) return `${level.height}p`;
   if (level.width) return `${level.width}p`;
   if (level.bitrate) return `${Math.round(level.bitrate / 1000)} kbps`;
-  return `Qualità ${index + 1}`;
+  return `QualitÃ  ${index + 1}`;
 }
 
 function buildQualityOptions(levels: Level[]): QualityOption[] {
@@ -247,6 +235,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const syncSeekInFlightRef = useRef(false);
   const hostLiveTimeRef = useRef(0);
   const uiTimeFlushAtRef = useRef(0);
+  const durationRef = useRef(0);
+  const timeLabelRef = useRef<HTMLSpanElement>(null);
   const lastCueTextRef = useRef<string | null>(null);
   const TIME_UI_MS = 200;
   const notifyPartySeekRef = useRef<(position: number, nextPlaying?: boolean) => void>(
@@ -254,6 +244,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   );
   const actionPulseIdRef = useRef(0);
   const actionPulseTimerRef = useRef<number | null>(null);
+  const pendingSurfaceTapRef = useRef<number | null>(null);
+  const lastSurfaceTapRef = useRef<{ at: number; xRatio: number } | null>(null);
   const { isGuest, guestAccessBlocked } = useAppAccess();
 
   const [playing, setPlaying] = useState(() => {
@@ -263,20 +255,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     return true;
   });
   const [muted, setMuted] = useState(false);
-  const [volume, setVolume] = useState(1);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [buffered, setBuffered] = useState(0);
   const [showControls, setShowControls] = useState(true);
+  const showControlsRef = useRef(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showVolume, setShowVolume] = useState(false);
+  /** Scrub / volume drag: niente setCurrentTime dal timeupdate. */
+  const controlsBusyRef = useRef(false);
   const [guestBlocked, setGuestBlocked] = useState(false);
   const [showEpisodes, setShowEpisodes] = useState(false);
   const [showUpNext, setShowUpNext] = useState(false);
   const [autoplaySeconds, setAutoplaySeconds] = useState<number | null>(null);
   /** Solo avvio / cambio stream: schermata a tutto schermo. */
   const [bootLoading, setBootLoading] = useState(true);
-  /** Rebuffer a metà film: spinner piccolo, non la schermata di avvio. */
+  /** Rebuffer a metÃ  film: spinner piccolo, non la schermata di avvio. */
   const [buffering, setBuffering] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const bootDoneRef = useRef(false);
@@ -302,6 +294,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [showSubtitleMenu, setShowSubtitleMenu] = useState(false);
   const [showAudioMenu, setShowAudioMenu] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [streamAudioLang, setStreamAudioLang] = useState<PlayerStreamAudioLanguage>(
     () => readPlayerAudioLanguage(),
   );
@@ -350,6 +343,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const base = `loonex:${remotePlayback.contentType}:${remotePlayback.slug}`;
       return remotePlayback.videoId ? `${base}:${remotePlayback.videoId}` : base;
     }
+    if (
+      remotePlayback?.catalogPrefix === "raiplay" &&
+      remotePlayback.slug
+    ) {
+      const base = `raiplay:${remotePlayback.contentType}:${remotePlayback.slug}`;
+      return remotePlayback.videoId ? `${base}:${remotePlayback.videoId}` : base;
+    }
     return media.id;
   }, [media.id, remotePlayback]);
 
@@ -369,11 +369,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         if (
           (remotePlayback?.catalogPrefix === "sc" ||
             remotePlayback?.catalogPrefix === "saturn" ||
-            remotePlayback?.catalogPrefix === "loonex") &&
+            remotePlayback?.catalogPrefix === "loonex" ||
+            remotePlayback?.catalogPrefix === "raiplay") &&
           remotePlayback.slug &&
           (remotePlayback.titleId ||
             remotePlayback.catalogPrefix === "saturn" ||
-            remotePlayback.catalogPrefix === "loonex")
+            remotePlayback.catalogPrefix === "loonex" ||
+            remotePlayback.catalogPrefix === "raiplay")
         ) {
           try {
             const unlocks = await saveStreamingWatchProgress(profileId, {
@@ -464,12 +466,33 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   }, [flushWatchProgress, onBack]);
 
   const resetHideTimer = useCallback(() => {
-    setShowControls(true);
-    clearTimeout(hideTimer.current);
-    if (!showEpisodes && !showQualityMenu && !showSubtitleMenu && !showAudioMenu) {
-      hideTimer.current = setTimeout(() => setShowControls(false), 3500);
+    // Ogni mousemove chiamava setShowControls(true) â†’ re-render dell'intero
+    // chrome. Solo se i controlli sono nascosti facciamo setState.
+    if (!showControlsRef.current) {
+      showControlsRef.current = true;
+      setShowControls(true);
     }
-  }, [showEpisodes, showQualityMenu, showSubtitleMenu, showAudioMenu]);
+    clearTimeout(hideTimer.current);
+    if (controlsBusyRef.current) return;
+    if (
+      !showEpisodes &&
+      !showQualityMenu &&
+      !showSubtitleMenu &&
+      !showAudioMenu &&
+      !showMoreMenu
+    ) {
+      hideTimer.current = setTimeout(() => {
+        if (controlsBusyRef.current) return;
+        showControlsRef.current = false;
+        setShowControls(false);
+      }, 3500);
+    }
+  }, [showEpisodes, showQualityMenu, showSubtitleMenu, showAudioMenu, showMoreMenu]);
+
+  const onPlayerPointerMove = useCallback(() => {
+    if (controlsBusyRef.current) return;
+    resetHideTimer();
+  }, [resetHideTimer]);
 
   const flashAction = useCallback((kind: PlayerActionKind, delta?: number) => {
     if (actionPulseTimerRef.current != null) {
@@ -488,6 +511,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     () => () => {
       if (actionPulseTimerRef.current != null) {
         window.clearTimeout(actionPulseTimerRef.current);
+      }
+      if (pendingSurfaceTapRef.current != null) {
+        window.clearTimeout(pendingSurfaceTapRef.current);
       }
       clearTimeout(hideTimer.current);
     },
@@ -669,19 +695,22 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const hls = new Hls({
         enableWorker: true,
         enableWebVTT: true,
-        // Playlist + segmenti via proxy locale (Referer/Origin); buffer ampio
-        // per assorbire jitter di rete.
-        // assorbe comunque i cambi di livello ABR.
-        maxBufferLength: 60,
-        maxMaxBufferLength: 120,
-        maxBufferSize: 90 * 1000 * 1000,
-        backBufferLength: 30,
-        // Non scaricare un 4K dentro una finestra 720p.
+        // Buffer piÃ¹ stretti: finestre enormi facevano scattare l'UI
+        // durante scrub/volume (main thread + rete).
+        maxBufferLength: 30,
+        maxMaxBufferLength: 45,
+        maxBufferSize: 40 * 1000 * 1000,
+        backBufferLength: 15,
         capLevelToPlayerSize: true,
         startFragPrefetch: true,
         abrEwmaDefaultEstimate: 1_500_000,
-        fragLoadingMaxRetry: 4,
-        manifestLoadingMaxRetry: 3,
+        fragLoadingMaxRetry: 6,
+        manifestLoadingMaxRetry: 6,
+        levelLoadingMaxRetry: 6,
+        levelLoadingTimeOut: 15_000,
+        manifestLoadingTimeOut: 15_000,
+        liveSyncDurationCount: 3,
+        liveMaxLatencyDurationCount: 10,
       });
       hlsRef.current = hls;
 
@@ -766,8 +795,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         if (!data.fatal) return;
 
         // La registry del proxy vive in memoria: dopo un riavvio dell'app o un
-        // redeploy del server gli URL `/remote/...` non esistono più. Nessun
-        // retry di rete può recuperarli, serve ri-risolvere lo stream.
+        // redeploy del server gli URL `/remote/...` non esistono piÃ¹. Nessun
+        // retry di rete puÃ² recuperarli, serve ri-risolvere lo stream.
         const registryLost =
           (data.response?.code === 404 || data.response?.code === 410) &&
           typeof data.url === "string" &&
@@ -904,7 +933,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     const MAX_EXTRAPOLATE_SEC = 3;
     // Oltre questo scarto si riallinea con un seek secco; sotto, si converge
-    // gradualmente variando la velocità di riproduzione (nessuno scatto visibile).
+    // gradualmente variando la velocitÃ  di riproduzione (nessuno scatto visibile).
     const HARD_SEEK_LIMIT_SEC = 1.0;
     const RATE_CORRECT_MIN_SEC = 0.1;
     const expectedTargetTime = (target: {
@@ -954,15 +983,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             syncSeekInFlightRef.current = false;
           }, 700);
         } else if (absDrift > RATE_CORRECT_MIN_SEC) {
-          // Scarto piccolo: converge in modo impercettibile modulando la velocità
+          // Scarto piccolo: converge in modo impercettibile modulando la velocitÃ 
           // (guest indietro => accelera, guest avanti => rallenta). Niente seek,
-          // quindi nessuno scatto né buffering tra un heartbeat e l'altro.
+          // quindi nessuno scatto nÃ© buffering tra un heartbeat e l'altro.
           const rate = Math.min(1.1, Math.max(0.9, 1 - drift * 0.6));
           if (Math.abs(video.playbackRate - rate) > 0.005) {
             video.playbackRate = rate;
           }
         } else if (video.playbackRate !== 1) {
-          // Allineati: torna a velocità normale.
+          // Allineati: torna a velocitÃ  normale.
           video.playbackRate = 1;
         }
       } else {
@@ -1099,10 +1128,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         return;
       }
 
+      // Un solo setState a fine seek basta; evita cascade sul chrome.
       const video = videoRef.current;
       if (!video) return;
       video.currentTime = time;
-      setCurrentTime(time);
+      hostLiveTimeRef.current = time;
+      if (timeLabelRef.current) {
+        const dur = durationRef.current || duration;
+        timeLabelRef.current.textContent = `${formatPlayerClock(time)} / ${formatPlayerClock(dur)}`;
+      }
       if (duration - time > upNextLeadSeconds(duration)) {
         setShowUpNext(false);
         setAutoplaySeconds(null);
@@ -1110,19 +1144,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       if (isPartyHost) {
         notifyPartySeek(time);
       }
-      resetHideTimer();
+      // Niente setCurrentTime / resetHideTimer: il drag ha giÃ  i controlli su.
     },
-    [castDevice, duration, resetHideTimer, isPartyHost, isPartyGuest, notifyPartySeek],
+    [castDevice, duration, isPartyHost, isPartyGuest, notifyPartySeek],
   );
 
   const skip = useCallback(
     (delta: number) => {
       if (isPartyGuest) return;
       flashAction("skip", delta);
-      const limit = duration > 0 ? duration : currentTime + Math.abs(delta);
-      void seek(Math.max(0, Math.min(limit, currentTime + delta)));
+      const now =
+        videoRef.current?.currentTime ?? hostLiveTimeRef.current ?? 0;
+      const limit = duration > 0 ? duration : now + Math.abs(delta);
+      void seek(Math.max(0, Math.min(limit, now + delta)));
     },
-    [currentTime, duration, seek, isPartyGuest, flashAction],
+    [duration, seek, isPartyGuest, flashAction],
   );
 
   const togglePlay = useCallback(async () => {
@@ -1167,6 +1203,61 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     flashAction,
   ]);
 
+  const onVideoSurfaceClick = useCallback(
+    (e: MouseEvent<HTMLVideoElement>) => {
+      e.stopPropagation();
+      if (isPartyGuest) {
+        resetHideTimer();
+        return;
+      }
+      const rect = e.currentTarget.getBoundingClientRect();
+      const xRatio =
+        rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0.5;
+      const now = performance.now();
+      const last = lastSurfaceTapRef.current;
+      const isDouble =
+        last != null &&
+        now - last.at < 300 &&
+        Math.abs(xRatio - last.xRatio) < 0.4;
+      const coarsePointer =
+        typeof window !== "undefined" &&
+        window.matchMedia("(pointer: coarse)").matches;
+
+      if (isDouble) {
+        if (pendingSurfaceTapRef.current != null) {
+          window.clearTimeout(pendingSurfaceTapRef.current);
+          pendingSurfaceTapRef.current = null;
+        }
+        lastSurfaceTapRef.current = null;
+        const delta = xRatio < 0.45 ? -10 : xRatio > 0.55 ? 10 : 0;
+        if (delta !== 0) {
+          skip(delta);
+          resetHideTimer();
+          return;
+        }
+      }
+
+      lastSurfaceTapRef.current = { at: now, xRatio };
+      if (!coarsePointer) {
+        if (pendingSurfaceTapRef.current != null) {
+          window.clearTimeout(pendingSurfaceTapRef.current);
+          pendingSurfaceTapRef.current = null;
+        }
+        void togglePlay();
+        return;
+      }
+      if (pendingSurfaceTapRef.current != null) {
+        window.clearTimeout(pendingSurfaceTapRef.current);
+      }
+      // Touch: ritarda il toggle così il double-tap ±10s non mette play/pausa.
+      pendingSurfaceTapRef.current = window.setTimeout(() => {
+        pendingSurfaceTapRef.current = null;
+        void togglePlay();
+      }, 280);
+    },
+    [isPartyGuest, resetHideTimer, skip, togglePlay],
+  );
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video || castDevice) return;
@@ -1195,6 +1286,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     const onLoaded = () => {
       setDuration(video.duration);
+      durationRef.current = video.duration;
       const guestSession = partySessionRef.current;
       if (guestSession?.role === "guest") {
         const target = remoteSyncTargetRef.current;
@@ -1237,20 +1329,25 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const t = video.currentTime;
       hostLiveTimeRef.current = t;
       const now = Date.now();
-      // Evita re-render dell'intero chrome a ogni timeupdate (~4Hz UI basta).
-      if (now - uiTimeFlushAtRef.current >= TIME_UI_MS) {
+      // Niente setCurrentTime qui: re-renderiva tutto il chrome ~4Hz e faceva
+      // scattare scrub/volume. Tempo UI â†’ DOM ref; scrub legge il <video>.
+      if (
+        !controlsBusyRef.current &&
+        timeLabelRef.current &&
+        now - uiTimeFlushAtRef.current >= TIME_UI_MS
+      ) {
         uiTimeFlushAtRef.current = now;
-        setCurrentTime(t);
-        if (video.buffered.length > 0) {
-          setBuffered(video.buffered.end(video.buffered.length - 1));
-        }
+        const dur = video.duration || durationRef.current || 0;
+        timeLabelRef.current.textContent = `${formatPlayerClock(t)} / ${formatPlayerClock(dur)}`;
       }
       if (now - lastSave.current > 2000) {
         lastSave.current = now;
         saveProgress(t, video.duration);
       }
       const lead = upNextLeadSeconds(video.duration);
-      if (
+      if (controlsBusyRef.current) {
+        // Durante scrub/volume non aggiornare up-next (setState sul chrome).
+      } else if (
         nextEp &&
         onPlayEpisode &&
         !autoplayCancelledRef.current &&
@@ -1258,11 +1355,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         video.duration - t <= lead
       ) {
         const secs = Math.max(0, Math.ceil(video.duration - t));
-        setShowUpNext(true);
-        setAutoplaySeconds(secs);
+        setShowUpNext((prev) => (prev ? prev : true));
+        setAutoplaySeconds((prev) => (prev === secs ? prev : secs));
       } else if (video.duration - t > lead) {
-        setShowUpNext(false);
-        setAutoplaySeconds(null);
+        setShowUpNext((prev) => (prev ? false : prev));
+        setAutoplaySeconds((prev) => (prev == null ? prev : null));
       }
     };
 
@@ -1286,9 +1383,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     };
 
     const onWaiting = () => {
+      if (controlsBusyRef.current) return;
       // Non mostrare nulla per i seek di sync watch party.
       if (applyingPartyRemoteRef.current || syncSeekInFlightRef.current) return;
-      // Rebuffer a metà: spinner piccolo. Mai di nuovo la schermata di avvio.
+      // Rebuffer a metÃ : spinner piccolo. Mai di nuovo la schermata di avvio.
       if (bootDoneRef.current) setBuffering(true);
     };
 
@@ -1303,7 +1401,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           : err.code === MediaError.MEDIA_ERR_NETWORK
             ? "Connessione interrotta durante il caricamento del video"
             : err.code === MediaError.MEDIA_ERR_DECODE
-              ? "Il video non può essere decodificato"
+              ? "Il video non puÃ² essere decodificato"
               : "Riproduzione interrotta";
       failPlayback(`${reason} (codice ${err.code}).`);
     };
@@ -1316,7 +1414,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     video.addEventListener("waiting", onWaiting);
     video.addEventListener("error", onMediaError);
 
-    // Se dopo 45s non c'è ancora il primo frame, non lasciare schermo nero:
+    // Se dopo 45s non c'Ã¨ ancora il primo frame, non lasciare schermo nero:
     // mostra errore e invalida la cache stream.
     const bootSafety = window.setTimeout(() => {
       if (!bootDoneRef.current) {
@@ -1492,15 +1590,29 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     };
   }, []);
 
-  const changeVolume = (value: number) => {
-    const video = videoRef.current;
-    if (!video) return;
-    const v = Math.max(0, Math.min(1, value));
-    video.volume = v;
-    video.muted = v === 0;
-    setVolume(v);
-    setMuted(v === 0);
-  };
+  const setControlsBusy = useCallback((busy: boolean) => {
+    controlsBusyRef.current = busy;
+    const hls = hlsRef.current;
+    // Durante scrub/volume: stop download segmenti cosÃ¬ il main thread
+    // non compete con ABR/proxy. Riparte al rilascio.
+    if (hls) {
+      try {
+        if (busy) hls.stopLoad();
+        else hls.startLoad(-1);
+      } catch {
+        // ignore
+      }
+    }
+    if (busy) {
+      clearTimeout(hideTimer.current);
+      if (!showControlsRef.current) {
+        showControlsRef.current = true;
+        setShowControls(true);
+      }
+    } else {
+      resetHideTimer();
+    }
+  }, [resetHideTimer]);
 
   const selectQuality = useCallback((level: number) => {
     const hls = hlsRef.current;
@@ -1510,6 +1622,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     hls.currentLevel = level;
     setSelectedQuality(level);
     setShowQualityMenu(false);
+    setShowMoreMenu(false);
     video.currentTime = position;
     resetHideTimer();
   }, [resetHideTimer]);
@@ -1524,6 +1637,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setActiveCueText(null);
     }
     setShowSubtitleMenu(false);
+    setShowMoreMenu(false);
     resetHideTimer();
   }, [resetHideTimer]);
 
@@ -1533,6 +1647,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     hls.audioTrack = track;
     setSelectedAudio(track);
     setShowAudioMenu(false);
+    setShowMoreMenu(false);
     resetHideTimer();
   }, [resetHideTimer]);
 
@@ -1542,6 +1657,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       savePlayerAudioLanguage(lang);
       setStreamAudioLang(lang);
       setShowAudioMenu(false);
+      setShowMoreMenu(false);
       resetHideTimer();
       setAudioSwitching(true);
       try {
@@ -1562,6 +1678,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     }
 
     const applyCueText = (next: string | null) => {
+      if (controlsBusyRef.current) return;
       if (next === lastCueTextRef.current) return;
       lastCueTextRef.current = next;
       setActiveCueText(next);
@@ -1623,33 +1740,29 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       : (audioOptions.find((option) => option.track === selectedAudio)?.label ??
         "Audio");
 
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
-  const bufferPct = duration > 0 ? (buffered / duration) * 100 : 0;
   const chromeInteractive =
     showControls ||
     showEpisodes ||
     showQualityMenu ||
     showSubtitleMenu ||
-    showAudioMenu;
+    showAudioMenu ||
+    showMoreMenu;
 
   return (
     <div
       ref={containerRef}
       className="player-shell relative flex h-full flex-col bg-black"
-      onMouseMove={resetHideTimer}
+      onMouseMove={onPlayerPointerMove}
       onClick={resetHideTimer}
       onTouchStart={resetHideTimer}
-      onTouchMove={resetHideTimer}
+      onTouchMove={onPlayerPointerMove}
     >
       <video
         ref={videoRef}
         src={effectiveIsHls && Hls.isSupported() ? undefined : effectiveStreamUrl}
         className="player-video h-full w-full object-contain"
         playsInline
-        onClick={(e) => {
-          e.stopPropagation();
-          void togglePlay();
-        }}
+        onClick={onVideoSurfaceClick}
       />
 
       {activeCueText && (
@@ -1662,27 +1775,125 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       <PlayerActionFeedback pulse={actionPulse} />
 
-      <motion.div
-        className="pointer-events-none absolute inset-0 z-[34]"
-        animate={{ opacity: chromeInteractive ? 1 : 0 }}
-        transition={{ duration: 0.2 }}
-      >
-        <div
-          className={`absolute left-0 top-0 px-4 pb-2 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:pt-5 ${
-            chromeInteractive ? "pointer-events-auto" : "pointer-events-none"
-          }`}
-        >
-          <PlayerChromeButton
-            size="lg"
-            onClick={handleBack}
-            aria-label="Esci dal player"
-            title="Indietro"
-            className="border-white/20 bg-black/55"
-          >
-            <ArrowLeft className="h-5 w-5 sm:h-[1.35rem] sm:w-[1.35rem]" strokeWidth={2} />
-          </PlayerChromeButton>
-        </div>
-      </motion.div>
+      <PlayerChromeShell
+        visible={chromeInteractive}
+        media={media}
+        videoRef={videoRef}
+        timeLabelRef={timeLabelRef}
+        duration={duration}
+        playing={playing}
+        muted={muted}
+        isFullscreen={isFullscreen}
+        isHls={effectiveIsHls}
+        scrubDisabled={!effectiveStreamUrl || castDevice != null || isPartyGuest}
+        isPartyGuest={isPartyGuest}
+        hasEpisodes={hasEpisodes}
+        canCast={canCast}
+        castingTo={castingTo}
+        partySessionActive={Boolean(partySession)}
+        prevEp={prevEp ?? null}
+        nextEp={nextEp ?? null}
+        qualityOptions={qualityOptions.map((o) => ({
+          id: o.level,
+          label: o.label,
+        }))}
+        subtitleOptions={subtitleOptions.map((o) => ({
+          id: o.track,
+          label: o.label,
+        }))}
+        audioOptions={audioOptions.map((o) => ({
+          id: o.track,
+          label: o.label,
+        }))}
+        selectedQuality={selectedQuality}
+        selectedSubtitle={selectedSubtitle}
+        selectedAudio={selectedAudio}
+        streamAudioLang={streamAudioLang}
+        canShowAudioMenu={canShowAudioMenu}
+        audioSwitching={audioSwitching}
+        showQualityMenu={showQualityMenu}
+        showSubtitleMenu={showSubtitleMenu}
+        showAudioMenu={showAudioMenu}
+        showMoreMenu={showMoreMenu}
+        activeQualityLabel={activeQualityLabel}
+        activeSubtitleLabel={activeSubtitleLabel}
+        activeAudioLabel={activeAudioLabel}
+        onBusyChange={setControlsBusy}
+        onSeek={(time) => {
+          if (castDevice) {
+            setCurrentTime(time);
+          } else {
+            void seek(time);
+          }
+        }}
+        onSeekCommit={(time) => {
+          if (castDevice) void seek(time);
+        }}
+        onBack={handleBack}
+        onTogglePlay={() => void togglePlay()}
+        onSkip={skip}
+        onToggleMute={() => {
+          const video = videoRef.current;
+          if (!video) return;
+          video.muted = !video.muted;
+          setMuted(video.muted);
+        }}
+        onToggleFullscreen={() => void toggleFullscreen()}
+        onOpenEpisodes={() => {
+          setShowMoreMenu(false);
+          setShowEpisodes(true);
+          showControlsRef.current = true;
+          setShowControls(true);
+        }}
+        onOpenCast={() => {
+          setShowMoreMenu(false);
+          setShowCast(true);
+          showControlsRef.current = true;
+          setShowControls(true);
+        }}
+        onOpenParty={() => {
+          setShowMoreMenu(false);
+          setShowPartyPanel(true);
+          showControlsRef.current = true;
+          setShowControls(true);
+        }}
+        onStopCast={() => void stopCast()}
+        onPlayPrevEpisode={prevEp ? playPrevEpisode : undefined}
+        onPlayNextEpisode={nextEp ? playNextEpisode : undefined}
+        onToggleQualityMenu={() => {
+          setShowQualityMenu((open) => !open);
+          setShowSubtitleMenu(false);
+          setShowAudioMenu(false);
+          setShowMoreMenu(false);
+          resetHideTimer();
+        }}
+        onToggleSubtitleMenu={() => {
+          setShowSubtitleMenu((open) => !open);
+          setShowQualityMenu(false);
+          setShowAudioMenu(false);
+          setShowMoreMenu(false);
+          resetHideTimer();
+        }}
+        onToggleAudioMenu={() => {
+          setShowAudioMenu((open) => !open);
+          setShowQualityMenu(false);
+          setShowSubtitleMenu(false);
+          setShowMoreMenu(false);
+          resetHideTimer();
+        }}
+        onToggleMoreMenu={() => {
+          setShowMoreMenu((open) => !open);
+          setShowQualityMenu(false);
+          setShowSubtitleMenu(false);
+          setShowAudioMenu(false);
+          resetHideTimer();
+        }}
+        onSelectQuality={selectQuality}
+        onSelectSubtitle={selectSubtitle}
+        onSelectAudio={selectAudio}
+        onSelectStreamAudio={(lang) => void selectStreamAudio(lang)}
+        formatClock={formatPlayerClock}
+      />
 
       {bootLoading && !castDevice && !playbackError && (
         <PlayerLoadingScreen
@@ -1814,449 +2025,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           </motion.div>
         )}
       </AnimatePresence>
-
-      <motion.div
-        className="pointer-events-none absolute inset-0 z-[30] flex flex-col justify-between"
-        animate={{ opacity: chromeInteractive ? 1 : 0 }}
-        transition={{ duration: 0.2 }}
-      >
-        <div
-          className={`bg-gradient-to-b from-black/80 to-transparent px-4 py-4 pl-16 sm:px-6 sm:py-5 sm:pl-[4.75rem] ${
-            chromeInteractive ? "pointer-events-auto" : "pointer-events-none"
-          }`}
-        >
-          <div className="flex items-center gap-2 sm:gap-4">
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate font-display text-base font-semibold text-white sm:text-lg">
-                {episodeDisplayTitle(media)}
-              </h1>
-              <p className="mt-0.5 truncate text-[11px] font-medium uppercase tracking-wider text-white/50">
-                {episodeCode(media) && <span>{episodeCode(media)}</span>}
-                {episodeCode(media) && media.seriesTitle && (
-                  <span className="text-white/30"> · </span>
-                )}
-                {media.seriesTitle && <span>{media.seriesTitle}</span>}
-                {!episodeCode(media) && !media.seriesTitle && (
-                  <span>{mediaTypeLabel(media.mediaType)}</span>
-                )}
-              </p>
-            </div>
-            {hasEpisodes && (
-              <PlayerChromeButton
-                variant="pill"
-                onClick={() => {
-                  setShowEpisodes(true);
-                  setShowControls(true);
-                }}
-                aria-label="Episodi"
-                className="hidden sm:inline-flex"
-              >
-                <ListVideo className="h-4 w-4" />
-                <span className="text-[12px]">Episodi</span>
-              </PlayerChromeButton>
-            )}
-            {hasEpisodes && (
-              <PlayerChromeButton
-                onClick={() => {
-                  setShowEpisodes(true);
-                  setShowControls(true);
-                }}
-                aria-label="Episodi"
-                className="sm:hidden"
-              >
-                <ListVideo className="h-4 w-4" />
-              </PlayerChromeButton>
-            )}
-            {canCast && (
-            <PlayerChromeButton
-              onClick={() => {
-                setShowCast(true);
-                setShowControls(true);
-              }}
-              title="Trasmetti alla TV"
-              aria-label="Trasmetti alla TV"
-              className={
-                castingTo
-                  ? "border-mint/40 bg-mint/15 text-mint hover:bg-mint/20"
-                  : ""
-              }
-            >
-              <Cast className="h-4 w-4" />
-            </PlayerChromeButton>
-            )}
-            <PlayerChromeButton
-              onClick={() => {
-                setShowPartyPanel(true);
-                setShowControls(true);
-              }}
-              title="Guarda insieme"
-              aria-label="Guarda insieme"
-              className={
-                partySession
-                  ? "border-accent/40 bg-accent/15 text-accent hover:bg-accent/20"
-                  : ""
-              }
-            >
-              <Users className="h-4 w-4" />
-            </PlayerChromeButton>
-          </div>
-        </div>
-
-        {castingTo && (
-          <div className="absolute left-1/2 top-24 z-20 max-w-sm -translate-x-1/2 rounded-xl border border-mint/30 bg-black/75 px-4 py-2.5 text-center text-[12px] leading-relaxed text-mint backdrop-blur-sm">
-            Trasmissione su {castingTo}
-            <span className="mt-0.5 block text-[11px] text-mint/80">
-              Usa il telecomando TV o i controlli qui sotto
-            </span>
-            <button
-              type="button"
-              onClick={() => void stopCast()}
-              className="mt-2 rounded-full border border-mint/40 px-3 py-1 text-[11px] font-medium text-mint transition-colors hover:bg-mint/10"
-            >
-              Interrompi trasmissione
-            </button>
-          </div>
-        )}
-
-        <div
-          className={`bg-gradient-to-t from-black/90 via-black/50 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-12 sm:px-6 sm:pb-6 sm:pt-16 ${
-            chromeInteractive ? "pointer-events-auto" : "pointer-events-none"
-          }`}
-        >
-          <PlayerScrubBar
-            duration={duration}
-            currentTime={currentTime}
-            bufferPct={bufferPct}
-            progressPct={progress}
-            streamUrl={effectiveStreamUrl}
-            isHls={effectiveIsHls}
-            disabled={!effectiveStreamUrl || castDevice != null || isPartyGuest}
-            onSeek={(time) => {
-              if (castDevice) {
-                setCurrentTime(time);
-              } else {
-                void seek(time);
-              }
-            }}
-            onSeekCommit={(time) => {
-              if (castDevice) void seek(time);
-            }}
-          />
-
-          <div className="flex items-center justify-between gap-2 sm:gap-4">
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-3">
-              <PlayerChromeButton
-                onClick={() => void togglePlay()}
-                disabled={isPartyGuest}
-                size="lg"
-                aria-label={playing ? "Pausa" : "Play"}
-                title={isPartyGuest ? "Controlli gestiti dall'host" : undefined}
-                className="border-transparent bg-transparent shadow-none hover:bg-white/10 disabled:bg-transparent"
-              >
-                {playing ? (
-                  <Pause className="h-7 w-7" fill="currentColor" />
-                ) : (
-                  <Play className="h-7 w-7 fill-current" />
-                )}
-              </PlayerChromeButton>
-
-              <PlayerChromeButton
-                onClick={() => skip(-10)}
-                disabled={isPartyGuest}
-                aria-label="Indietro 10 secondi"
-                title="Indietro 10s"
-                className="border-transparent bg-transparent shadow-none hover:bg-white/10 disabled:bg-transparent"
-              >
-                <RotateCcw className="h-5 w-5" />
-              </PlayerChromeButton>
-              <PlayerChromeButton
-                onClick={() => skip(10)}
-                disabled={isPartyGuest}
-                aria-label="Avanti 10 secondi"
-                title="Avanti 10s"
-                className="border-transparent bg-transparent shadow-none hover:bg-white/10 disabled:bg-transparent"
-              >
-                <RotateCw className="h-5 w-5" />
-              </PlayerChromeButton>
-
-              {prevEp && (
-                <button
-                  type="button"
-                  onClick={playPrevEpisode}
-                  className="hidden h-9 items-center gap-1.5 rounded-full border border-white/15 px-3 text-white/90 transition-colors hover:bg-white/10 hover:text-white sm:flex"
-                  title="Episodio precedente"
-                >
-                  <SkipBack className="h-4 w-4" />
-                  <span className="hidden text-[12px] font-medium md:inline">
-                    Precedente
-                  </span>
-                </button>
-              )}
-
-              {nextEp && (
-                <button
-                  type="button"
-                  onClick={playNextEpisode}
-                  className="hidden h-9 items-center gap-1.5 rounded-full border border-white/15 px-3 text-white/90 transition-colors hover:bg-white/10 hover:text-white sm:flex"
-                  title="Prossimo episodio"
-                >
-                  <SkipForward className="h-4 w-4" />
-                  <span className="hidden text-[12px] font-medium md:inline">
-                    Prossimo
-                  </span>
-                </button>
-              )}
-
-              <div
-                className="relative hidden items-center sm:flex"
-                onMouseEnter={() => setShowVolume(true)}
-                onMouseLeave={() => setShowVolume(false)}
-              >
-                <button
-                  onClick={() => {
-                    const video = videoRef.current;
-                    if (!video) return;
-                    video.muted = !video.muted;
-                    setMuted(video.muted);
-                  }}
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white"
-                >
-                  {muted || volume === 0 ? (
-                    <VolumeX className="h-5 w-5" />
-                  ) : (
-                    <Volume2 className="h-5 w-5" />
-                  )}
-                </button>
-                <motion.div
-                  initial={false}
-                  animate={{
-                    width: showVolume ? 88 : 0,
-                    opacity: showVolume ? 1 : 0,
-                  }}
-                  className="overflow-hidden"
-                >
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={muted ? 0 : volume}
-                    onChange={(e) => changeVolume(Number(e.target.value))}
-                    className="h-1 w-20 cursor-pointer appearance-none rounded-full bg-white/30 accent-white [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
-                  />
-                </motion.div>
-              </div>
-
-              <button
-                onClick={() => {
-                  const video = videoRef.current;
-                  if (!video) return;
-                  video.muted = !video.muted;
-                  setMuted(video.muted);
-                }}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white sm:hidden"
-                aria-label={muted || volume === 0 ? "Attiva audio" : "Disattiva audio"}
-              >
-                {muted || volume === 0 ? (
-                  <VolumeX className="h-5 w-5" />
-                ) : (
-                  <Volume2 className="h-5 w-5" />
-                )}
-              </button>
-
-              <span className="hidden text-[12px] tabular-nums text-white/70 sm:inline">
-                {formatDuration(currentTime)} / {formatDuration(duration)}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1 sm:gap-2">
-              {isHls && qualityOptions.length > 1 && (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowQualityMenu((open) => !open);
-                      setShowSubtitleMenu(false);
-                      setShowAudioMenu(false);
-                      resetHideTimer();
-                    }}
-                    className={`flex h-9 items-center gap-1.5 rounded-full px-3 text-white/80 transition-colors hover:bg-white/10 hover:text-white ${
-                      showQualityMenu ? "bg-white/10 text-white" : ""
-                    }`}
-                    title="Qualità video"
-                    aria-label="Qualità video"
-                  >
-                    <Settings2 className="h-4 w-4" />
-                    <span className="hidden text-[12px] font-medium md:inline">
-                      {activeQualityLabel}
-                    </span>
-                  </button>
-                  {showQualityMenu && (
-                    <div
-                      className="absolute bottom-full right-0 z-40 mb-2 min-w-[168px] overflow-hidden rounded-lg border border-white/10 bg-black/95 py-1 shadow-2xl backdrop-blur-md"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
-                        Qualità
-                      </p>
-                      {qualityOptions.map((option) => (
-                        <button
-                          key={option.level}
-                          type="button"
-                          onClick={() => selectQuality(option.level)}
-                          className={`flex w-full px-3 py-2 text-left text-[13px] transition-colors hover:bg-white/10 ${
-                            selectedQuality === option.level
-                              ? "text-mint"
-                              : "text-white/85"
-                          }`}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {isHls && subtitleOptions.length > 1 && (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowSubtitleMenu((open) => !open);
-                      setShowQualityMenu(false);
-                      setShowAudioMenu(false);
-                      resetHideTimer();
-                    }}
-                    className={`flex h-9 items-center gap-1.5 rounded-full px-3 text-white/80 transition-colors hover:bg-white/10 hover:text-white ${
-                      showSubtitleMenu || selectedSubtitle >= 0
-                        ? "bg-white/10 text-white"
-                        : ""
-                    }`}
-                    title="Sottotitoli"
-                    aria-label="Sottotitoli"
-                  >
-                    <Subtitles className="h-4 w-4" />
-                    <span className="hidden max-w-[96px] truncate text-[12px] font-medium md:inline">
-                      {activeSubtitleLabel}
-                    </span>
-                  </button>
-                  {showSubtitleMenu && (
-                    <div
-                      className="absolute bottom-full right-0 z-40 mb-2 max-h-[min(320px,50vh)] min-w-[220px] overflow-y-auto rounded-lg border border-white/10 bg-black/95 py-1 shadow-2xl backdrop-blur-md"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
-                        Sottotitoli
-                      </p>
-                      {subtitleOptions.map((option) => (
-                        <button
-                          key={option.track}
-                          type="button"
-                          onClick={() => selectSubtitle(option.track)}
-                          className={`flex w-full px-3 py-2 text-left text-[13px] transition-colors hover:bg-white/10 ${
-                            selectedSubtitle === option.track
-                              ? "text-mint"
-                              : "text-white/85"
-                          }`}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {canShowAudioMenu && (
-                <div className="relative">
-                  <button
-                    type="button"
-                    disabled={audioSwitching}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowAudioMenu((open) => !open);
-                      setShowQualityMenu(false);
-                      setShowSubtitleMenu(false);
-                      resetHideTimer();
-                    }}
-                    className={`flex h-9 items-center gap-1.5 rounded-full px-3 text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50 ${
-                      showAudioMenu ? "bg-white/10 text-white" : ""
-                    }`}
-                    title="Lingua audio"
-                    aria-label="Lingua audio"
-                  >
-                    {audioSwitching ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Languages className="h-4 w-4" />
-                    )}
-                    <span className="hidden max-w-[108px] truncate text-[12px] font-medium md:inline">
-                      {activeAudioLabel}
-                    </span>
-                  </button>
-                  {showAudioMenu && (
-                    <div
-                      className="absolute bottom-full right-0 z-40 mb-2 max-h-[min(320px,50vh)] min-w-[220px] overflow-y-auto rounded-lg border border-white/10 bg-black/95 py-1 shadow-2xl backdrop-blur-md"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
-                        Lingua audio
-                      </p>
-                      {onStreamAudioLanguageChange &&
-                        PLAYER_STREAM_AUDIO_OPTIONS.map((option) => (
-                          <button
-                            key={option.id}
-                            type="button"
-                            onClick={() => void selectStreamAudio(option.id)}
-                            className={`flex w-full px-3 py-2 text-left text-[13px] transition-colors hover:bg-white/10 ${
-                              streamAudioLang === option.id
-                                ? "text-mint"
-                                : "text-white/85"
-                            }`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      {onStreamAudioLanguageChange && audioOptions.length > 1 && (
-                        <div className="my-1 border-t border-white/10" />
-                      )}
-                      {audioOptions.length > 1 &&
-                        audioOptions.map((option) => (
-                          <button
-                            key={option.track}
-                            type="button"
-                            onClick={() => selectAudio(option.track)}
-                            className={`flex w-full px-3 py-2 text-left text-[13px] transition-colors hover:bg-white/10 ${
-                              selectedAudio === option.track
-                                ? "text-mint"
-                                : "text-white/85"
-                            }`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-            <button
-              onClick={toggleFullscreen}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white"
-            >
-              {isFullscreen ? (
-                <Minimize className="h-4 w-4" />
-              ) : (
-                <Maximize className="h-4 w-4" />
-              )}
-            </button>
-            </div>
-          </div>
-        </div>
-      </motion.div>
 
       <AnimatePresence>
         {showEpisodes && hasEpisodes && (

@@ -39,7 +39,7 @@ function payloadFromResponse(response: {
   };
 }
 
-/** Non sovrascrivere mai righe/indice validi con risposte vuote parziali. */
+/** Non sovrascrivere mai righe/indice validi con risposte vuote o più povere per-prefix. */
 export function mergeCatalogPayload(
   current: BootCatalogPayload | null,
   incoming: BootCatalogPayload,
@@ -49,14 +49,94 @@ export function mergeCatalogPayload(
   }
 
   return {
-    rows: incoming.rows.length > 0 ? incoming.rows : current.rows,
-    index: incoming.index.length > 0 ? incoming.index : current.index,
+    rows: mergeRowsByKey(current.rows, incoming.rows),
+    index: mergeIndexByPrefix(current.index, incoming.index),
     syncedAt: Math.max(current.syncedAt, incoming.syncedAt),
-    totalCount: Math.max(current.totalCount, incoming.totalCount),
+    totalCount: Math.max(
+      current.totalCount,
+      incoming.totalCount,
+      mergeIndexByPrefix(current.index, incoming.index).length,
+    ),
     error: incoming.error ?? current.error,
     needsBackgroundSync:
       incoming.needsBackgroundSync ?? current.needsBackgroundSync,
   };
+}
+
+function previewPrefix(preview: StremioMetaPreview): string {
+  return (preview.catalogPrefix || "sc").toLowerCase();
+}
+
+function mergeIndexByPrefix(
+  current: StremioMetaPreview[],
+  incoming: StremioMetaPreview[],
+): StremioMetaPreview[] {
+  if (incoming.length === 0) return current;
+  if (current.length === 0) return incoming;
+
+  const group = (items: StremioMetaPreview[]) => {
+    const map = new Map<string, StremioMetaPreview[]>();
+    for (const item of items) {
+      const prefix = previewPrefix(item);
+      const list = map.get(prefix) ?? [];
+      list.push(item);
+      map.set(prefix, list);
+    }
+    return map;
+  };
+
+  const cur = group(current);
+  const next = group(incoming);
+  const prefixes = new Set([...cur.keys(), ...next.keys()]);
+  const out: StremioMetaPreview[] = [];
+
+  for (const prefix of prefixes) {
+    const a = cur.get(prefix) ?? [];
+    const b = next.get(prefix) ?? [];
+    // Tieni il set più completo; a parità preferisci incoming (più fresco).
+    if (b.length === 0) {
+      out.push(...a);
+    } else if (a.length === 0 || b.length >= a.length) {
+      out.push(...b);
+    } else {
+      out.push(...a);
+    }
+  }
+  return out;
+}
+
+function mergeRowsByKey(
+  current: StreamingRow[],
+  incoming: StreamingRow[],
+): StreamingRow[] {
+  if (incoming.length === 0) return current;
+  if (current.length === 0) return incoming;
+
+  const byKey = new Map<string, StreamingRow>();
+  for (const row of current) byKey.set(row.key, row);
+  for (const row of incoming) {
+    const prev = byKey.get(row.key);
+    if (!prev || row.items.length >= prev.items.length) {
+      byKey.set(row.key, row);
+    }
+  }
+  // Mantieni ordine incoming + eventuali solo-current in coda.
+  const seen = new Set<string>();
+  const out: StreamingRow[] = [];
+  for (const row of incoming) {
+    const chosen = byKey.get(row.key);
+    if (chosen && !seen.has(row.key)) {
+      out.push(chosen);
+      seen.add(row.key);
+    }
+  }
+  for (const row of current) {
+    if (!seen.has(row.key)) {
+      out.push(byKey.get(row.key) ?? row);
+      seen.add(row.key);
+    }
+  }
+  return out;
 }
 
 function mergeCache(incoming: BootCatalogPayload) {
@@ -187,7 +267,13 @@ function indexNeedsProviderMetadata(index: StremioMetaPreview[]): boolean {
 export function needsCatalogRefresh(payload: BootCatalogPayload | null): boolean {
   if (!payload) return true;
   if (payload.error && !hasUsableCatalog(payload)) return true;
-  return indexNeedsFullSync(payload.index);
+  if (indexNeedsFullSync(payload.index)) return true;
+  const loonex = payload.index.filter((i) => i.catalogPrefix === "loonex").length;
+  const raiplay = payload.index.filter((i) => i.catalogPrefix === "raiplay").length;
+  // Archivio cartoni/RaiPlay assente o troppo corto → forza refresh completo.
+  if (loonex > 0 && loonex < 120) return true;
+  if (raiplay === 0) return true;
+  return false;
 }
 
 /** Poll mentre il catalogo SC cresce o i metadati si arricchiscono. */

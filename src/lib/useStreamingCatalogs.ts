@@ -15,6 +15,7 @@ import {
   getBootCatalogCache,
   hasUsableCatalog,
   ingestCatalogPayload,
+  mergeCatalogPayload,
   needsCatalogRefresh,
   needsMetadataPoll,
   pollCatalogMetadata,
@@ -226,8 +227,44 @@ export function useStreamingCatalogs(profileId: string): UseStreamingCatalogsRes
 
   const applyScCatalog = useCallback(
     (payload: Awaited<ReturnType<typeof loadScCatalog>>) => {
-      setScRows((prev) => (payload.rows.length > 0 ? payload.rows : prev));
-      setCatalogIndex((prev) => (payload.index.length > 0 ? payload.index : prev));
+      setScRows((prev) => {
+        const merged = mergeCatalogPayload(
+          {
+            rows: prev,
+            index: [],
+            syncedAt: 0,
+            totalCount: 0,
+            error: null,
+          },
+          {
+            rows: payload.rows,
+            index: payload.index,
+            syncedAt: payload.syncedAt,
+            totalCount: payload.totalCount,
+            error: payload.error,
+          },
+        );
+        return merged.rows;
+      });
+      setCatalogIndex((prev) => {
+        const merged = mergeCatalogPayload(
+          {
+            rows: [],
+            index: prev,
+            syncedAt: 0,
+            totalCount: prev.length,
+            error: null,
+          },
+          {
+            rows: payload.rows,
+            index: payload.index,
+            syncedAt: payload.syncedAt,
+            totalCount: payload.totalCount,
+            error: payload.error,
+          },
+        );
+        return merged.index;
+      });
       setCatalogSyncedAt((prev) =>
         payload.syncedAt > 0 ? payload.syncedAt : prev,
       );

@@ -12,6 +12,7 @@ export type NavIcon =
   | "Film"
   | "Sparkles"
   | "Tv"
+  | "Trophy"
   | "Clock"
   | "Wifi"
   | "Users"
@@ -41,7 +42,6 @@ const primaryItems: NavItem[] = [
   { id: "home", label: "Home", icon: "Home" },
   { id: "anime", label: "Anime", icon: "Anime" },
   { id: "manga", label: "Manga", icon: "Manga" },
-  { id: "libri", label: "Libri", icon: "Library" },
   { id: "profile", label: "Profilo", icon: "User" },
   ...(STREMIO_ADDONS_ENABLED
     ? [{ id: "streaming", label: "In streaming", icon: "Wifi" as const }]
@@ -52,6 +52,7 @@ const browseItems: NavItem[] = [
   { id: "film", label: "Film", icon: "Film" },
   { id: "cartoni", label: "Cartoni", icon: "Sparkles" },
   { id: "serie", label: "Serie TV", icon: "Tv" },
+  { id: "sport", label: "Sport", icon: "Trophy" },
   { id: "capsula", label: "Capsula del tempo", icon: "Clock" },
   { id: "search", label: "Cerca", icon: "Search" },
 ];
@@ -204,12 +205,15 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
       title: "Manga",
       subtitle: "Tabloid MangaDex · Novità, popolari e lettura online",
     },
-    libri: {
-      title: "Libri",
-      subtitle: "Catalogo WeLib · Lettura e audiolibri online",
+    cartoni: {
+      title: "Cartoni",
+      subtitle: "Loonex, YouTube e RaiPlay Bambini",
     },
-    cartoni: { title: "Cartoni", subtitle: "Catalogo Loonex e YouTube" },
     serie: { title: "Serie TV", subtitle: "Scopri nuove serie da guardare" },
+    sport: {
+      title: "Sport",
+      subtitle: "RaiPlay Sport · Eventi e programmi sportivi",
+    },
     capsula: {
       title: "Capsula del tempo",
       subtitle: "Classici e tesori rari",

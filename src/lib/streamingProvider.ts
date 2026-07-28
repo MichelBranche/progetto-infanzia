@@ -4,6 +4,8 @@ export function streamingProviderLabel(catalogPrefix?: string): string {
       return "Loonex";
     case "youtube":
       return "YouTube";
+    case "raiplay":
+      return "RaiPlay";
     case "saturn":
       return "Saturn";
     case "sc":
@@ -19,6 +21,8 @@ export function streamingProviderShort(catalogPrefix?: string): string {
       return "Loonex";
     case "youtube":
       return "YouTube";
+    case "raiplay":
+      return "RaiPlay";
     case "saturn":
       return "Saturn";
     case "sc":
@@ -34,6 +38,8 @@ export function streamingProviderIncluded(catalogPrefix?: string): string {
       return "Loonex";
     case "youtube":
       return "YouTube";
+    case "raiplay":
+      return "RaiPlay";
     case "saturn":
       return "Saturn";
     case "sc":

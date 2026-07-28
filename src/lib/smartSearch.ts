@@ -33,7 +33,7 @@ const INTENT_KIND: Array<{ re: RegExp; kind: SearchIntentKind }> = [
 
 const INTENT_CATALOG: Array<{ re: RegExp; catalog: SearchIntentCatalog }> = [
   { re: /\b(anime|animesaturn|saturn)\b/i, catalog: "saturn" },
-  { re: /\b(cartoni|cartoon|cartone|loonex|youtube)\b/i, catalog: "loonex" },
+  { re: /\b(cartoni|cartoon|cartone|loonex|youtube|raiplay)\b/i, catalog: "loonex" },
 ];
 
 /** Rimuove accenti, punteggiatura e spazi multipli → chiave di confronto. */

@@ -17,6 +17,7 @@ import { HeroAmbientProvider } from "./context/HeroAmbientContext";
 import { HomeKeepAliveView } from "./components/HomeKeepAliveView";
 import { SectionBrowsePage } from "./components/SectionBrowsePage";
 import { CartoniBrowsePage } from "./components/CartoniBrowsePage";
+import { SportBrowsePage } from "./components/SportBrowsePage";
 import { ProfilePage, type ProfileTab } from "./components/ProfilePage";
 import type { FriendProfileTarget } from "./components/chat/FriendProfileSheet";
 import { AppUpdaterProvider } from "./context/AppUpdaterContext";
@@ -87,10 +88,12 @@ import {
 import {
   buildContinueBrowseItems,
   buildCartoniHomeRow,
+  buildRaiplayLiveHomeRow,
   buildUnifiedHomeRows,
   buildRandomHeroItems,
   enrichStreamingPreview,
   insertCartoniHomeRow,
+  insertHomeRowAfterContinue,
   mergedSectionBrowseItems,
 } from "./lib/unifiedBrowse";
 import { buildForYouHomeRow } from "./lib/forYouHome";
@@ -856,14 +859,34 @@ function AppContent({
     withMyListFlags,
   ]);
 
-  const homeCatalogRows = useMemo(() => {
-    if (!cartoniHomeRow) return unifiedHomeRows;
-    return insertCartoniHomeRow(
-      unifiedHomeRows,
-      cartoniHomeRow,
-      isArchivioCartoniRow,
+  const raiplayLiveHomeRow = useMemo(() => {
+    const row = buildRaiplayLiveHomeRow(
+      streamingPreviews.map(withMyListFlags),
+      streamingRowsWithoutTop10,
     );
-  }, [unifiedHomeRows, cartoniHomeRow]);
+    if (!row) return null;
+    return {
+      ...row,
+      items: applyMyListToBrowseItems(row.items),
+    };
+  }, [
+    streamingPreviews,
+    streamingRowsWithoutTop10,
+    applyMyListToBrowseItems,
+    withMyListFlags,
+  ]);
+
+  const homeCatalogRows = useMemo(() => {
+    let rows = unifiedHomeRows;
+    // «Per te» dove stava In Diretta (dopo Continua / in cima al catalogo).
+    if (forYouHomeRow) {
+      rows = insertHomeRowAfterContinue(rows, forYouHomeRow);
+    }
+    if (cartoniHomeRow) {
+      rows = insertCartoniHomeRow(rows, cartoniHomeRow, isArchivioCartoniRow);
+    }
+    return rows;
+  }, [unifiedHomeRows, cartoniHomeRow, forYouHomeRow]);
 
   const homeCatalogRowsBeforeManga = useMemo(() => {
     const rows = homeCatalogRows;
@@ -891,6 +914,7 @@ function AppContent({
     catalogIndex.length === 0 &&
     unifiedHomeRows.length === 0 &&
     !cartoniHomeRow &&
+    !raiplayLiveHomeRow &&
     !continueHomeRow;
 
   /** Home davvero usabile: hero + almeno due slider, niente skeleton di pending. */
@@ -973,7 +997,7 @@ function AppContent({
 
   const sectionBrowseSubtitle = useMemo(() => {
     const base = sectionMeta[activeNav]?.subtitle ?? "";
-    if (activeNav === "film" || activeNav === "serie") return base;
+    if (activeNav === "film" || activeNav === "serie" || activeNav === "sport") return base;
     if (sectionStreamingCount > 0) {
       return `${base} · ${sectionStreamingCount.toLocaleString("it-IT")} titoli in streaming`;
     }
@@ -1072,7 +1096,8 @@ function AppContent({
       (target.catalogPrefix === "sc" ||
         target.catalogPrefix === "saturn" ||
         target.catalogPrefix === "loonex" ||
-        target.catalogPrefix === "youtube") &&
+        target.catalogPrefix === "youtube" ||
+        target.catalogPrefix === "raiplay") &&
       !target.slug
     ) {
       return;
@@ -1118,7 +1143,7 @@ function AppContent({
     <AppFrame>
       <BrowseAmbientSetup activeNav={activeNav} seriesKey={seriesKey} />
       {!deferAmbient && <LiquidBackground paused={watchOverlayOpen} />}
-      <HomeHeroBackdrop />
+      {!watchOverlayOpen && <HomeHeroBackdrop />}
       <div className="lf-app-noise noise-overlay pointer-events-none fixed inset-0 z-[2] opacity-[0.04]" />
 
       {/* Shell resta montata sotto gli overlay watch: ritorno istantaneo. */}
@@ -1199,7 +1224,10 @@ function AppContent({
           } ${
             activeNav === "home" && !seriesKey ? "lf-home-scroll" : ""
           } ${
-            (activeNav === "film" || activeNav === "serie") && !seriesKey
+            (activeNav === "film" ||
+              activeNav === "serie" ||
+              activeNav === "sport") &&
+            !seriesKey
               ? "lf-section-scroll"
               : ""
           }`}
@@ -1349,11 +1377,12 @@ function AppContent({
                 {!seriesKey && (
                   <HomeKeepAliveView
                     show={activeNav === "home"}
+                    overlayPaused={watchOverlayOpen}
                     heroItems={heroItems}
                     homeStreamingPending={homeStreamingPending}
                     continueHomeRow={continueHomeRow}
                     top10Row={top10Row}
-                    forYouHomeRow={forYouHomeRow}
+                    raiplayLiveHomeRow={raiplayLiveHomeRow}
                     homeCatalogRows={homeCatalogRows}
                     homeCatalogRowsBeforeManga={homeCatalogRowsBeforeManga}
                     homeCatalogRowsAfterManga={homeCatalogRowsAfterManga}
@@ -1395,11 +1424,31 @@ function AppContent({
                 )}
 
                 {!seriesKey &&
+                  activeNav === "sport" && (
+                  <SuspenseRoute>
+                    <SportBrowsePage
+                      title={sectionInfo?.title ?? "Sport"}
+                      subtitle={sectionBrowseSubtitle}
+                      syncing={syncingIndex}
+                      loading={streamingLoading && sectionBrowseItems.length === 0}
+                      items={sectionBrowseItems}
+                      streamingRows={streamingRowsWithoutTop10}
+                      onPlay={handlePlayNow}
+                      onPlayStreaming={handlePlayStreaming}
+                      onOpenDetail={handleOpenBrowseDetail}
+                      onOpenSeries={handleOpenSeries}
+                      onToggleStreamingList={handleToggleStreamingList}
+                    />
+                  </SuspenseRoute>
+                )}
+
+                {!seriesKey &&
                   activeNav !== "home" &&
                   activeNav !== "anime" &&
                   activeNav !== "manga" &&
                   activeNav !== "libri" &&
                   activeNav !== "cartoni" &&
+                  activeNav !== "sport" &&
                   activeNav !== "profile" &&
                   activeNav !== "add" &&
                   activeNav !== "manage" &&

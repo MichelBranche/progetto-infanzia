@@ -1,18 +1,18 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
-import { BookOpen, Clapperboard, Library, Sparkles, type LucideIcon } from "lucide-react";
+import { BookOpen, Clapperboard, Sparkles, Trophy, type LucideIcon } from "lucide-react";
 import type { NavItem } from "../data/nav";
 
 gsap.registerPlugin(useGSAP);
 
-const MOBILE_MORE_ITEM_IDS = ["cartoni", "anime", "manga", "libri"] as const;
+const MOBILE_MORE_ITEM_IDS = ["cartoni", "anime", "manga", "sport"] as const;
 
 const iconMap: Record<(typeof MOBILE_MORE_ITEM_IDS)[number], LucideIcon> = {
   cartoni: Sparkles,
   anime: Clapperboard,
   manga: BookOpen,
-  libri: Library,
+  sport: Trophy,
 };
 
 interface AppMobileNavMoreMenuProps {

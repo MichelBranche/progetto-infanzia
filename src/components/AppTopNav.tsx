@@ -60,6 +60,7 @@ const PRIMARY_NAV_IDS = [
   "home",
   "film",
   "serie",
+  "sport",
   "cartoni",
   "anime",
   "manga",

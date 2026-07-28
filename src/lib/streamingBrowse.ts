@@ -86,6 +86,7 @@ export const SC_STREAMING_ID_PREFIX = "sc:";
 export const SATURN_STREAMING_ID_PREFIX = "saturn:";
 export const LOONEX_STREAMING_ID_PREFIX = "loonex:";
 export const YOUTUBE_STREAMING_ID_PREFIX = "youtube:";
+export const RAIPLAY_STREAMING_ID_PREFIX = "raiplay:";
 
 /** Nome visualizzato per anteprime streaming (fallback da slug se name assente). */
 export function streamingPreviewDisplayName(preview: StremioMetaPreview): string {
@@ -136,6 +137,17 @@ export function streamingMediaId(preview: StremioMetaPreview): string {
   }
   if (preview.catalogPrefix === "youtube" && preview.slug) {
     const base = `${YOUTUBE_STREAMING_ID_PREFIX}${preview.type}:${preview.slug}`;
+    if (
+      isSeries &&
+      preview.resumeVideoId &&
+      preview.resumeVideoId !== preview.id
+    ) {
+      return `${base}:${preview.resumeVideoId}`;
+    }
+    return base;
+  }
+  if (preview.catalogPrefix === "raiplay" && preview.slug) {
+    const base = `${RAIPLAY_STREAMING_ID_PREFIX}${preview.type}:${preview.slug}`;
     if (
       isSeries &&
       preview.resumeVideoId &&
@@ -219,7 +231,8 @@ export function isStreamingMediaId(id: string): boolean {
     id.startsWith(SC_STREAMING_ID_PREFIX) ||
     id.startsWith(SATURN_STREAMING_ID_PREFIX) ||
     id.startsWith(LOONEX_STREAMING_ID_PREFIX) ||
-    id.startsWith(YOUTUBE_STREAMING_ID_PREFIX)
+    id.startsWith(YOUTUBE_STREAMING_ID_PREFIX) ||
+    id.startsWith(RAIPLAY_STREAMING_ID_PREFIX)
   );
 }
 
@@ -275,6 +288,27 @@ export function parseStreamingMediaId(id: string): AddonWatchTarget | null {
       metaId: slug,
       slug,
       catalogPrefix: "youtube",
+      videoId,
+    };
+  }
+  if (id.startsWith(RAIPLAY_STREAMING_ID_PREFIX)) {
+    const rest = id.slice(RAIPLAY_STREAMING_ID_PREFIX.length);
+    const parts = rest.split(":");
+    if (parts.length < 2) return null;
+    const contentType = parts[0];
+    const slug = parts[1];
+    if (!contentType || !slug) return null;
+
+    let videoId: string | undefined;
+    if (parts.length >= 3) {
+      videoId = parts.slice(2).join(":");
+    }
+
+    return {
+      contentType,
+      metaId: slug,
+      slug,
+      catalogPrefix: "raiplay",
       videoId,
     };
   }
@@ -371,6 +405,19 @@ export function streamingWatchVideoId(
   return undefined;
 }
 
+/** Canale RaiPlay live: niente pagina dettaglio, play diretto. */
+export function isRaiplayLiveTarget(
+  preview: Pick<
+    StremioMetaPreview,
+    "catalogPrefix" | "slug" | "id" | "sourceRowKey"
+  >,
+): boolean {
+  if (preview.catalogPrefix !== "raiplay") return false;
+  const slug = (preview.slug ?? preview.id ?? "").toLowerCase();
+  if (slug.startsWith("live-")) return true;
+  return (preview.sourceRowKey ?? "").toLowerCase() === "raiplay-live";
+}
+
 export function previewToWatchTarget(preview: StremioMetaPreview): AddonWatchTarget {
   const videoId = streamingWatchVideoId(preview);
   if (preview.catalogPrefix === "sc" && preview.slug) {
@@ -407,6 +454,19 @@ export function previewToWatchTarget(preview: StremioMetaPreview): AddonWatchTar
       slug: preview.slug,
       catalogPrefix: "youtube",
       videoId,
+    };
+  }
+  if (preview.catalogPrefix === "raiplay" && preview.slug) {
+    // Live / clip Sport: videoId obbligatorio per triggerare l'autoplay in AddonWatchPage.
+    const directPlay =
+      isRaiplayLiveTarget(preview) || preview.slug.toLowerCase().startsWith("video/");
+    const playVideoId = directPlay ? (videoId ?? preview.slug) : videoId;
+    return {
+      contentType: preview.type,
+      metaId: preview.slug,
+      slug: preview.slug,
+      catalogPrefix: "raiplay",
+      videoId: playVideoId,
     };
   }
   return {

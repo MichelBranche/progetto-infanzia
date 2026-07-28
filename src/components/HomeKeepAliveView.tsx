@@ -7,6 +7,7 @@ import {
 } from "react";
 import { HeroBanner } from "./HeroBanner";
 import { MediaRow } from "./MediaRow";
+import { RaiplayLiveHomeRow } from "./RaiplayLiveHomeRow";
 import { HeroSkeleton, RowSkeleton } from "./Skeleton";
 import { MangaPromoBanner } from "./MangaPromoBanner";
 import { PlatformPromoBanner } from "./PlatformPromoBanner";
@@ -44,11 +45,13 @@ export interface HomeTop10Row {
 
 interface HomeKeepAliveViewProps {
   show: boolean;
+  /** Player/reader aperti sopra: ferma hero preview e parallax. */
+  overlayPaused?: boolean;
   heroItems: MediaItem[];
   homeStreamingPending: boolean;
   continueHomeRow: HomeContinueRow | null;
   top10Row: HomeTop10Row | null;
-  forYouHomeRow: HomeCatalogRow | null;
+  raiplayLiveHomeRow: HomeCatalogRow | null;
   homeCatalogRows: HomeCatalogRow[];
   homeCatalogRowsBeforeManga: HomeCatalogRow[];
   homeCatalogRowsAfterManga: HomeCatalogRow[];
@@ -100,11 +103,12 @@ function HomeKeepAliveSlot({
 export const HomeKeepAliveView = memo(
   function HomeKeepAliveView({
     show,
+    overlayPaused = false,
     heroItems,
     homeStreamingPending,
     continueHomeRow,
     top10Row,
-    forYouHomeRow,
+    raiplayLiveHomeRow,
     homeCatalogRows,
     homeCatalogRowsBeforeManga,
     homeCatalogRowsAfterManga,
@@ -122,13 +126,14 @@ export const HomeKeepAliveView = memo(
     onOpenCartoni,
     onOpenManga,
   }: HomeKeepAliveViewProps) {
+    const heroPaused = !show || overlayPaused;
     return (
-      <HomeKeepAliveSlot show={show}>
+      <HomeKeepAliveSlot show={show && !overlayPaused}>
         {heroItems.length > 0 ? (
           <HeroBanner
             fullPage
-            syncAmbient={show}
-            paused={!show}
+            syncAmbient={show && !overlayPaused}
+            paused={heroPaused}
             items={heroItems}
             scrollContainerRef={scrollContainerRef}
             onPlay={onPlay}
@@ -179,20 +184,12 @@ export const HomeKeepAliveView = memo(
             </Suspense>
           </div>
         )}
-        {forYouHomeRow && (
-          <div className="lf-home-for-you-slot relative">
-            <MediaRow
-              key={forYouHomeRow.key}
-              index="02"
-              title={forYouHomeRow.title}
-              subtitle={forYouHomeRow.subtitle}
-              items={forYouHomeRow.items}
+        {raiplayLiveHomeRow && (
+          <div className="lf-home-live-slot relative">
+            <RaiplayLiveHomeRow
+              items={raiplayLiveHomeRow.items}
               animateEntrance={animateEntrance}
-              onPlay={onPlay}
               onPlayStreaming={onPlayStreaming}
-              onOpenDetail={onOpenDetail}
-              onOpenSeries={onOpenSeries}
-              onToggleStreamingList={onToggleStreamingList}
             />
           </div>
         )}
@@ -200,75 +197,75 @@ export const HomeKeepAliveView = memo(
           {(homeCatalogRows.length > 0 || streamingError) && (
             <div className="relative space-y-1 overflow-visible">
               {homeCatalogRowsBeforeManga.map((row, i) => (
-                <MediaRow
-                  key={row.key}
-                  index={String(i + 1).padStart(2, "0")}
-                  title={row.title}
-                  titleLogo={
-                    isArchivioCartoniRow(row.key, row.title)
-                      ? ARCHIVIO_CARTONI_LOGO
-                      : undefined
-                  }
-                  subtitle={row.subtitle}
-                  items={row.items}
-                  animateEntrance={animateEntrance}
-                  onPlay={onPlay}
-                  onPlayStreaming={onPlayStreaming}
-                  onOpenDetail={onOpenDetail}
-                  onOpenSeries={onOpenSeries}
-                  onToggleStreamingList={onToggleStreamingList}
-                  actionLabel={
-                    row.key === "favorites"
-                      ? "Vedi tutto"
-                      : row.key === "home-cartoni"
-                        ? "Esplora"
+                  <MediaRow
+                    key={row.key}
+                    index={String(i + 1).padStart(2, "0")}
+                    title={row.title}
+                    titleLogo={
+                      isArchivioCartoniRow(row.key, row.title)
+                        ? ARCHIVIO_CARTONI_LOGO
                         : undefined
-                  }
-                  onActionClick={
-                    row.key === "favorites"
-                      ? onOpenMyList
-                      : row.key === "home-cartoni"
-                        ? onOpenCartoni
-                        : undefined
-                  }
-                />
+                    }
+                    subtitle={row.subtitle}
+                    items={row.items}
+                    animateEntrance={animateEntrance}
+                    onPlay={onPlay}
+                    onPlayStreaming={onPlayStreaming}
+                    onOpenDetail={onOpenDetail}
+                    onOpenSeries={onOpenSeries}
+                    onToggleStreamingList={onToggleStreamingList}
+                    actionLabel={
+                      row.key === "favorites"
+                        ? "Vedi tutto"
+                        : row.key === "home-cartoni"
+                          ? "Esplora"
+                          : undefined
+                    }
+                    onActionClick={
+                      row.key === "favorites"
+                        ? onOpenMyList
+                        : row.key === "home-cartoni"
+                          ? onOpenCartoni
+                          : undefined
+                    }
+                  />
               ))}
               <MangaPromoBanner onExplore={onOpenManga} />
               {homeCatalogRowsAfterManga.map((row, i) => (
-                <MediaRow
-                  key={row.key}
-                  index={String(
-                    homeCatalogRowsBeforeManga.length + i + 1,
-                  ).padStart(2, "0")}
-                  title={row.title}
-                  titleLogo={
-                    isArchivioCartoniRow(row.key, row.title)
-                      ? ARCHIVIO_CARTONI_LOGO
-                      : undefined
-                  }
-                  subtitle={row.subtitle}
-                  items={row.items}
-                  animateEntrance={animateEntrance}
-                  onPlay={onPlay}
-                  onPlayStreaming={onPlayStreaming}
-                  onOpenDetail={onOpenDetail}
-                  onOpenSeries={onOpenSeries}
-                  onToggleStreamingList={onToggleStreamingList}
-                  actionLabel={
-                    row.key === "favorites"
-                      ? "Vedi tutto"
-                      : row.key === "home-cartoni"
-                        ? "Esplora"
+                  <MediaRow
+                    key={row.key}
+                    index={String(
+                      homeCatalogRowsBeforeManga.length + i + 1,
+                    ).padStart(2, "0")}
+                    title={row.title}
+                    titleLogo={
+                      isArchivioCartoniRow(row.key, row.title)
+                        ? ARCHIVIO_CARTONI_LOGO
                         : undefined
-                  }
-                  onActionClick={
-                    row.key === "favorites"
-                      ? onOpenMyList
-                      : row.key === "home-cartoni"
-                        ? onOpenCartoni
-                        : undefined
-                  }
-                />
+                    }
+                    subtitle={row.subtitle}
+                    items={row.items}
+                    animateEntrance={animateEntrance}
+                    onPlay={onPlay}
+                    onPlayStreaming={onPlayStreaming}
+                    onOpenDetail={onOpenDetail}
+                    onOpenSeries={onOpenSeries}
+                    onToggleStreamingList={onToggleStreamingList}
+                    actionLabel={
+                      row.key === "favorites"
+                        ? "Vedi tutto"
+                        : row.key === "home-cartoni"
+                          ? "Esplora"
+                          : undefined
+                    }
+                    onActionClick={
+                      row.key === "favorites"
+                        ? onOpenMyList
+                        : row.key === "home-cartoni"
+                          ? onOpenCartoni
+                          : undefined
+                    }
+                  />
               ))}
             </div>
           )}

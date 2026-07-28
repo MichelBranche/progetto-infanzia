@@ -19,7 +19,7 @@ const MOBILE_PRIMARY = [
   { id: "search", label: "Cerca", icon: Search },
 ] as const;
 
-const MOBILE_MORE_CATEGORY_IDS = ["cartoni", "anime", "manga"] as const;
+const MOBILE_MORE_CATEGORY_IDS = ["cartoni", "anime", "manga", "sport"] as const;
 
 interface AppMobileNavBarProps {
   activeId: string;

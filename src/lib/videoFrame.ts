@@ -5,6 +5,70 @@ let activeCaptures = 0;
 const MAX_CONCURRENT_CAPTURES = 3;
 const captureQueue: Array<() => void> = [];
 
+/** Canvas riusato per le catture scrub — evita allocazioni per frame. */
+let sharedCaptureCanvas: HTMLCanvasElement | null = null;
+
+function getCaptureCanvas(): HTMLCanvasElement {
+  if (!sharedCaptureCanvas) {
+    sharedCaptureCanvas = document.createElement("canvas");
+  }
+  return sharedCaptureCanvas;
+}
+
+export function revokeFrameUrl(url: string | null | undefined) {
+  if (url && url.startsWith("blob:")) {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function rememberCachedFrame(key: string, frame: string, maxSize: number) {
+  const prev = frameCache.get(key);
+  if (prev && prev !== frame) revokeFrameUrl(prev);
+  frameCache.set(key, frame);
+  while (frameCache.size > maxSize) {
+    const first = frameCache.keys().next().value;
+    if (first == null) break;
+    const old = frameCache.get(first);
+    frameCache.delete(first);
+    if (old && old !== frame) revokeFrameUrl(old);
+  }
+}
+
+function canvasToFrameUrl(
+  canvas: HTMLCanvasElement,
+  quality = 0.82,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    if (typeof canvas.toBlob === "function") {
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            resolve(URL.createObjectURL(blob));
+            return;
+          }
+          try {
+            resolve(canvas.toDataURL("image/jpeg", quality));
+          } catch {
+            resolve(null);
+          }
+        },
+        "image/jpeg",
+        quality,
+      );
+      return;
+    }
+    try {
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 function scheduleCapture<T>(fn: () => Promise<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     const run = () => {
@@ -87,25 +151,27 @@ export function captureVideoFrame(
     const onError = () => finish(null);
 
     const draw = () => {
-      try {
-        if (video.videoWidth <= 0 || video.videoHeight <= 0) {
+      void (async () => {
+        try {
+          if (video.videoWidth <= 0 || video.videoHeight <= 0) {
+            finish(null);
+            return;
+          }
+          const canvas = getCaptureCanvas();
+          const aspect = video.videoWidth / video.videoHeight;
+          canvas.width = width;
+          canvas.height = Math.round(width / aspect);
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            finish(null);
+            return;
+          }
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          finish(await canvasToFrameUrl(canvas, 0.82));
+        } catch {
           finish(null);
-          return;
         }
-        const canvas = document.createElement("canvas");
-        const aspect = video.videoWidth / video.videoHeight;
-        canvas.width = width;
-        canvas.height = Math.round(width / aspect);
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          finish(null);
-          return;
-        }
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        finish(canvas.toDataURL("image/jpeg", 0.82));
-      } catch {
-        finish(null);
-      }
+      })();
     };
 
     const onSeeked = () => {
@@ -222,11 +288,7 @@ export async function captureFrameFromStream(
       const time = seededPreviewTime(seed, duration);
       const frame = await captureVideoFrame(video, time);
       if (frame) {
-        frameCache.set(cacheKey, frame);
-        if (frameCache.size > 120) {
-          const first = frameCache.keys().next().value;
-          if (first) frameCache.delete(first);
-        }
+        rememberCachedFrame(cacheKey, frame, 120);
       }
       return frame;
     } finally {
@@ -253,11 +315,7 @@ export async function captureScrubFrame(
   // lo scrub ha già una coda seriale sul proprio video element.
   const frame = await captureVideoFrame(video, timeSec, 280, SCRUB_SEEK_TIMEOUT_MS);
   if (frame) {
-    frameCache.set(key, frame);
-    if (frameCache.size > 200) {
-      const first = frameCache.keys().next().value;
-      if (first) frameCache.delete(first);
-    }
+    rememberCachedFrame(key, frame, 200);
   }
   return frame;
 }

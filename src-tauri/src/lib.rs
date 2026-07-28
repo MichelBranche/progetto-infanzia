@@ -22,6 +22,8 @@ mod mangadex;
 mod welib;
 mod youtube_catalog;
 mod youtube_playback;
+mod raiplay_catalog;
+mod raiplay_playback;
 mod saturn_catalog;
 mod saturn_playback;
 pub mod sc_catalog;
@@ -860,6 +862,16 @@ async fn fetch_youtube_catalog_fast(
     }
 }
 
+async fn fetch_raiplay_catalog_fast(
+    db: Arc<crate::db::Database>,
+) -> Option<raiplay_catalog::RaiplayCatalogResponse> {
+    let task = tokio::task::spawn_blocking(move || raiplay_catalog::fetch_catalog(db.as_ref()));
+    match tokio::time::timeout(std::time::Duration::from_secs(60), task).await {
+        Ok(Ok(Ok(response))) => Some(response),
+        _ => None,
+    }
+}
+
 #[tauri::command]
 async fn fetch_sc_catalog_cmd(
     state: State<'_, AppState>,
@@ -868,7 +880,8 @@ async fn fetch_sc_catalog_cmd(
     let saturn_enabled = saturn_catalog::enabled(&state.db);
     let loonex_enabled = loonex_catalog::enabled(&state.db);
     let youtube_enabled = youtube_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled {
+    let raiplay_enabled = raiplay_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled && !raiplay_enabled {
         return Ok(sc_catalog::ScCatalogResponse {
             rows: Vec::new(),
             index: Vec::new(),
@@ -948,8 +961,28 @@ async fn fetch_sc_catalog_cmd(
         }
     };
 
-    let (sc_result, saturn, loonex, youtube) =
-        tokio::join!(sc_future, saturn_future, loonex_future, youtube_future);
+    let raiplay_future = async {
+        if !raiplay_enabled {
+            return None;
+        }
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            fetch_raiplay_catalog_fast(Arc::clone(&db)),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => None,
+        }
+    };
+
+    let (sc_result, saturn, loonex, youtube, raiplay) = tokio::join!(
+        sc_future,
+        saturn_future,
+        loonex_future,
+        youtube_future,
+        raiplay_future
+    );
     let mut response = sc_result?;
 
     if let Some(saturn) = saturn {
@@ -974,6 +1007,14 @@ async fn fetch_sc_catalog_cmd(
             youtube.rows,
             youtube.index,
             youtube.synced_at,
+        );
+    }
+    if let Some(raiplay) = raiplay {
+        merge_external_catalog(
+            &mut response,
+            raiplay.rows,
+            raiplay.index,
+            raiplay.synced_at,
         );
     }
 
@@ -1085,7 +1126,8 @@ async fn refresh_sc_catalog_cmd(
     let saturn_enabled = saturn_catalog::enabled(&state.db);
     let loonex_enabled = loonex_catalog::enabled(&state.db);
     let youtube_enabled = youtube_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled {
+    let raiplay_enabled = raiplay_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled && !raiplay_enabled {
         return Ok(sc_catalog::ScCatalogResponse {
             rows: Vec::new(),
             index: Vec::new(),
@@ -1137,6 +1179,16 @@ async fn refresh_sc_catalog_cmd(
                 youtube.rows,
                 youtube.index,
                 youtube.synced_at,
+            );
+        }
+
+        if raiplay_enabled {
+            let raiplay = raiplay_catalog::refresh_catalog_index(db.as_ref())?;
+            merge_external_catalog(
+                &mut response,
+                raiplay.rows,
+                raiplay.index,
+                raiplay.synced_at,
             );
         }
 
@@ -1257,7 +1309,8 @@ async fn search_sc_catalog_page_inner(
     let saturn_enabled = saturn_catalog::enabled(&state.db);
     let loonex_enabled = loonex_catalog::enabled(&state.db);
     let youtube_enabled = youtube_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled {
+    let raiplay_enabled = raiplay_catalog::enabled(&state.db);
+    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled && !raiplay_enabled {
         return Ok(catalog_search::SearchCatalogPage {
             items: Vec::new(),
             total: 0,
@@ -1280,6 +1333,7 @@ async fn search_sc_catalog_page_inner(
             saturn_enabled,
             loonex_enabled,
             youtube_enabled,
+            raiplay_enabled,
             &cdn,
             &locale,
         )
@@ -1409,6 +1463,52 @@ async fn resolve_youtube_stream_cmd(
     })
     .await
     .map_err(|e| format!("Errore riproduzione YouTube: {e}"))?
+}
+
+#[tauri::command]
+async fn fetch_raiplay_on_air_cmd(
+    state: State<'_, AppState>,
+) -> Result<Vec<StremioMetaPreview>, String> {
+    if !raiplay_catalog::enabled(&state.db) {
+        return Ok(Vec::new());
+    }
+    let db = Arc::clone(&state.db);
+    tokio::task::spawn_blocking(move || raiplay_catalog::fetch_on_air_live(db.as_ref()))
+        .await
+        .map_err(|e| format!("Errore dirette RaiPlay: {e}"))?
+}
+
+#[tauri::command]
+async fn fetch_raiplay_meta_cmd(
+    state: State<'_, AppState>,
+    slug: String,
+) -> Result<StremioMeta, String> {
+    if !raiplay_catalog::enabled(&state.db) {
+        return Err("Catalogo RaiPlay disabilitato".into());
+    }
+    let db = Arc::clone(&state.db);
+    tokio::task::spawn_blocking(move || raiplay_playback::fetch_title_meta(db.as_ref(), &slug))
+        .await
+        .map_err(|e| format!("Errore meta RaiPlay: {e}"))?
+}
+
+#[tauri::command]
+async fn resolve_raiplay_stream_cmd(
+    state: State<'_, AppState>,
+    slug: String,
+    episode_id: Option<String>,
+) -> Result<PlayableStream, String> {
+    if !raiplay_catalog::enabled(&state.db) {
+        return Err("Catalogo RaiPlay disabilitato".into());
+    }
+    let episode_id = episode_id.filter(|s| !s.trim().is_empty());
+    let db = Arc::clone(&state.db);
+    let proxy = state.addon_proxy.clone();
+    tokio::task::spawn_blocking(move || {
+        raiplay_playback::resolve_playback(db.as_ref(), &slug, episode_id.as_deref(), &proxy)
+    })
+    .await
+    .map_err(|e| format!("Errore riproduzione RaiPlay: {e}"))?
 }
 
 #[tauri::command]
@@ -2247,6 +2347,7 @@ fn init_app(handle: &AppHandle) -> Result<AppState, String> {
     let _ = saturn_catalog::ensure_defaults(&db);
     let _ = loonex_catalog::ensure_defaults(&db);
     let _ = youtube_catalog::ensure_defaults(&db);
+    let _ = raiplay_catalog::ensure_defaults(&db);
     let _ = db.sync_empty_child_allowlists();
     let db_bootstrap = db.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -2367,6 +2468,9 @@ pub fn run() {
             resolve_loonex_stream_cmd,
             fetch_youtube_meta_cmd,
             resolve_youtube_stream_cmd,
+            fetch_raiplay_on_air_cmd,
+            fetch_raiplay_meta_cmd,
+            resolve_raiplay_stream_cmd,
             resolve_sc_preview_cmd,
             update_streaming_watch_progress_cmd,
             get_streaming_watch_progress_cmd,

@@ -8,7 +8,10 @@ export function isBrowseAmbientSection(
   seriesKey: string | null,
 ): boolean {
   return (
-    (activeNav === "film" || activeNav === "serie" || activeNav === "anime") &&
+    (activeNav === "film" ||
+      activeNav === "serie" ||
+      activeNav === "sport" ||
+      activeNav === "anime") &&
     !seriesKey
   );
 }

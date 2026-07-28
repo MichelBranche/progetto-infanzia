@@ -1,5 +1,6 @@
 use crate::db::Database;
 use crate::loonex_catalog;
+use crate::raiplay_catalog;
 use crate::saturn_catalog;
 use crate::sc_catalog;
 use crate::sc_playback;
@@ -52,6 +53,7 @@ fn run_search(
     saturn_enabled: bool,
     loonex_enabled: bool,
     youtube_enabled: bool,
+    raiplay_enabled: bool,
     cdn: &str,
     locale: &str,
 ) -> Vec<StremioMetaPreview> {
@@ -59,7 +61,12 @@ fn run_search(
     let mut seen = std::collections::HashSet::new();
     let mut push_unique = |items: Vec<StremioMetaPreview>| {
         for item in items {
-            let key = format!("{}:{}", item.r#type, item.id);
+            let key = format!(
+                "{}:{}:{}",
+                item.catalog_prefix.as_deref().unwrap_or("sc"),
+                item.r#type,
+                item.id
+            );
             if seen.insert(key) {
                 out.push(item);
             }
@@ -83,6 +90,9 @@ fn run_search(
     if youtube_enabled {
         push_unique(youtube_catalog::search_titles(db, query));
     }
+    if raiplay_enabled {
+        push_unique(raiplay_catalog::search_titles(db, query));
+    }
 
     rank_previews_keep_unmatched(out, query)
 }
@@ -94,6 +104,7 @@ fn cached_search(
     saturn_enabled: bool,
     loonex_enabled: bool,
     youtube_enabled: bool,
+    raiplay_enabled: bool,
     cdn: &str,
     locale: &str,
 ) -> Vec<StremioMetaPreview> {
@@ -112,6 +123,7 @@ fn cached_search(
                 saturn_enabled,
                 loonex_enabled,
                 youtube_enabled,
+                raiplay_enabled,
                 cdn,
                 locale,
             );
@@ -131,6 +143,7 @@ fn cached_search(
         saturn_enabled,
         loonex_enabled,
         youtube_enabled,
+        raiplay_enabled,
         cdn,
         locale,
     );
@@ -154,6 +167,7 @@ pub fn search_catalog_page(
     saturn_enabled: bool,
     loonex_enabled: bool,
     youtube_enabled: bool,
+    raiplay_enabled: bool,
     cdn: &str,
     locale: &str,
 ) -> SearchCatalogPage {
@@ -165,6 +179,7 @@ pub fn search_catalog_page(
         saturn_enabled,
         loonex_enabled,
         youtube_enabled,
+        raiplay_enabled,
         cdn,
         locale,
     );

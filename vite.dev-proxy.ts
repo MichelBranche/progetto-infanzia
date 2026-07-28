@@ -13,11 +13,19 @@ const longApiProxy = {
   proxyTimeout: 600_000,
 };
 
+/** HLS /remote: playlist live + segmenti. 15s faceva cadere le dirette Rai
+ *  dopo ~10–15s con levelParsingError (Vite risponde HTML di timeout). */
+const streamMediaProxy = {
+  ...devApiProxy,
+  timeout: 120_000,
+  proxyTimeout: 120_000,
+};
+
 export const devServerProxy = {
   "/health": devApiProxy,
   "/api": longApiProxy,
   "/stream": longApiProxy,
-  "/cast": devApiProxy,
+  "/cast": streamMediaProxy,
   "/poster": longApiProxy,
   "/series-poster": longApiProxy,
   "/saturn-poster": longApiProxy,
@@ -25,11 +33,11 @@ export const devServerProxy = {
   "/sc-image": longApiProxy,
   "/mangadex-cover": longApiProxy,
   "/welib-book": { ...devApiProxy, timeout: 120_000, proxyTimeout: 120_000 },
-  "/welib-audio": devApiProxy,
-  "/welib-cover": devApiProxy,
-  "/remote": devApiProxy,
-  "/remote-cast": devApiProxy,
-  "/torrent": devApiProxy,
+  "/welib-audio": streamMediaProxy,
+  "/welib-cover": longApiProxy,
+  "/remote": streamMediaProxy,
+  "/remote-cast": streamMediaProxy,
+  "/torrent": streamMediaProxy,
   "/presence": devApiProxy,
   "/watch-party": { ...devApiProxy, ws: true },
 };

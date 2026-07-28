@@ -13,6 +13,7 @@ export const STREAMING_SERVICES: StreamingService[] = [
   { id: "paramount", label: "Paramount+", shortLabel: "Pa", color: "#0064ff" },
   { id: "now", label: "NOW", shortLabel: "NOW", color: "#00c8aa" },
   { id: "hbo", label: "Max", shortLabel: "Max", color: "#b535f6" },
+  { id: "raiplay", label: "RaiPlay", shortLabel: "Rai", color: "#00a2ff" },
 ];
 
 export function streamingSearchUrl(serviceId: string, title: string): string {
@@ -32,6 +33,8 @@ export function streamingSearchUrl(serviceId: string, title: string): string {
       return `https://www.nowtv.it/watch/search?q=${q}`;
     case "hbo":
       return `https://www.max.com/search?q=${q}`;
+    case "raiplay":
+      return `https://www.raiplay.it/ricerca.html?q=${q}`;
     default:
       return `https://www.google.com/search?q=${q}+streaming`;
   }

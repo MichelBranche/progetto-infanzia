@@ -3,10 +3,14 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 const ENTRY_TTL: Duration = Duration::from_secs(12 * 3600);
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(120);
+/// Segmenti da tenere nelle media playlist live (senza EXT-X-ENDLIST).
+/// ~4 min con targetduration 10s — abbastanza per latency HLS.js, senza
+/// far esplodere il parser su finestre DVR da migliaia di EXTINF.
+const LIVE_MEDIA_SEGMENT_KEEP: usize = 24;
 
 #[derive(Debug, Clone)]
 pub struct ProxyEntry {
@@ -85,17 +89,21 @@ impl AddonProxyRegistry {
         use_proxy: bool,
     ) -> String {
         self.maybe_cleanup();
-        // ID corto (16 hex). I ticket firmati lunghi (0.2.23) inserivano URL
-        // upstream + header in base64 dentro *ogni* segmento: una playlist da
-        // 800 segmenti passava da ~130 KB a ~500 KB.
+        // ID stabile per URL upstream: le dirette Rai refresano la media playlist
+        // ogni ~2s con centinaia/migliaia di segmenti. Se l'ID includeva i nanos,
+        // ogni refresh creava N entry nuove → HashMap enorme, rewrite lento,
+        // timeout del proxy Vite → levelParsingError.
         let id = format!("{:016x}", {
             let mut h = DefaultHasher::new();
             upstream_url.hash(&mut h);
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-                .hash(&mut h);
+            rewrite_manifest.hash(&mut h);
+            use_proxy.hash(&mut h);
+            let mut pairs: Vec<_> = request_headers.iter().collect();
+            pairs.sort_by(|a, b| a.0.cmp(b.0));
+            for (k, v) in pairs {
+                k.hash(&mut h);
+                v.hash(&mut h);
+            }
             h.finish()
         });
         let entry = ProxyEntry {
@@ -186,7 +194,14 @@ impl AddonProxyRegistry {
     ) -> String {
         let base = url::Url::parse(manifest_url).ok();
         let kind = ManifestKind::detect(manifest_body);
-        manifest_body
+        // Dirette Rai espongono finestre DVR enormi (~1000×10s). HLS.js finisce
+        // in levelParsingError; teniamo solo gli ultimi segmenti (live edge).
+        let body = if kind == ManifestKind::Media {
+            trim_live_media_window(manifest_body, LIVE_MEDIA_SEGMENT_KEEP)
+        } else {
+            manifest_body.to_string()
+        };
+        body
             .lines()
             .map(|line| {
                 if line.trim().is_empty() {
@@ -212,6 +227,56 @@ impl AddonProxyRegistry {
             .collect::<Vec<_>>()
             .join("\n")
     }
+}
+
+/// Riduce una media playlist live alla coda (live edge), aggiornando
+/// `EXT-X-MEDIA-SEQUENCE`. Le VOD (`#EXT-X-ENDLIST`) restano intatte.
+fn trim_live_media_window(body: &str, keep: usize) -> String {
+    if keep == 0
+        || body
+            .lines()
+            .any(|l| l.trim().eq_ignore_ascii_case("#EXT-X-ENDLIST"))
+    {
+        return body.to_string();
+    }
+
+    let lines: Vec<&str> = body.lines().collect();
+    let mut seg_starts: Vec<usize> = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if line.trim().to_ascii_uppercase().starts_with("#EXTINF") {
+            seg_starts.push(i);
+        }
+    }
+    if seg_starts.len() <= keep {
+        return body.to_string();
+    }
+
+    let drop_count = seg_starts.len() - keep;
+    let first_kept = seg_starts[drop_count];
+    let header_end = seg_starts[0];
+    let mut out: Vec<String> = Vec::with_capacity(keep * 2 + 16);
+
+    for line in &lines[..header_end] {
+        let upper = line.trim().to_ascii_uppercase();
+        if let Some(rest) = upper.strip_prefix("#EXT-X-MEDIA-SEQUENCE:") {
+            if let Ok(seq) = rest.trim().parse::<u64>() {
+                out.push(format!(
+                    "#EXT-X-MEDIA-SEQUENCE:{}",
+                    seq + drop_count as u64
+                ));
+                continue;
+            }
+        }
+        // PDT del primo segmento (ore fa): fuorviante dopo il trim.
+        if upper.starts_with("#EXT-X-PROGRAM-DATE-TIME:") {
+            continue;
+        }
+        out.push((*line).to_string());
+    }
+    for line in &lines[first_kept..] {
+        out.push((*line).to_string());
+    }
+    out.join("\n")
 }
 
 /// Rete di sicurezza del proxy: qualunque cosa fosse stata registrata, se il
@@ -268,7 +333,18 @@ fn resolve_url(base: Option<&url::Url>, reference: &str) -> String {
         return abs.to_string();
     }
     if let Some(base) = base {
-        if let Ok(joined) = base.join(reference) {
+        if let Ok(mut joined) = base.join(reference) {
+            // Master Rai/msvdn: `playlist_mo.m3u8?tk2=…` con varianti relative
+            // `rainews_2400/chunklist.m3u8`. Senza query il CDN può rispondere
+            // male al refresh live → levelParsingError dopo pochi secondi.
+            if joined.query().is_none() {
+                let path = joined.path().to_ascii_lowercase();
+                if path.contains(".m3u8") {
+                    if let Some(q) = base.query() {
+                        joined.set_query(Some(q));
+                    }
+                }
+            }
             return joined.to_string();
         }
     }
@@ -479,6 +555,58 @@ https://cdn.example/seg/001.ts"#;
     }
 
     #[test]
+    fn reuses_stable_id_for_same_upstream() {
+        let proxy = AddonProxyRegistry::new();
+        let a = proxy.register(
+            "https://cdn.example/seg/001.ts".into(),
+            headers(),
+            false,
+            false,
+        );
+        let b = proxy.register(
+            "https://cdn.example/seg/001.ts".into(),
+            headers(),
+            false,
+            false,
+        );
+        assert_eq!(a, b, "stesso upstream deve riusare lo stesso id proxy");
+        assert_eq!(proxy.entries.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn trims_huge_live_media_window() {
+        let mut body = String::from(
+            "#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:100\n#EXT-X-PROGRAM-DATE-TIME:2026-01-01T00:00:00Z\n",
+        );
+        for i in 0..50 {
+            body.push_str(&format!("#EXTINF:10.0,\nhttps://cdn.example/seg/{i}.ts\n"));
+        }
+        let trimmed = trim_live_media_window(&body, 5);
+        assert!(
+            !trimmed.contains("#EXT-X-PROGRAM-DATE-TIME"),
+            "PDT stale rimossa"
+        );
+        assert!(
+            trimmed.contains("#EXT-X-MEDIA-SEQUENCE:145"),
+            "sequence aggiornata: {trimmed}"
+        );
+        assert_eq!(
+            trimmed.matches("#EXTINF").count(),
+            5,
+            "solo coda: {trimmed}"
+        );
+        assert!(trimmed.contains("seg/49.ts"));
+        assert!(!trimmed.contains("seg/0.ts"));
+
+        let vod = format!("{body}#EXT-X-ENDLIST\n");
+        assert_eq!(
+            trim_live_media_window(&vod, 5).matches("#EXTINF").count(),
+            50,
+            "VOD non va trimmata"
+        );
+    }
+
+    #[test]
     fn detects_manifest_kind() {
         assert_eq!(
             ManifestKind::detect("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nhttp://a/b"),
@@ -535,5 +663,34 @@ https://cdn.example/seg/001.ts"#;
             "variante video opaca deve essere sniffata e riscritta"
         );
         assert!(should_sniff_manifest(&misclassified, None));
+    }
+
+    #[test]
+    fn preserves_query_on_relative_m3u8_join() {
+        let base = url::Url::parse(
+            "https://cdn.example/hls/playlist_mo.m3u8?baseuri=%2Fhls%2F&tk2=abc",
+        )
+        .unwrap();
+        let joined = resolve_url(Some(&base), "rainews_2400/chunklist.m3u8");
+        assert!(
+            joined.contains("tk2=abc"),
+            "query token perso sul livello HLS: {joined}"
+        );
+        assert!(
+            joined.contains("rainews_2400/chunklist.m3u8"),
+            "{joined}"
+        );
+        // I segmenti .ts non devono ereditare la query del master.
+        let seg = resolve_url(
+            Some(
+                &url::Url::parse("https://cdn.example/hls/rainews_2400/chunklist.m3u8?tk2=abc")
+                    .unwrap(),
+            ),
+            "0xrluj8g/media_1.ts",
+        );
+        assert!(
+            !seg.contains("tk2="),
+            "query non doveva finire sul segmento: {seg}"
+        );
     }
 }

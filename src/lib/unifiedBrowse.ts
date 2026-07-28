@@ -29,8 +29,40 @@ const ANIMATION_GENRE_LABEL =
 const ANIMATION_TITLE =
   /\b(minions|toy\s*story|shrek|frozen|encanto|luca\b|zootropolis|zootopia|moana|oceania|nemo|dory|\bcars\b|kung fu panda|dragon trainer|how to train|cattivissimo|despicable|sing\b|elemental|spider.?verse|super mario|pokemon|puffi|smurf|ghibli|madagasc|wallace|shaun the sheep|peanuts|incredibles|gli incredibili|inside out|inversione|ralph|wreck.?it|big hero|gli eroi della citt)\b/i;
 
+export function isRaiplayBambiniPreview(preview: StremioMetaPreview): boolean {
+  if (preview.catalogPrefix !== "raiplay") return false;
+  const row = (preview.sourceRowKey ?? "").toLowerCase();
+  if (row === "raiplay-bambini") return true;
+  if (
+    row === "raiplay-film" ||
+    row === "raiplay-serie" ||
+    row === "raiplay-sport" ||
+    row.startsWith("raiplay-sport-") ||
+    row === "raiplay-live"
+  ) {
+    return false;
+  }
+  if ((preview.slug ?? "").startsWith("live-")) return false;
+  return isAnimationFromGenres(preview.genres);
+}
+
+export function isRaiplayLivePreview(preview: StremioMetaPreview): boolean {
+  if (preview.catalogPrefix !== "raiplay") return false;
+  const row = (preview.sourceRowKey ?? "").toLowerCase();
+  return row === "raiplay-live" || (preview.slug ?? "").startsWith("live-");
+}
+
+export function isRaiplaySportPreview(preview: StremioMetaPreview): boolean {
+  if (preview.catalogPrefix !== "raiplay") return false;
+  const row = (preview.sourceRowKey ?? "").toLowerCase();
+  return row === "raiplay-sport" || row.startsWith("raiplay-sport-");
+}
+
 export function isCartoniCatalogPreview(preview: StremioMetaPreview): boolean {
-  return preview.catalogPrefix === "loonex" || preview.catalogPrefix === "youtube";
+  if (preview.catalogPrefix === "loonex" || preview.catalogPrefix === "youtube") {
+    return true;
+  }
+  return isRaiplayBambiniPreview(preview);
 }
 
 function parseYear(releaseInfo?: string): number | undefined {
@@ -69,6 +101,23 @@ export function isAnimationStreamingPreview(
 ): boolean {
   if (preview.catalogPrefix === "loonex") return true;
   if (preview.catalogPrefix === "youtube") return true;
+  if (preview.catalogPrefix === "raiplay") {
+    const resolved = resolveStreamingContext(preview, context);
+    if ((resolved.rowKey ?? "").toLowerCase() === "raiplay-bambini") return true;
+    if (
+      (resolved.rowKey ?? "").toLowerCase() === "raiplay-film" ||
+      (resolved.rowKey ?? "").toLowerCase() === "raiplay-serie" ||
+      (resolved.rowKey ?? "").toLowerCase() === "raiplay-sport" ||
+      (resolved.rowKey ?? "").toLowerCase().startsWith("raiplay-sport-") ||
+      (resolved.rowKey ?? "").toLowerCase() === "raiplay-live"
+    ) {
+      return false;
+    }
+    return isRaiplayBambiniPreview({
+      ...preview,
+      sourceRowKey: resolved.rowKey ?? preview.sourceRowKey,
+    });
+  }
   const resolved = resolveStreamingContext(preview, context);
   return (
     isAnimationContext(resolved) ||
@@ -77,7 +126,7 @@ export function isAnimationStreamingPreview(
   );
 }
 
-/** Cartoni section: solo cataloghi Loonex e YouTube. */
+/** Cartoni section: Loonex, YouTube e RaiPlay Bambini. */
 export function isCartoniStreamingPreview(
   preview: StremioMetaPreview,
   _context?: { rowKey?: string; rowTitle?: string },
@@ -93,6 +142,18 @@ export function classifyStreamingMediaType(
   preview: StremioMetaPreview,
   context?: { rowKey?: string; rowTitle?: string },
 ): LibraryMediaType {
+  if (preview.catalogPrefix === "raiplay") {
+    const resolved = resolveStreamingContext(preview, context);
+    const row = (resolved.rowKey ?? "").toLowerCase();
+    if (row === "raiplay-bambini") return "cartone";
+    if (row === "raiplay-film") return "film";
+    if (row === "raiplay-serie" || row === "raiplay-sport" || row.startsWith("raiplay-sport-")) {
+      return "serie";
+    }
+    if (row === "raiplay-live" || (preview.slug ?? "").startsWith("live-")) {
+      return "film";
+    }
+  }
   const animated = isAnimationStreamingPreview(preview, context);
   if (preview.type === "movie") {
     return animated ? "cartone" : "film";
@@ -433,6 +494,12 @@ function streamingForDiscoverySection(
       if (prefix === "loonex" || prefix === "youtube" || prefix === "saturn") {
         return false;
       }
+      if (isRaiplayLivePreview(preview)) return false;
+      if (prefix === "raiplay") {
+        if (isRaiplayBambiniPreview(preview)) return false;
+        if (isRaiplaySportPreview(preview)) return false;
+        return preview.mediaType === wantMedia;
+      }
       const rawType = (preview.type || "").toLowerCase();
       if (section === "film") {
         if (rawType !== "movie" && rawType !== "film") return false;
@@ -613,6 +680,17 @@ function streamingCatalogHomeRows(
   const minItems = 4;
 
   for (const streamRow of streamingRows) {
+    // Bambini/film/serie/sport RaiPlay vivono nelle sezioni dedicate; live ha riga Home propria.
+    if (
+      streamRow.key === "raiplay-bambini" ||
+      streamRow.key === "raiplay-film" ||
+      streamRow.key === "raiplay-serie" ||
+      streamRow.key === "raiplay-sport" ||
+      streamRow.key.startsWith("raiplay-sport-") ||
+      streamRow.key === "raiplay-live"
+    ) {
+      continue;
+    }
     const items = streamRow.items
       .filter(
         (preview) =>
@@ -784,7 +862,10 @@ export function buildUnifiedHomeRows(
 
   if (mergeStreaming) {
     const leftover = enriched.filter(
-      (preview) => !usedStreamingIds.has(streamingPreviewDedupeKey(preview)),
+      (preview) =>
+        !usedStreamingIds.has(streamingPreviewDedupeKey(preview)) &&
+        // RaiPlay: sezioni Film/Serie/Cartoni + riga Home live
+        preview.catalogPrefix !== "raiplay",
     );
     const discoverItems = padHomeRowItems(
       leftover.map((preview) => streamingBrowseItem(preview)),
@@ -820,6 +901,7 @@ export function mergedSectionBrowseItems(
     section !== "film" &&
     section !== "cartoni" &&
     section !== "serie" &&
+    section !== "sport" &&
     section !== "capsula" &&
     section !== "search"
   ) {
@@ -861,6 +943,13 @@ export function mergedSectionBrowseItems(
     return dedupeBrowseItems([...local, ...streaming]);
   }
 
+  if (section === "sport") {
+    const streaming = enriched
+      .filter(isRaiplaySportPreview)
+      .map((preview) => streamingBrowseItem(preview));
+    return dedupeBrowseItems(streaming);
+  }
+
   // section === "capsula"
   const local = localItems.map((item) => ({ kind: "media" as const, item }));
   const streaming = enriched.filter(streamingInCapsula).map(streamingBrowseItem);
@@ -887,9 +976,70 @@ export function buildCartoniHomeRow(
   return {
     key: "home-cartoni",
     title: "Cartoni",
-    subtitle: "Loonex e YouTube",
+    subtitle: "Loonex, YouTube e RaiPlay Bambini",
     items: items.slice(0, HOME_ROW_DISPLAY_LIMIT),
   };
+}
+
+const MIN_LIVE_HOME_ROW_ITEMS = 3;
+
+export function buildRaiplayLiveHomeRow(
+  catalogPreviews: StremioMetaPreview[],
+  streamingRows: StreamingRow[] = [],
+): UnifiedHomeRow | null {
+  const fromRows = streamingRows.find((row) => row.key === "raiplay-live");
+  const previews =
+    fromRows?.items?.length
+      ? fromRows.items
+      : catalogPreviews.filter(isRaiplayLivePreview);
+
+  const items = previews
+    .map((preview) =>
+      streamingBrowseItem(
+        enrichStreamingPreview(preview, {
+          rowKey: "raiplay-live",
+          rowTitle: "In diretta · RaiPlay",
+        }),
+      ),
+    )
+    .slice(0, HOME_ROW_DISPLAY_LIMIT);
+
+  if (items.length < MIN_LIVE_HOME_ROW_ITEMS) {
+    return null;
+  }
+
+  return {
+    key: "home-raiplay-live",
+    title: "In diretta",
+    subtitle: "Canali RaiPlay",
+    items,
+  };
+}
+
+export function insertRaiplayLiveHomeRow(
+  rows: UnifiedHomeRow[],
+  liveRow: UnifiedHomeRow,
+): UnifiedHomeRow[] {
+  return insertHomeRowAfterContinue(rows, liveRow);
+}
+
+/** Inserisce una riga subito dopo «Continua a guardare» (o in cima). */
+export function insertHomeRowAfterContinue(
+  rows: UnifiedHomeRow[],
+  pinned: UnifiedHomeRow,
+): UnifiedHomeRow[] {
+  const filtered = rows.filter(
+    (row) =>
+      row.key !== pinned.key &&
+      row.key !== "home-raiplay-live" &&
+      row.key !== "streaming-row-raiplay-live" &&
+      row.key !== "for-you",
+  );
+  const continueIdx = filtered.findIndex((row) => row.key === "continue");
+  const insertAt = continueIdx >= 0 ? continueIdx + 1 : 0;
+  const next = [...filtered];
+  next.splice(insertAt, 0, pinned);
+  return next;
 }
 
 export function insertCartoniHomeRow(

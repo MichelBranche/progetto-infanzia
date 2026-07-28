@@ -46,6 +46,14 @@ export function StreamingProviderBadge({
     );
   }
 
+  if (catalogPrefix === "raiplay") {
+    return (
+      <span className={`${base} text-[11px] font-bold ${className}`}>
+        RaiPlay
+      </span>
+    );
+  }
+
   return (
     <span className={`${base} text-[10px] font-semibold uppercase tracking-wider ${className}`}>
       Web

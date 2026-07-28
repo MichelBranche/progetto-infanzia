@@ -7,9 +7,11 @@ export function isArchivioCartoniRow(key: string, title: string): boolean {
     key === "cartoni" ||
     key.includes("loonex") ||
     key.includes("youtube") ||
+    key.includes("raiplay-bambini") ||
     normalized === "cartoni loonex" ||
     normalized === "archivio cartoni" ||
     normalized === "classici su youtube" ||
+    normalized === "raiplay bambini" ||
     normalized === "cartoni"
   );
 }
