@@ -1,6 +1,6 @@
 FROM rust:1-bookworm AS builder
 
-# Force rebuild stamp: 2026-07-27-v0.2.25-sc-vin-vixcloud
+# Force rebuild stamp: 2026-07-28-v0.2.27-raiplay-retry
 # Tauri 2 su Linux richiede WebKit/GTK anche per compilare la libreria.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
