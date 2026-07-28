@@ -55,6 +55,7 @@ import { StickyYouTubeDock } from "./components/StickyYouTubeDock";
 import { AmbientAudioProvider, useAmbientAudioControls } from "./context/AmbientAudioContext";
 import { GuestHotSinglesToast } from "./components/GuestHotSinglesToast";
 import { GuestLimitBlockedScreen } from "./components/GuestLimitBlockedScreen";
+import { BannedScreen } from "./components/BannedScreen";
 import { PreviewAudioProvider } from "./context/PreviewAudioContext";
 import {
   isArchivioCartoniRow,
@@ -1518,7 +1519,7 @@ function AppGate() {
   const [bootPhase, setBootPhase] = useState<"intro" | "preparing" | "done">("intro");
   const [catalogReady, setCatalogReady] = useState(false);
   const [homeReady, setHomeReady] = useState(false);
-  const { profile: cloudProfile } = useCloudAccount();
+  const { profile: cloudProfile, signOut } = useCloudAccount();
   const {
     activeProfile,
     pendingProfile,
@@ -1529,7 +1530,16 @@ function AppGate() {
     loading: profilesLoading,
     enterGuestSession,
   } = useProfile();
-  const { setupComplete, loading: accessLoading, syncFromStorage, mode, isGuest } = useAppAccess();
+  const {
+    setupComplete,
+    loading: accessLoading,
+    syncFromStorage,
+    mode,
+    isGuest,
+    accessBan,
+    clearAccessBan,
+    logoutAccess,
+  } = useAppAccess();
   const { backendOnline, checking, checkBackend } = useDevBackendGate();
 
   useEffect(() => {
@@ -1634,6 +1644,22 @@ function AppGate() {
   const mountAppShell =
     Boolean(activeProfile) &&
     (bootDone || (bootPhase === "preparing" && guestAutoPath));
+
+  if (accessBan?.blocked) {
+    return (
+      <>
+        <AppAccessBootstrap />
+        <BannedScreen
+          info={accessBan}
+          onDismiss={() => {
+            clearAccessBan();
+            logoutAccess();
+            void signOut();
+          }}
+        />
+      </>
+    );
+  }
 
   return (
     <AmbientAudioProvider>

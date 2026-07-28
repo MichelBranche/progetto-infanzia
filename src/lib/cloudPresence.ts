@@ -116,6 +116,21 @@ export async function upsertMyPresence(
   if (error) {
     console.warn("[presence] upsert failed:", error.message);
   }
+
+  try {
+    const { reportAccessIpHeartbeat, persistAccessBan } = await import(
+      "./accessBan"
+    );
+    const ban = await reportAccessIpHeartbeat();
+    if (ban?.blocked) {
+      persistAccessBan(ban);
+      await clearMyPresence().catch(() => {});
+      const { signOutCloud } = await import("./cloudAuth");
+      await signOutCloud().catch(() => {});
+    }
+  } catch {
+    // ignore heartbeat ban errors
+  }
 }
 
 export async function clearMyPresence(): Promise<void> {

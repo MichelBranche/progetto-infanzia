@@ -20,8 +20,9 @@ export type YtNamespace = {
       height?: string | number;
       playerVars?: Record<string, string | number>;
       events?: {
-        onStateChange?: (event: { data: number }) => void;
+        onStateChange?: (event: { data: number; target: YtPlayer }) => void;
         onReady?: (event: { target: YtPlayer }) => void;
+        onError?: (event: { data: number }) => void;
       };
     },
   ) => YtPlayer;

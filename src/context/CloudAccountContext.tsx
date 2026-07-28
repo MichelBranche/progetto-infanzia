@@ -17,6 +17,12 @@ import {
   signUpWithEmail,
   updateCloudDisplayName,
 } from "../lib/cloudAuth";
+import {
+  AccessBannedError,
+  checkAuthenticatedAccessBan,
+  clearAccessBanCache,
+  persistAccessBan,
+} from "../lib/accessBan";
 import { getSupabase } from "../lib/supabaseClient";
 import { setScFallbackEmail } from "../lib/scServerFallback";
 import type { CloudProfile } from "../types/cloud";
@@ -92,6 +98,21 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
     setProfile(p);
   }, [configured]);
 
+  const enforceBanOrContinue = useCallback(async () => {
+    const ban = await checkAuthenticatedAccessBan();
+    if (!ban.blocked) {
+      clearAccessBanCache();
+      return;
+    }
+    persistAccessBan(ban);
+    const { clearMyPresence } = await import("../lib/cloudPresence");
+    await clearMyPresence().catch(() => {});
+    await signOutCloud();
+    setProfile(null);
+    setUser(null);
+    throw new AccessBannedError(ban);
+  }, []);
+
   const refresh = useCallback(
     async (options?: { showLoading?: boolean; sync?: boolean }) => {
       const showLoading = options?.showLoading ?? false;
@@ -109,6 +130,18 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
         const supabase = getSupabase();
         const { data } = await supabase!.auth.getSession();
         setUser(data.session?.user ?? null);
+        if (data.session?.user) {
+          try {
+            await enforceBanOrContinue();
+          } catch (err) {
+            if (err instanceof AccessBannedError) {
+              setProfile(null);
+              setUser(null);
+              return;
+            }
+            throw err;
+          }
+        }
         const p = await getCurrentCloudProfile();
         setProfile(p);
         if (p && shouldSync) {
@@ -118,7 +151,7 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
         if (showLoading) setLoading(false);
       }
     },
-    [configured, runCloudSync],
+    [configured, runCloudSync, enforceBanOrContinue],
   );
 
   useEffect(() => {
@@ -161,27 +194,29 @@ export function CloudAccountProvider({ children }: { children: ReactNode }) {
       rememberMe = true,
     ) => {
       const p = await signUpWithEmail(email, password, displayName, rememberMe);
-      setProfile(p);
       const supabase = getSupabase();
       const { data } = await supabase!.auth.getSession();
       setUser(data.session?.user ?? null);
+      setProfile(p);
+      await enforceBanOrContinue();
       const { syncCloudAccountWithApp } = await import("../lib/cloudProfileSync");
       await syncCloudAccountWithApp(p).catch(() => {});
     },
-    [],
+    [enforceBanOrContinue],
   );
 
   const signIn = useCallback(
     async (email: string, password: string, rememberMe = true) => {
       const p = await signInWithEmail(email, password, rememberMe);
-      setProfile(p);
       const supabase = getSupabase();
       const { data } = await supabase!.auth.getSession();
       setUser(data.session?.user ?? null);
+      setProfile(p);
+      await enforceBanOrContinue();
       const { syncCloudAccountWithApp } = await import("../lib/cloudProfileSync");
       await syncCloudAccountWithApp(p).catch(() => {});
     },
-    [],
+    [enforceBanOrContinue],
   );
 
   const signOut = useCallback(async () => {

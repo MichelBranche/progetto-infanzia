@@ -1,7 +1,11 @@
 import { runtimeInvoke as invoke } from "./runtimeInvoke";
 import { getSupabase } from "./supabaseClient";
 import { isDevAdminEmail } from "./devAdmin";
-import type { DevCloudUser, DevLocalDashboard } from "../types/devAdmin";
+import type {
+  BanDurationHours,
+  DevCloudUser,
+  DevLocalDashboard,
+} from "../types/devAdmin";
 import type { AppFeedbackRecord, FeedbackStatus, FeedbackType } from "../types/feedback";
 
 async function assertDevAdmin() {
@@ -72,6 +76,14 @@ function mapCloudUser(row: Record<string, unknown>): DevCloudUser {
       : undefined,
     appVersion: row.app_version ? String(row.app_version) : undefined,
     platform: row.platform ? String(row.platform) : undefined,
+    banned: Boolean(row.banned),
+    banReason: row.ban_reason ? String(row.ban_reason) : undefined,
+    banExpiresAt: row.ban_expires_at
+      ? String(row.ban_expires_at)
+      : undefined,
+    knownIps: Array.isArray(row.known_ips)
+      ? row.known_ips.map((ip) => String(ip))
+      : [],
     friends,
     recentWatches: recent,
     topTitles: top,
@@ -99,6 +111,58 @@ export async function deleteDevCloudUser(userId: string): Promise<void> {
   const supabase = await assertDevAdmin();
   const { error } = await supabase.rpc("dev_delete_user_account", {
     target_user_id: userId,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function banDevCloudUser(input: {
+  userId: string;
+  reason?: string;
+  durationHours: BanDurationHours;
+  banIps?: boolean;
+}): Promise<{ ipsBanned: number }> {
+  const supabase = await assertDevAdmin();
+  const { data, error } = await supabase.rpc("ban_user", {
+    p_user_id: input.userId,
+    p_reason: input.reason?.trim() || null,
+    p_duration_hours: input.durationHours,
+    p_ban_ips: input.banIps ?? true,
+  });
+  if (error) throw new Error(error.message);
+  const row = (data ?? {}) as Record<string, unknown>;
+  return { ipsBanned: Number(row.ips_banned ?? 0) };
+}
+
+export async function unbanDevCloudUser(
+  userId: string,
+  unbanIps = true,
+): Promise<void> {
+  const supabase = await assertDevAdmin();
+  const { error } = await supabase.rpc("unban_user", {
+    p_user_id: userId,
+    p_unban_ips: unbanIps,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function banDevIp(input: {
+  ip: string;
+  reason?: string;
+  durationHours: BanDurationHours;
+}): Promise<void> {
+  const supabase = await assertDevAdmin();
+  const { error } = await supabase.rpc("ban_ip", {
+    p_ip: input.ip.trim(),
+    p_reason: input.reason?.trim() || null,
+    p_duration_hours: input.durationHours,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function unbanDevIp(ip: string): Promise<void> {
+  const supabase = await assertDevAdmin();
+  const { error } = await supabase.rpc("unban_ip", {
+    p_ip: ip.trim(),
   });
   if (error) throw new Error(error.message);
 }

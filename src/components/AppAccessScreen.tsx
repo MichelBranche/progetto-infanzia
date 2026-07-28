@@ -15,6 +15,7 @@ import {
 import { useCloudAccount } from "../context/CloudAccountContext";
 import { useAppAccess } from "../context/AppAccessContext";
 import { readAppAccessMode } from "../lib/appAccess";
+import { AccessBannedError } from "../lib/accessBan";
 import { isWebShell } from "../lib/runtimeInvoke";
 import { GUEST_DAILY_LIMIT_SECONDS } from "../lib/guestUsage";
 import { formatDuration } from "../types/media";
@@ -49,7 +50,14 @@ export function AppAccessScreen() {
       }
       completeRegisteredSetup();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (err instanceof AccessBannedError) {
+        setError(
+          err.info.reason?.trim() ||
+            "Accesso sospeso dall’amministrazione.",
+        );
+      } else {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       setBusy(false);
     }
@@ -88,6 +96,11 @@ export function AppAccessScreen() {
               exit={{ opacity: 0, y: -12 }}
               className="space-y-4"
             >
+              {error && (
+                <div className="rounded-2xl border border-warm/25 bg-warm/10 px-4 py-3 text-[13px] text-warm">
+                  {error}
+                </div>
+              )}
               {cloudEnabled ? (
                 <button
                   type="button"
@@ -125,7 +138,16 @@ export function AppAccessScreen() {
               <button
                 type="button"
                 onClick={() => {
-                  completeGuestSetup();
+                  void completeGuestSetup().catch((err) => {
+                    if (err instanceof AccessBannedError) {
+                      setError(
+                        err.info.reason?.trim() ||
+                          "Rete sospesa dall’amministrazione.",
+                      );
+                      return;
+                    }
+                    setError(err instanceof Error ? err.message : String(err));
+                  });
                 }}
                 className="group w-full rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 text-left transition-colors hover:border-white/15 hover:bg-white/[0.04]"
               >

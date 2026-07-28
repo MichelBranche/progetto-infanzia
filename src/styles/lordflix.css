@@ -5226,6 +5226,220 @@ html.admin-prank-invert canvas {
   filter: invert(1) hue-rotate(180deg);
 }
 
+/* Meltdown: mirror + hue + shake aggressivo */
+@keyframes admin-prank-meltdown-hue {
+  0% {
+    filter: hue-rotate(0deg) saturate(1.6) contrast(1.15);
+  }
+  50% {
+    filter: hue-rotate(180deg) saturate(2.2) contrast(1.35);
+  }
+  100% {
+    filter: hue-rotate(360deg) saturate(1.6) contrast(1.15);
+  }
+}
+
+html.admin-prank-meltdown,
+html.admin-prank-meltdown body {
+  animation:
+    admin-prank-shake 0.28s linear infinite,
+    admin-prank-meltdown-hue 1.4s linear infinite;
+  transform: scaleX(-1);
+  transform-origin: center center;
+}
+
+.admin-prank-bsod {
+  cursor: none;
+  user-select: none;
+}
+
+/* —— Horror pranks —— */
+.admin-prank-eye {
+  display: block;
+  width: 2.75rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow:
+    0 0 24px rgba(255, 255, 255, 0.85),
+    0 0 60px rgba(255, 255, 255, 0.35);
+  animation: admin-prank-eye-pulse 1.1s ease-in-out infinite alternate;
+}
+
+@media (min-width: 640px) {
+  .admin-prank-eye {
+    width: 3.5rem;
+    height: 1.35rem;
+  }
+}
+
+@keyframes admin-prank-eye-pulse {
+  from {
+    opacity: 0.75;
+    transform: scaleY(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+.admin-prank-reflection {
+  background: radial-gradient(circle at 50% 45%, #1a1a1a 0%, #050505 55%, #000 100%);
+}
+
+.admin-prank-reflection__text {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 6vw, 3.5rem);
+  letter-spacing: 0.12em;
+  text-transform: lowercase;
+  color: rgba(255, 255, 255, 0.72);
+  text-shadow: 0 0 40px rgba(255, 255, 255, 0.25);
+  animation: admin-prank-reflection-fade 2.2s ease-in-out both;
+}
+
+@keyframes admin-prank-reflection-fade {
+  0% {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  25% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.admin-prank-cmd {
+  position: absolute;
+  width: min(420px, 72vw);
+  overflow: hidden;
+  border: 1px solid #3a3a3a;
+  background: #0c0c0c;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.65);
+  font-family: Consolas, "Courier New", monospace;
+}
+
+.admin-prank-cmd__title {
+  background: linear-gradient(180deg, #2b2b2b, #1e1e1e);
+  padding: 0.35rem 0.6rem;
+  font-size: 11px;
+  color: #ddd;
+}
+
+.admin-prank-cmd__body {
+  max-height: 180px;
+  overflow: hidden;
+  padding: 0.55rem 0.65rem 0.75rem;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #cfcfcf;
+}
+
+.admin-prank-cmd__cursor {
+  animation: admin-prank-cmd-blink 0.7s steps(1) infinite;
+}
+
+@keyframes admin-prank-cmd-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.admin-prank-uac__bar {
+  background: #0078d4;
+  padding: 0.55rem 0.85rem;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.admin-prank-ransom {
+  background-image:
+    radial-gradient(circle at 20% 10%, rgba(180, 0, 0, 0.35), transparent 40%),
+    radial-gradient(circle at 80% 90%, rgba(80, 0, 0, 0.45), transparent 45%);
+}
+
+.admin-banned-impact {
+  font-family: Impact, Haettenschweiler, "Arial Narrow Bold", "Arial Black",
+    sans-serif;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #fff;
+  letter-spacing: 0.02em;
+  text-shadow:
+    -3px -3px 0 #000,
+    3px -3px 0 #000,
+    -3px 3px 0 #000,
+    3px 3px 0 #000,
+    0 0 12px rgba(0, 0, 0, 0.65);
+}
+
+.admin-banned-impact--top {
+  text-shadow:
+    -4px -4px 0 #000,
+    4px -4px 0 #000,
+    -4px 4px 0 #000,
+    4px 4px 0 #000,
+    0 0 18px rgba(0, 0, 0, 0.75);
+}
+
+.admin-prank-takeover-live {
+  animation: admin-prank-takeover-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes admin-prank-takeover-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.admin-prank-takeover-cursor {
+  position: absolute;
+  z-index: 2;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  border-style: solid;
+  border-width: 0 0 20px 14px;
+  border-color: transparent transparent transparent #f4f4f5;
+  filter: drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.65));
+  transform: translate(-8%, -8%) rotate(-12deg);
+  transition: left 0.05s linear, top 0.05s linear;
+}
+
+.admin-prank-takeover-click {
+  position: absolute;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  margin-top: -14px;
+  border-radius: 999px;
+  border: 2px solid rgba(52, 211, 153, 0.85);
+  pointer-events: none;
+  animation: admin-prank-takeover-click 0.55s ease-out forwards;
+}
+
+@keyframes admin-prank-takeover-click {
+  from {
+    transform: scale(0.4);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
 /* You are an idiot virus parody */
 .admin-idiot-root {
   cursor: none;

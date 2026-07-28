@@ -37,10 +37,16 @@ export interface DevCloudUser {
   presenceActivity?: string;
   appVersion?: string;
   platform?: string;
+  banned: boolean;
+  banReason?: string;
+  banExpiresAt?: string;
+  knownIps: string[];
   friends: DevCloudFriend[];
   recentWatches: DevCloudWatchEvent[];
   topTitles: DevCloudTopTitle[];
 }
+
+export type BanDurationHours = 24 | 168 | 720 | null;
 
 export interface DevLocalTopTitle {
   title: string;

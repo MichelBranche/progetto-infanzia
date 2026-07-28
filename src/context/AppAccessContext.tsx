@@ -22,6 +22,14 @@ import {
   isGuestAccessBlocked,
   isGuestLimitReached,
 } from "../lib/guestUsage";
+import {
+  AccessBannedError,
+  checkGuestNetworkBan,
+  clearAccessBanCache,
+  persistAccessBan,
+  readCachedAccessBan,
+  type AccessBanInfo,
+} from "../lib/accessBan";
 import { useCloudAccount } from "./CloudAccountContext";
 
 interface AppAccessContextValue {
@@ -36,13 +44,15 @@ interface AppAccessContextValue {
   guestAccessBlocked: boolean;
   guestCooldownRemainingMs: number;
   guestWatching: boolean;
-  completeGuestSetup: () => void;
+  accessBan: AccessBanInfo | null;
+  completeGuestSetup: () => Promise<void>;
   completeRegisteredSetup: () => void;
   refreshGuestUsage: () => void;
   recordGuestPlayback: (seconds: number) => number;
   setGuestWatching: (watching: boolean) => void;
   syncFromStorage: () => void;
   logoutAccess: () => void;
+  clearAccessBan: () => void;
 }
 
 const AppAccessContext = createContext<AppAccessContextValue | null>(null);
@@ -60,6 +70,9 @@ export function AppAccessProvider({ children }: { children: ReactNode }) {
   );
   const [guestTick, setGuestTick] = useState(0);
   const [guestWatching, setGuestWatching] = useState(false);
+  const [accessBan, setAccessBan] = useState<AccessBanInfo | null>(() =>
+    readCachedAccessBan()?.blocked ? readCachedAccessBan() : null,
+  );
 
   const refreshGuestUsage = useCallback(() => {
     const used = getGuestSecondsUsedToday();
@@ -92,6 +105,32 @@ export function AppAccessProvider({ children }: { children: ReactNode }) {
   }, [refreshGuestUsage]);
 
   useEffect(() => {
+    const onBan = (event: Event) => {
+      const detail = (event as CustomEvent<AccessBanInfo | null>).detail;
+      setAccessBan(detail?.blocked ? detail : null);
+    };
+    window.addEventListener("branchefy:access-ban-changed", onBan);
+    return () => window.removeEventListener("branchefy:access-ban-changed", onBan);
+  }, []);
+
+  // Guest già in sessione / al boot: verifica ban IP rete.
+  useEffect(() => {
+    if (mode !== "guest" && !setupComplete) return;
+    if (mode !== "guest") return;
+    let cancelled = false;
+    void checkGuestNetworkBan().then((info) => {
+      if (cancelled) return;
+      if (info.blocked) {
+        persistAccessBan(info);
+        setAccessBan(info);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, setupComplete]);
+
+  useEffect(() => {
     if (user) {
       markAppAccessSetupComplete("registered");
       setMode("registered");
@@ -99,13 +138,24 @@ export function AppAccessProvider({ children }: { children: ReactNode }) {
     }
   }, [user]);
 
-  const completeGuestSetup = useCallback(() => {
+  const completeGuestSetup = useCallback(async () => {
+    const info = await checkGuestNetworkBan();
+    if (info.blocked) {
+      persistAccessBan(info);
+      setAccessBan(info);
+      throw new AccessBannedError(info);
+    }
     markAppAccessSetupComplete("guest");
     setMode("guest");
     setSetupComplete(true);
     refreshGuestUsage();
     window.dispatchEvent(new CustomEvent("branchefy:profiles-changed"));
   }, [refreshGuestUsage]);
+
+  const clearAccessBan = useCallback(() => {
+    clearAccessBanCache();
+    setAccessBan(null);
+  }, []);
 
   const completeRegisteredSetup = useCallback(() => {
     markAppAccessSetupComplete("registered");
@@ -124,6 +174,8 @@ export function AppAccessProvider({ children }: { children: ReactNode }) {
     resetAppAccess();
     setSetupComplete(false);
     setMode(null);
+    clearAccessBanCache();
+    setAccessBan(null);
     refreshGuestUsage();
   }, [refreshGuestUsage]);
 
@@ -152,6 +204,7 @@ export function AppAccessProvider({ children }: { children: ReactNode }) {
       guestAccessBlocked: mode === "guest" && isGuestAccessBlocked(),
       guestCooldownRemainingMs,
       guestWatching,
+      accessBan,
       completeGuestSetup,
       completeRegisteredSetup,
       refreshGuestUsage,
@@ -159,6 +212,7 @@ export function AppAccessProvider({ children }: { children: ReactNode }) {
       setGuestWatching,
       syncFromStorage,
       logoutAccess,
+      clearAccessBan,
     }),
     [
       loading,
@@ -168,12 +222,14 @@ export function AppAccessProvider({ children }: { children: ReactNode }) {
       guestTick,
       guestCooldownRemainingMs,
       guestWatching,
+      accessBan,
       completeGuestSetup,
       completeRegisteredSetup,
       refreshGuestUsage,
       recordGuestPlayback,
       syncFromStorage,
       logoutAccess,
+      clearAccessBan,
     ],
   );
 

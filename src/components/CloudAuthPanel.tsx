@@ -10,6 +10,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { EmailConfirmationRequiredError } from "../lib/cloudAuthErrors";
+import { AccessBannedError } from "../lib/accessBan";
 import { useCloudAccount } from "../context/CloudAccountContext";
 import {
   SettingsAlert,
@@ -152,6 +153,11 @@ export function CloudAuthPanel() {
         setMessage(err.message);
         setMode("login");
         setPassword("");
+      } else if (err instanceof AccessBannedError) {
+        setError(
+          err.info.reason?.trim() ||
+            "Accesso sospeso dall’amministrazione.",
+        );
       } else {
         setError(err instanceof Error ? err.message : String(err));
       }

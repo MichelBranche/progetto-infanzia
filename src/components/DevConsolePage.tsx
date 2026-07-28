@@ -12,6 +12,7 @@ import {
   RefreshCw,
   RotateCcw,
   Shield,
+  ShieldBan,
   Skull,
   Terminal,
   Trash2,
@@ -21,6 +22,8 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { formatDuration } from "../types/media";
 import {
+  banDevCloudUser,
+  banDevIp,
   fetchDevCloudUsers,
   fetchDevFeedback,
   fetchDevLocalDashboard,
@@ -28,8 +31,14 @@ import {
   moveFeedbackToTrash,
   restoreFeedbackFromTrash,
   setFeedbackStatus,
+  unbanDevCloudUser,
+  unbanDevIp,
 } from "../lib/devAdminApi";
-import type { DevCloudUser, DevLocalProfileInsight } from "../types/devAdmin";
+import type {
+  BanDurationHours,
+  DevCloudUser,
+  DevLocalProfileInsight,
+} from "../types/devAdmin";
 import { formatPlatformLabel } from "../lib/feedbackApi";
 import { isAppOpenPresence } from "../lib/devDashboardMetrics";
 import {
@@ -42,7 +51,10 @@ import {
 } from "../types/feedback";
 import {
   SettingsButton,
+  SettingsField,
+  SettingsInput,
   SettingsNavItem,
+  SettingsPill,
   SettingsShell,
 } from "./settings/SettingsUi";
 import {
@@ -184,15 +196,51 @@ function FeedbackTypeIcon({ type }: { type: FeedbackType }) {
   }
 }
 
+const BAN_DURATION_OPTIONS: Array<{
+  hours: BanDurationHours;
+  label: string;
+}> = [
+  { hours: 24, label: "1 giorno" },
+  { hours: 168, label: "7 giorni" },
+  { hours: 720, label: "30 giorni" },
+  { hours: null, label: "Permanente" },
+];
+
 function CloudUserDetail({
   user,
   deleteBusy,
+  banBusy,
   onDelete,
+  onBan,
+  onUnban,
+  onBanIp,
+  onUnbanIp,
 }: {
   user: DevCloudUser;
   deleteBusy: boolean;
+  banBusy: boolean;
   onDelete: () => void;
+  onBan: (input: {
+    reason: string;
+    durationHours: BanDurationHours;
+    banIps: boolean;
+  }) => void;
+  onUnban: () => void;
+  onBanIp: (input: {
+    ip: string;
+    reason: string;
+    durationHours: BanDurationHours;
+  }) => void;
+  onUnbanIp: (ip: string) => void;
 }) {
+  const [banReason, setBanReason] = useState("");
+  const [banDuration, setBanDuration] = useState<BanDurationHours>(24);
+  const [banIps, setBanIps] = useState(true);
+  const [manualIp, setManualIp] = useState("");
+  const [manualIpReason, setManualIpReason] = useState("");
+  const [manualIpDuration, setManualIpDuration] =
+    useState<BanDurationHours>(24);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <DevDetailHeader
@@ -206,11 +254,18 @@ function CloudUserDetail({
           />
         }
         badges={
-          user.hasProfile ? (
-            <DevBadge tone="mint">Registrato</DevBadge>
-          ) : (
-            <DevBadge tone="warm">Solo auth</DevBadge>
-          )
+          <>
+            {user.banned ? (
+              <DevBadge tone="warm">Bannato</DevBadge>
+            ) : user.hasProfile ? (
+              <DevBadge tone="mint">Registrato</DevBadge>
+            ) : (
+              <DevBadge tone="warm">Solo auth</DevBadge>
+            )}
+            {user.hasProfile && user.banned ? (
+              <DevBadge tone="mint">Registrato</DevBadge>
+            ) : null}
+          </>
         }
       />
 
@@ -228,8 +283,169 @@ function CloudUserDetail({
           ...(user.platform
             ? [{ label: "Piattaforma", value: formatPlatformLabel(user.platform) }]
             : []),
+          ...(user.banned
+            ? [
+                {
+                  label: "Ban",
+                  value: user.banExpiresAt
+                    ? `Scade ${formatWhen(user.banExpiresAt)}`
+                    : "Permanente",
+                },
+                ...(user.banReason
+                  ? [{ label: "Motivo ban", value: user.banReason }]
+                  : []),
+              ]
+            : []),
         ]}
       />
+
+      <section className="space-y-3 rounded-2xl border border-warm/20 bg-warm/[0.04] p-4">
+        <ProfileSectionLabel>Ban account + IP</ProfileSectionLabel>
+        {user.banned ? (
+          <DevActionBar>
+            <DevActionButton
+              tone="mint"
+              disabled={banBusy}
+              onClick={onUnban}
+              icon={banBusy ? Loader2 : Shield}
+            >
+              {banBusy ? "Sbanno…" : "Sbanna utente (+ IP collegati)"}
+            </DevActionButton>
+          </DevActionBar>
+        ) : (
+          <>
+            <SettingsField label="Motivo (opzionale)">
+              <SettingsInput
+                value={banReason}
+                onChange={(e) => setBanReason(e.target.value)}
+                placeholder="Es. abuso, spam, evasion…"
+              />
+            </SettingsField>
+            <div className="flex flex-wrap gap-2">
+              {BAN_DURATION_OPTIONS.map((opt) => (
+                <SettingsPill
+                  key={String(opt.hours)}
+                  active={banDuration === opt.hours}
+                  onClick={() => setBanDuration(opt.hours)}
+                >
+                  {opt.label}
+                </SettingsPill>
+              ))}
+            </div>
+            <label className="flex items-center gap-2 text-[12px] text-text-secondary">
+              <input
+                type="checkbox"
+                checked={banIps}
+                onChange={(e) => setBanIps(e.target.checked)}
+                className="rounded border-border"
+              />
+              Includi ban IP noti (anti-evasion)
+            </label>
+            <DevActionBar>
+              <DevActionButton
+                tone="danger"
+                disabled={banBusy}
+                onClick={() =>
+                  onBan({
+                    reason: banReason,
+                    durationHours: banDuration,
+                    banIps,
+                  })
+                }
+                icon={banBusy ? Loader2 : ShieldBan}
+              >
+                {banBusy ? "Ban in corso…" : "Banna utente"}
+              </DevActionButton>
+            </DevActionBar>
+          </>
+        )}
+
+        <div className="pt-2">
+          <p className="mb-2 text-[12px] font-medium text-text-secondary">
+            IP noti ({user.knownIps.length})
+          </p>
+          {user.knownIps.length === 0 ? (
+            <p className="text-[12px] text-text-muted">
+              Nessun IP registrato ancora (serve heartbeat dopo deploy
+              access-ip).
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {user.knownIps.map((ip) => (
+                <div
+                  key={ip}
+                  className="flex items-center gap-2 rounded-full border border-border bg-fill-muted px-3 py-1 text-[11px]"
+                >
+                  <span className="font-mono text-text-primary">{ip}</span>
+                  <button
+                    type="button"
+                    disabled={banBusy}
+                    onClick={() => onUnbanIp(ip)}
+                    className="text-mint hover:underline"
+                  >
+                    unban
+                  </button>
+                  <button
+                    type="button"
+                    disabled={banBusy}
+                    onClick={() =>
+                      onBanIp({
+                        ip,
+                        reason: banReason || `Ban IP di ${user.email}`,
+                        durationHours: banDuration,
+                      })
+                    }
+                    className="text-warm hover:underline"
+                  >
+                    ban
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2 border-t border-white/[0.06] pt-3">
+          <p className="text-[12px] font-medium text-text-secondary">
+            Ban IP manuale
+          </p>
+          <SettingsInput
+            value={manualIp}
+            onChange={(e) => setManualIp(e.target.value)}
+            placeholder="Es. 203.0.113.10"
+          />
+          <SettingsInput
+            value={manualIpReason}
+            onChange={(e) => setManualIpReason(e.target.value)}
+            placeholder="Motivo IP (opzionale)"
+          />
+          <div className="flex flex-wrap gap-2">
+            {BAN_DURATION_OPTIONS.map((opt) => (
+              <SettingsPill
+                key={`ip-${String(opt.hours)}`}
+                active={manualIpDuration === opt.hours}
+                onClick={() => setManualIpDuration(opt.hours)}
+              >
+                {opt.label}
+              </SettingsPill>
+            ))}
+          </div>
+          <DevActionButton
+            tone="warm"
+            disabled={banBusy || !manualIp.trim()}
+            onClick={() =>
+              onBanIp({
+                ip: manualIp.trim(),
+                reason: manualIpReason,
+                durationHours: manualIpDuration,
+              })
+            }
+            icon={banBusy ? Loader2 : ShieldBan}
+          >
+            Banna IP
+          </DevActionButton>
+        </div>
+      </section>
 
       <DevActionBar>
         <DevActionButton tone="danger" disabled={deleteBusy} onClick={onDelete} icon={deleteBusy ? Loader2 : Trash2}>
@@ -430,6 +646,7 @@ export function DevConsolePage() {
   const [feedbackBucket, setFeedbackBucket] = useState<FeedbackBucket>("inbox");
   const [feedbackActionBusy, setFeedbackActionBusy] = useState(false);
   const [deleteUserBusy, setDeleteUserBusy] = useState(false);
+  const [banUserBusy, setBanUserBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -608,6 +825,107 @@ export function DevConsolePage() {
       setDeleteUserBusy(false);
     }
   }, []);
+
+  const refreshCloudUsers = useCallback(async () => {
+    const cloud = await fetchDevCloudUsers();
+    setCloudUsers(cloud);
+  }, []);
+
+  const handleBanCloudUser = useCallback(
+    async (
+      user: DevCloudUser,
+      input: {
+        reason: string;
+        durationHours: BanDurationHours;
+        banIps: boolean;
+      },
+    ) => {
+      const label = user.displayName ?? user.email;
+      const durationLabel =
+        BAN_DURATION_OPTIONS.find((o) => o.hours === input.durationHours)
+          ?.label ?? "permanente";
+      const confirmed = window.confirm(
+        `Bannare ${label} (${durationLabel})?\n${
+          input.banIps ? "Verranno bannati anche gli IP noti." : ""
+        }`,
+      );
+      if (!confirmed) return;
+
+      setBanUserBusy(true);
+      setError(null);
+      try {
+        const result = await banDevCloudUser({
+          userId: user.userId,
+          reason: input.reason,
+          durationHours: input.durationHours,
+          banIps: input.banIps,
+        });
+        await refreshCloudUsers();
+        if (input.banIps && result.ipsBanned === 0) {
+          setError(
+            "Utente bannato, ma nessun IP noto da bloccare (l’utente deve aver fatto login dopo il deploy access-ip).",
+          );
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBanUserBusy(false);
+      }
+    },
+    [refreshCloudUsers],
+  );
+
+  const handleUnbanCloudUser = useCallback(
+    async (user: DevCloudUser) => {
+      setBanUserBusy(true);
+      setError(null);
+      try {
+        await unbanDevCloudUser(user.userId, true);
+        await refreshCloudUsers();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBanUserBusy(false);
+      }
+    },
+    [refreshCloudUsers],
+  );
+
+  const handleBanIp = useCallback(
+    async (input: {
+      ip: string;
+      reason: string;
+      durationHours: BanDurationHours;
+    }) => {
+      setBanUserBusy(true);
+      setError(null);
+      try {
+        await banDevIp(input);
+        await refreshCloudUsers();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBanUserBusy(false);
+      }
+    },
+    [refreshCloudUsers],
+  );
+
+  const handleUnbanIp = useCallback(
+    async (ip: string) => {
+      setBanUserBusy(true);
+      setError(null);
+      try {
+        await unbanDevIp(ip);
+        await refreshCloudUsers();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBanUserBusy(false);
+      }
+    },
+    [refreshCloudUsers],
+  );
 
   const activeMeta = MAIN_TABS.find((t) => t.id === tab) ?? MAIN_TABS[0];
   const ActiveIcon = activeMeta.icon;
@@ -820,7 +1138,7 @@ export function DevConsolePage() {
                                 onClick={() => setSelectedCloudId(user.userId)}
                                 title={user.displayName ?? user.email}
                                 subtitle={user.email}
-                                meta={`${user.friends.length} amici · ${user.recentWatches.length} visioni${user.appVersion ? ` · v${user.appVersion}` : ""}`}
+                                meta={`${user.banned ? "BANNATO · " : ""}${user.friends.length} amici · ${user.recentWatches.length} visioni${user.appVersion ? ` · v${user.appVersion}` : ""}`}
                                 leading={
                                   <DevUserAvatar
                                     name={user.displayName ?? user.email}
@@ -849,7 +1167,18 @@ export function DevConsolePage() {
                             <CloudUserDetail
                               user={selectedCloudUser}
                               deleteBusy={deleteUserBusy}
-                              onDelete={() => void handleDeleteCloudUser(selectedCloudUser)}
+                              banBusy={banUserBusy}
+                              onDelete={() =>
+                                void handleDeleteCloudUser(selectedCloudUser)
+                              }
+                              onBan={(input) =>
+                                void handleBanCloudUser(selectedCloudUser, input)
+                              }
+                              onUnban={() =>
+                                void handleUnbanCloudUser(selectedCloudUser)
+                              }
+                              onBanIp={(input) => void handleBanIp(input)}
+                              onUnbanIp={(ip) => void handleUnbanIp(ip)}
                             />
                           )}
                         </DevDetailPane>

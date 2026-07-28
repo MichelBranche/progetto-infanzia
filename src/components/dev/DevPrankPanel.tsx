@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   Bug,
+  Eye,
   Ghost,
   Loader2,
+  Lock,
+  MonitorSmartphone,
+  MonitorX,
   RotateCcw,
   Send,
+  ShieldAlert,
   Skull,
+  Terminal,
   Zap,
 } from "lucide-react";
 import { fetchDevCloudUsers } from "../../lib/devAdminApi";
@@ -13,7 +20,13 @@ import { sendAdminPrank } from "../../lib/adminPrankApi";
 import { isAppOpenPresence } from "../../lib/devDashboardMetrics";
 import type { DevCloudUser } from "../../types/devAdmin";
 import type { AdminPrankKind } from "../../types/adminPrank";
-import { ADMIN_PRANK_HINTS, ADMIN_PRANK_LABELS } from "../../types/adminPrank";
+import {
+  ADMIN_PRANK_HINTS,
+  ADMIN_PRANK_LABELS,
+  JUMPSCARE_VIDEOS,
+  prankUsesJumpscareVideo,
+  type JumpscareVideoId,
+} from "../../types/adminPrank";
 import {
   SettingsButton,
   SettingsField,
@@ -30,18 +43,26 @@ import {
   DevSidebar,
   DevUserAvatar,
 } from "./DevConsoleUi";
-import {
-  JUMPSCARE_VIDEOS,
-  type JumpscareVideoId,
-} from "../../types/adminPrank";
 
 const PRANK_OPTIONS: Array<{
   kind: AdminPrankKind;
   icon: typeof Skull;
   tone: string;
+  heavy?: boolean;
 }> = [
-  { kind: "jumpscare", icon: Skull, tone: "border-warm/30 bg-warm/10 text-warm" },
-  { kind: "idiot", icon: Bug, tone: "border-yellow-400/35 bg-yellow-400/10 text-yellow-300" },
+  { kind: "face_dark", icon: Eye, tone: "border-white/30 bg-white/5 text-white", heavy: true },
+  { kind: "reflection", icon: Eye, tone: "border-zinc-400/35 bg-zinc-400/10 text-zinc-200", heavy: true },
+  { kind: "cmd_cascade", icon: Terminal, tone: "border-green-400/35 bg-green-400/10 text-green-300", heavy: true },
+  { kind: "uac_spoof", icon: ShieldAlert, tone: "border-sky-400/35 bg-sky-400/10 text-sky-300", heavy: true },
+  { kind: "ransomware", icon: AlertTriangle, tone: "border-red-500/40 bg-red-500/15 text-red-300", heavy: true },
+  { kind: "friend_takeover", icon: MonitorSmartphone, tone: "border-emerald-400/35 bg-emerald-400/10 text-emerald-300", heavy: true },
+  { kind: "nuke", icon: AlertTriangle, tone: "border-red-500/40 bg-red-500/15 text-red-300", heavy: true },
+  { kind: "bsod", icon: MonitorX, tone: "border-sky-400/35 bg-sky-400/10 text-sky-300", heavy: true },
+  { kind: "fake_update", icon: Loader2, tone: "border-white/25 bg-white/5 text-white", heavy: true },
+  { kind: "parental_lock", icon: Lock, tone: "border-amber-400/35 bg-amber-400/10 text-amber-300", heavy: true },
+  { kind: "meltdown", icon: Zap, tone: "border-fuchsia-400/35 bg-fuchsia-400/10 text-fuchsia-300", heavy: true },
+  { kind: "jumpscare", icon: Skull, tone: "border-warm/30 bg-warm/10 text-warm", heavy: true },
+  { kind: "idiot", icon: Bug, tone: "border-yellow-400/35 bg-yellow-400/10 text-yellow-300", heavy: true },
   { kind: "fake_ban", icon: Ghost, tone: "border-amber-400/25 bg-amber-400/10 text-amber-300" },
   { kind: "shake", icon: Zap, tone: "border-accent/25 bg-accent/10 text-accent" },
   { kind: "invert", icon: RotateCcw, tone: "border-mint/25 bg-mint/10 text-mint" },
@@ -108,12 +129,11 @@ export function DevPrankPanel() {
     setError(null);
     setMessage(null);
     try {
-      const payloadMessage =
-        kind === "jumpscare"
-          ? jumpscareVideo === "random"
-            ? undefined
-            : jumpscareVideo
-          : customMessage.trim() || undefined;
+      const payloadMessage = prankUsesJumpscareVideo(kind)
+        ? jumpscareVideo === "random"
+          ? undefined
+          : jumpscareVideo
+        : customMessage.trim() || undefined;
 
       await sendAdminPrank({
         targetUserId: selected.userId,
@@ -121,12 +141,11 @@ export function DevPrankPanel() {
         message: payloadMessage,
       });
       const name = selected.displayName || selected.email;
-      const videoNote =
-        kind === "jumpscare"
-          ? jumpscareVideo === "random"
-            ? " (video casuale)"
-            : ` (${jumpscareVideo})`
-          : "";
+      const videoNote = prankUsesJumpscareVideo(kind)
+        ? jumpscareVideo === "random"
+          ? " (video casuale)"
+          : ` (${jumpscareVideo})`
+        : "";
       setMessage(
         `${ADMIN_PRANK_LABELS[kind]}${videoNote} inviato a ${name}. Se è online lo vede subito.`,
       );
@@ -234,7 +253,7 @@ export function DevPrankPanel() {
 
                 <div className="space-y-2">
                   <p className="text-[12px] font-medium text-text-secondary">
-                    Video jumpscare
+                    Video jumpscare (jump / nuke / UAC / face dark)
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <SettingsPill
@@ -255,16 +274,16 @@ export function DevPrankPanel() {
                   </div>
                 </div>
 
-                <SettingsField label="Messaggio opzionale (solo fake ban)">
+                <SettingsField label="Messaggio opzionale (ban / BSOD / update / parental / nome friend takeover)">
                   <SettingsInput
                     value={customMessage}
                     onChange={(e) => setCustomMessage(e.target.value)}
-                    placeholder="Es. Ti stavo osservando…"
+                    placeholder="Es. Marcolino · Ti stavo osservando…"
                   />
                 </SettingsField>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {PRANK_OPTIONS.map(({ kind, icon: Icon, tone }) => {
+                  {PRANK_OPTIONS.map(({ kind, icon: Icon, tone, heavy }) => {
                     const busy = busyKind === kind;
                     return (
                       <button
@@ -272,17 +291,28 @@ export function DevPrankPanel() {
                         type="button"
                         disabled={busyKind !== null}
                         onClick={() => void fire(kind)}
-                        className="flex flex-col items-start gap-2 rounded-2xl border border-border bg-fill-muted p-4 text-left transition-colors hover:border-border-hover hover:bg-fill disabled:opacity-60"
+                        className={`flex flex-col items-start gap-2 rounded-2xl border bg-fill-muted p-4 text-left transition-colors hover:border-border-hover hover:bg-fill disabled:opacity-60 ${
+                          heavy
+                            ? "border-red-500/25 shadow-[0_0_0_1px_rgba(239,68,68,0.08)]"
+                            : "border-border"
+                        }`}
                       >
-                        <span
-                          className={`flex h-10 w-10 items-center justify-center rounded-xl border ${tone}`}
-                        >
-                          {busy ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Icon className="h-4 w-4" />
+                        <div className="flex w-full items-center gap-2">
+                          <span
+                            className={`flex h-10 w-10 items-center justify-center rounded-xl border ${tone}`}
+                          >
+                            {busy ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Icon className="h-4 w-4" />
+                            )}
+                          </span>
+                          {heavy && (
+                            <span className="rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red-300">
+                              Pesante
+                            </span>
                           )}
-                        </span>
+                        </div>
                         <span className="font-display text-[15px] font-semibold tracking-[-0.02em] text-text-primary">
                           {ADMIN_PRANK_LABELS[kind]}
                         </span>

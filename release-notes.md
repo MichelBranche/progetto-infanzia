@@ -1,15 +1,15 @@
-# Branchefy v0.2.27
+# Branchefy v0.2.28
 
-## Player fluido (stile Netflix)
+## Ban reale + anti-evasion IP
 
-Chrome controlli rifatto: scrub/volume pointer-DOM, fade CSS, meno re-render React durante drag. Restano hls.js e le feature Branchefy (cast, party, audio). Niente anteprime frame sullo scrub (causa lag).
+- Ban account permanente o a tempo (1g / 7g / 30g) dalla Dev console
+- Ban IP sugli indirizzi noti (e guest bloccato sulla stessa rete)
+- Schermo ban a tutto schermo (meme + Impact + audio YouTube)
 
-## RaiPlay
+## Scherzi admin
 
-- Riga **In Diretta** in home (dopo Top 10), con palinsesto on-air
-- Catalogo RaiPlay (bambini / film / serie / sport) + playback live
-- Fix copertine **Rai 4** e **Rai News 24** (`landscape` vuoto → fallback `image`)
-- Home: **In Diretta** al posto di «Per te»; «Per te» scende nel catalogo
+- Nuovi pesanti/horror: BSOD fullscreen, face in the dark, friend takeover, ransomware, UAC, CMD cascade, e altri
+- Fix Face in the dark: lo scream parte davvero dopo occhi/fade
 
 ## Piattaforme
 
