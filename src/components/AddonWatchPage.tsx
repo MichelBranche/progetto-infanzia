@@ -8,6 +8,7 @@ import {
   fetchLoonexMeta,
   fetchYoutubeMeta,
   fetchRaiplayMeta,
+  fetchMediasetMeta,
   getStreamingWatchProgress,
   listStreamingTitleProgress,
   resolveAddonStreams,
@@ -16,6 +17,7 @@ import {
   resolveLoonexStream,
   resolveYoutubeStream,
   resolveRaiplayStream,
+  resolveMediasetStream,
   saveStreamingWatchProgress,
   resolveScPreview,
   resolveTorrentSource,
@@ -156,7 +158,9 @@ export function AddonWatchPage({
   const isLoonex = catalogPrefix === "loonex" && !!slug;
   const isYoutube = catalogPrefix === "youtube" && !!slug;
   const isRaiplay = catalogPrefix === "raiplay" && !!slug;
-  const isBuiltin = isSc || isSaturn || isLoonex || isYoutube || isRaiplay;
+  const isMediaset = catalogPrefix === "mediaset" && !!slug;
+  const isBuiltin =
+    isSc || isSaturn || isLoonex || isYoutube || isRaiplay || isMediaset;
   const { activeProfile } = useProfile();
   const { profile: cloudProfile } = useCloudAccount();
   const profileName = activeProfile?.name ?? "Utente";
@@ -262,6 +266,7 @@ export function AddonWatchPage({
       releaseInfo: meta.releaseInfo,
       catalogPrefix: catalogPrefix ?? "sc",
       slug,
+      comingSoon: meta.comingSoon,
     };
   }, [meta, metaId, contentType, catalogPrefix, slug]);
 
@@ -291,13 +296,15 @@ export function AddonWatchPage({
               ? await resolveYoutubeStream(slug, videoId)
               : isRaiplay
                 ? await resolveRaiplayStream(slug, videoId)
-                : await resolveSaturnStream(slug, videoId);
+                : isMediaset
+                  ? await resolveMediasetStream(slug, videoId)
+                  : await resolveSaturnStream(slug, videoId);
         return { url: stream.url, isHls: stream.isHls };
       } catch {
         return null;
       }
     },
-    [isBuiltin, isSc, isLoonex, isYoutube, isRaiplay, metaId, slug],
+    [isBuiltin, isSc, isLoonex, isYoutube, isRaiplay, isMediaset, metaId, slug],
   );
 
   const loadStreamResume = useCallback(
@@ -402,9 +409,11 @@ export function AddonWatchPage({
               ? await fetchYoutubeMeta(slug!)
               : isRaiplay
                 ? await fetchRaiplayMeta(slug!)
-              : isSaturn
-                ? await fetchSaturnMeta(slug!)
-                : await fetchAddonMeta(profileId, contentType, metaId);
+                : isMediaset
+                  ? await fetchMediasetMeta(slug!)
+                  : isSaturn
+                    ? await fetchSaturnMeta(slug!)
+                    : await fetchAddonMeta(profileId, contentType, metaId);
         if (cancelled) return;
         putCachedAddonMeta(target, data);
         setMeta(data);
@@ -419,7 +428,7 @@ export function AddonWatchPage({
     return () => {
       cancelled = true;
     };
-  }, [profileId, contentType, metaId, isSc, isSaturn, isLoonex, isYoutube, isRaiplay, slug, catalogPrefix]);
+  }, [profileId, contentType, metaId, isSc, isSaturn, isLoonex, isYoutube, isRaiplay, isMediaset, slug, catalogPrefix]);
 
   useEffect(() => {
     if (!meta || playback) return;
@@ -434,6 +443,14 @@ export function AddonWatchPage({
   const startPlayback = useCallback(
     async (videoId: string, videoTitle: string) => {
       if (!meta) return;
+      if (meta.comingSoon) {
+        setError(
+          "Prossimamente — streaming non ancora disponibile su Streaming Community.",
+        );
+        setLaunching(null);
+        setStreamsLoading(false);
+        return;
+      }
       const isMovie = meta.type === "movie";
       const episodeId = isMovie ? meta.id : videoId?.trim();
       const isMultiEpisodeSeries =
@@ -476,9 +493,11 @@ export function AddonWatchPage({
               ? [await resolveYoutubeStream(slug!, episodeId ?? meta.id)]
               : isRaiplay
                 ? [await resolveRaiplayStream(slug!, episodeId)]
-              : isSaturn
-                ? [await resolveSaturnStream(slug!, episodeId)]
-                : await resolveAddonStreams(profileId, meta.type, episodeId);
+                : isMediaset
+                  ? [await resolveMediasetStream(slug!, episodeId)]
+                  : isSaturn
+                    ? [await resolveSaturnStream(slug!, episodeId)]
+                    : await resolveAddonStreams(profileId, meta.type, episodeId);
         if (generation !== playbackGenerationRef.current) return;
         if (streams.length === 0) {
           setError(
@@ -515,6 +534,7 @@ export function AddonWatchPage({
       isLoonex,
       isYoutube,
       isRaiplay,
+      isMediaset,
       metaId,
       slug,
       loadStreamResume,
@@ -618,9 +638,17 @@ export function AddonWatchPage({
     ) {
       return;
     }
+    if (meta.comingSoon) {
+      initialAutoplayDoneRef.current = true;
+      setError(
+        "Prossimamente — streaming non ancora disponibile su Streaming Community.",
+      );
+      return;
+    }
     const isLive =
-      isRaiplay &&
-      ((slug ?? metaId).toLowerCase().startsWith("live-") ||
+      ((isRaiplay || isMediaset) &&
+        (slug ?? metaId).toLowerCase().startsWith("live-")) ||
+      (isRaiplay &&
         meta.releaseInfo?.toLowerCase().includes("diretta") === true);
     // Live e "play diretto" (videoId): avvia subito senza scheda titolo.
     if (!initialVideoId && !isLive) return;
@@ -632,7 +660,7 @@ export function AddonWatchPage({
     const title = video?.title?.trim() || meta.name;
     initialAutoplayDoneRef.current = true;
     void startPlayback(autoplayVideoId, title);
-  }, [meta, initialVideoId, metaId, slug, isRaiplay, loading, startPlayback]);
+  }, [meta, initialVideoId, metaId, slug, isRaiplay, isMediaset, loading, startPlayback]);
 
   if (!STREMIO_ADDONS_ENABLED && !isBuiltinStreamingCatalog(catalogPrefix)) {
     return (
@@ -729,6 +757,8 @@ export function AddonWatchPage({
         <VideoPlayer
           streamUrl={playback.stream.url}
           isHls={playback.stream.isHls}
+          isDash={playback.stream.isDash}
+          drmWidevineLicenseUrl={playback.stream.drmWidevineLicenseUrl}
           remotePlayback={{
             contentType: meta.type,
             videoId: playback.videoId,
@@ -783,7 +813,8 @@ export function AddonWatchPage({
   if (loading) {
     const guestParty = watchPartySession?.role === "guest";
     const isLiveSlug =
-      isRaiplay && (slug ?? metaId).toLowerCase().startsWith("live-");
+      (isRaiplay || isMediaset) &&
+      (slug ?? metaId).toLowerCase().startsWith("live-");
     // Chi arriva già diretto al player vede la stessa schermata di avvio,
     // non uno spinner intermedio con un'estetica diversa.
     if (initialVideoId || isLiveSlug || guestParty) {

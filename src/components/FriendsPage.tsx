@@ -40,6 +40,7 @@ import type { CloudFriend, LanFriendPresence } from "../types/cloud";
 import type { WatchPartySession } from "../types/watchParty";
 import { FRIEND_REQUESTS_EVENT } from "../lib/friendRequestsNavigation";
 import { isLanFeaturesEnabled } from "../lib/platform";
+import { DonorBadge } from "./DonorBadge";
 
 type EnrichedCloudFriend = CloudFriend & {
   presence?: import("../types/cloud").FriendPresence;
@@ -300,6 +301,7 @@ export function FriendsPage({
                     name={friend.displayName}
                     subtitle={formatPresenceLabel(friend.presence)}
                     avatarUrl={friend.avatarUrl}
+                    badge={friend.isDonor ? <DonorBadge compact /> : null}
                     online
                     away={friend.presence?.status === "away"}
                     dnd={friend.presence?.status === "dnd"}
@@ -417,6 +419,7 @@ export function FriendsPage({
                       key={`cloud-off-${friend.userId}`}
                       name={friend.displayName}
                       avatarUrl={friend.avatarUrl}
+                      badge={friend.isDonor ? <DonorBadge compact /> : null}
                       subtitle={
                         formatPresenceLabel(friend.presence) ??
                         `Codice ${friend.friendCode}`

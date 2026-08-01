@@ -16,6 +16,9 @@ dist-ssr
 
 # Scratch / debug locali (mai versionare)
 .tmp-*
+tmp-*
+tmp-sc-site/
+tmp-raiplay/
 j.txt
 welib-jar*.txt
 welib-search-jar*.txt

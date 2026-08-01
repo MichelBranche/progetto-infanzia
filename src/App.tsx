@@ -23,6 +23,7 @@ import type { FriendProfileTarget } from "./components/chat/FriendProfileSheet";
 import { AppUpdaterProvider } from "./context/AppUpdaterContext";
 import { WebEssentialUpdateBanner } from "./components/WebEssentialUpdateBanner";
 import { GlobalBroadcastModal } from "./components/GlobalBroadcastModal";
+import { SupportNoticeModal } from "./components/SupportNoticeModal";
 import { AdminPrankOverlay } from "./components/AdminPrankOverlay";
 import { ProfilePinModal } from "./components/ProfilePinModal";
 import { LibraryProvider, useLibrary } from "./context/LibraryContext";
@@ -89,7 +90,7 @@ import {
 import {
   buildContinueBrowseItems,
   buildCartoniHomeRow,
-  buildRaiplayLiveHomeRow,
+  buildLiveTvHomeRow,
   buildUnifiedHomeRows,
   buildRandomHeroItems,
   enrichStreamingPreview,
@@ -860,8 +861,8 @@ function AppContent({
     withMyListFlags,
   ]);
 
-  const raiplayLiveHomeRow = useMemo(() => {
-    const row = buildRaiplayLiveHomeRow(
+  const liveHomeRow = useMemo(() => {
+    const row = buildLiveTvHomeRow(
       streamingPreviews.map(withMyListFlags),
       streamingRowsWithoutTop10,
     );
@@ -915,7 +916,7 @@ function AppContent({
     catalogIndex.length === 0 &&
     unifiedHomeRows.length === 0 &&
     !cartoniHomeRow &&
-    !raiplayLiveHomeRow &&
+    !liveHomeRow &&
     !continueHomeRow;
 
   /** Home davvero usabile: hero + almeno due slider, niente skeleton di pending. */
@@ -1383,7 +1384,7 @@ function AppContent({
                     homeStreamingPending={homeStreamingPending}
                     continueHomeRow={continueHomeRow}
                     top10Row={top10Row}
-                    raiplayLiveHomeRow={raiplayLiveHomeRow}
+                    liveHomeRow={liveHomeRow}
                     homeCatalogRows={homeCatalogRows}
                     homeCatalogRowsBeforeManga={homeCatalogRowsBeforeManga}
                     homeCatalogRowsAfterManga={homeCatalogRowsAfterManga}
@@ -1717,6 +1718,7 @@ function AppGate() {
       )}
 
       {bootDone && homeReady && <GlobalBroadcastModal />}
+      {bootDone && homeReady && <SupportNoticeModal />}
       {bootDone && homeReady && <AdminPrankOverlay />}
 
       {showAccess && <AppAccessScreen />}

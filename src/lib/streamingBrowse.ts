@@ -87,6 +87,7 @@ export const SATURN_STREAMING_ID_PREFIX = "saturn:";
 export const LOONEX_STREAMING_ID_PREFIX = "loonex:";
 export const YOUTUBE_STREAMING_ID_PREFIX = "youtube:";
 export const RAIPLAY_STREAMING_ID_PREFIX = "raiplay:";
+export const MEDIASET_STREAMING_ID_PREFIX = "mediaset:";
 
 /** Nome visualizzato per anteprime streaming (fallback da slug se name assente). */
 export function streamingPreviewDisplayName(preview: StremioMetaPreview): string {
@@ -157,6 +158,17 @@ export function streamingMediaId(preview: StremioMetaPreview): string {
     }
     return base;
   }
+  if (preview.catalogPrefix === "mediaset" && preview.slug) {
+    const base = `${MEDIASET_STREAMING_ID_PREFIX}${preview.type}:${preview.slug}`;
+    if (
+      isSeries &&
+      preview.resumeVideoId &&
+      preview.resumeVideoId !== preview.id
+    ) {
+      return `${base}:${preview.resumeVideoId}`;
+    }
+    return base;
+  }
   const prefix = STREAMING_ID_PREFIX;
   return `${prefix}${preview.type}:${preview.id}`;
 }
@@ -205,6 +217,7 @@ export function metaToMediaItem(
     poster: meta.poster,
     description: meta.description,
     releaseInfo: meta.releaseInfo,
+    comingSoon: meta.comingSoon,
   });
   return { ...base, title: videoTitle ?? meta.name };
 }
@@ -232,7 +245,8 @@ export function isStreamingMediaId(id: string): boolean {
     id.startsWith(SATURN_STREAMING_ID_PREFIX) ||
     id.startsWith(LOONEX_STREAMING_ID_PREFIX) ||
     id.startsWith(YOUTUBE_STREAMING_ID_PREFIX) ||
-    id.startsWith(RAIPLAY_STREAMING_ID_PREFIX)
+    id.startsWith(RAIPLAY_STREAMING_ID_PREFIX) ||
+    id.startsWith(MEDIASET_STREAMING_ID_PREFIX)
   );
 }
 
@@ -309,6 +323,27 @@ export function parseStreamingMediaId(id: string): AddonWatchTarget | null {
       metaId: slug,
       slug,
       catalogPrefix: "raiplay",
+      videoId,
+    };
+  }
+  if (id.startsWith(MEDIASET_STREAMING_ID_PREFIX)) {
+    const rest = id.slice(MEDIASET_STREAMING_ID_PREFIX.length);
+    const parts = rest.split(":");
+    if (parts.length < 2) return null;
+    const contentType = parts[0];
+    const slug = parts[1];
+    if (!contentType || !slug) return null;
+
+    let videoId: string | undefined;
+    if (parts.length >= 3) {
+      videoId = parts.slice(2).join(":");
+    }
+
+    return {
+      contentType,
+      metaId: slug,
+      slug,
+      catalogPrefix: "mediaset",
       videoId,
     };
   }
@@ -418,6 +453,28 @@ export function isRaiplayLiveTarget(
   return (preview.sourceRowKey ?? "").toLowerCase() === "raiplay-live";
 }
 
+/** Canale Mediaset Infinity live: play diretto. */
+export function isMediasetLiveTarget(
+  preview: Pick<
+    StremioMetaPreview,
+    "catalogPrefix" | "slug" | "id" | "sourceRowKey"
+  >,
+): boolean {
+  if (preview.catalogPrefix !== "mediaset") return false;
+  const slug = (preview.slug ?? preview.id ?? "").toLowerCase();
+  if (slug.startsWith("live-")) return true;
+  return (preview.sourceRowKey ?? "").toLowerCase() === "mediaset-live";
+}
+
+export function isLiveTvTarget(
+  preview: Pick<
+    StremioMetaPreview,
+    "catalogPrefix" | "slug" | "id" | "sourceRowKey"
+  >,
+): boolean {
+  return isRaiplayLiveTarget(preview) || isMediasetLiveTarget(preview);
+}
+
 export function previewToWatchTarget(preview: StremioMetaPreview): AddonWatchTarget {
   const videoId = streamingWatchVideoId(preview);
   if (preview.catalogPrefix === "sc" && preview.slug) {
@@ -466,6 +523,17 @@ export function previewToWatchTarget(preview: StremioMetaPreview): AddonWatchTar
       metaId: preview.slug,
       slug: preview.slug,
       catalogPrefix: "raiplay",
+      videoId: playVideoId,
+    };
+  }
+  if (preview.catalogPrefix === "mediaset" && preview.slug) {
+    const directPlay = isMediasetLiveTarget(preview);
+    const playVideoId = directPlay ? (videoId ?? preview.slug) : videoId;
+    return {
+      contentType: preview.type,
+      metaId: preview.slug,
+      slug: preview.slug,
+      catalogPrefix: "mediaset",
       videoId: playVideoId,
     };
   }

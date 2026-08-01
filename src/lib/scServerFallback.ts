@@ -58,6 +58,9 @@ export function isScUnreachableError(error: unknown): boolean {
   ).toLowerCase();
   if (!msg.trim()) return false;
 
+  // Titolo «Prossimamente»: non è un outage di rete, non ritentare via Railway.
+  if (msg.includes("prossimamente")) return false;
+
   if (msg.includes("nessun server catalogo")) return true;
   if (msg.includes("nessun mirror streaming community")) return true;
   if (msg.includes("catalogo non disponibile")) return true;

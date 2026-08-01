@@ -12,6 +12,26 @@ use std::time::Duration;
 /// SC espone `scws_url` (oggi `vixcloud.co`) e gli embed `/embed/{id}`.
 /// Host e mirror vengono scoperti/aggiornati da `vix_embed` e `sc_catalog`.
 
+pub const SC_COMING_SOON_MSG: &str =
+    "Prossimamente — streaming non ancora disponibile su Streaming Community.";
+
+/// True se SC marca il titolo come non ancora riproducibile (`coming_soon`)
+/// oppure lo status TMDB tipico pre-release.
+pub fn title_is_coming_soon(title: &Value) -> bool {
+    if let Some(flag) = title.get("coming_soon").and_then(|v| v.as_bool()) {
+        return flag;
+    }
+    let status = title
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    matches!(
+        status.as_str(),
+        "in production" | "planned" | "post production" | "rumored"
+    )
+}
+
 pub fn fetch_title_meta(
     app: &str,
     cdn: &str,
@@ -37,6 +57,7 @@ pub fn fetch_title_meta(
         .or_else(|| title.get("release_date"))
         .and_then(|v| v.as_str())
         .map(str::to_string);
+    let coming_soon = title_is_coming_soon(title);
 
     let videos = if stremio_type == "movie" {
         vec![StremioVideo {
@@ -89,6 +110,7 @@ pub fn fetch_title_meta(
         } else {
             season_numbers_from_title(title)
         },
+        coming_soon,
     })
 }
 
@@ -104,12 +126,44 @@ pub fn resolve_playback(
     let mut session = ScSession::open(app, locale)?;
     let watch_path = watch_path(locale, title_id, slug, episode_id);
     let referer = title_path(locale, title_id, slug, None);
+
+    // Preferisci il flag ufficiale dalla pagina titolo (sempre presente lì).
+    if let Ok(title_page) = session.inertia_page(&referer, None) {
+        if let Ok(title_props) = page_props(&title_page) {
+            if title_props
+                .get("title")
+                .map(title_is_coming_soon)
+                .unwrap_or(false)
+            {
+                return Err(SC_COMING_SOON_MSG.to_string());
+            }
+        }
+    }
+
     let page = session.inertia_page(&watch_path, Some(&referer))?;
     let props = page_props(&page)?;
+    if props
+        .get("title")
+        .map(title_is_coming_soon)
+        .unwrap_or(false)
+    {
+        return Err(SC_COMING_SOON_MSG.to_string());
+    }
+
     let embed_url = props
         .get("embedUrl")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| "Player non disponibile per questo titolo".to_string())?;
+        .ok_or_else(|| {
+            if props
+                .get("title")
+                .map(title_is_coming_soon)
+                .unwrap_or(false)
+            {
+                SC_COMING_SOON_MSG.to_string()
+            } else {
+                "Player non disponibile per questo titolo".to_string()
+            }
+        })?;
     let is_movie = props
         .get("title")
         .map(title_type)
@@ -122,9 +176,32 @@ pub fn resolve_playback(
     let vix_embed = extract_iframe_src(&iframe_html)
         .or_else(|| vix_embed::extract_embed_url_from_html(&iframe_html))
         .ok_or_else(|| {
-            "Riproduzione temporaneamente non disponibile. Riprova tra qualche istante.".to_string()
+            if props
+                .get("title")
+                .map(title_is_coming_soon)
+                .unwrap_or(false)
+                || iframe_html.to_ascii_lowercase().contains("prossimamente")
+            {
+                SC_COMING_SOON_MSG.to_string()
+            } else {
+                "Riproduzione temporaneamente non disponibile. Riprova tra qualche istante."
+                    .to_string()
+            }
         })?;
-    let vix_html = session.get_vix_embed_html(&vix_embed, Some(app), db, Some(&iframe_html))?;
+    let vix_html = match session.get_vix_embed_html(&vix_embed, Some(app), db, Some(&iframe_html))
+    {
+        Ok(html) => html,
+        Err(err) => {
+            if props
+                .get("title")
+                .map(title_is_coming_soon)
+                .unwrap_or(false)
+            {
+                return Err(SC_COMING_SOON_MSG.to_string());
+            }
+            return Err(err);
+        }
+    };
     Ok(stream_from_playlist(
         build_playlist_url(&vix_embed, &vix_html, locale, db)?,
         proxy,
@@ -237,11 +314,13 @@ fn stream_from_playlist(
         addon_id: "sc".to_string(),
         addon_name: "Streaming Community".to_string(),
         is_hls: true,
+        is_dash: false,
         proxied: true,
         needs_debrid: false,
         info_hash: None,
         file_idx: None,
         sources: Vec::new(),
+        drm_widevine_license_url: None,
     }
 }
 
@@ -1093,7 +1172,7 @@ mod tests {
         let db = crate::db::Database::open(std::path::Path::new(":memory:")).expect("db");
         crate::vix_embed::bootstrap(&db);
         let stream = resolve_playback(
-            "https://streamingcommunityz.vin",
+            "https://streamingcommunityz.support",
             "it",
             63783,
             "messaggi-per-isabelle",

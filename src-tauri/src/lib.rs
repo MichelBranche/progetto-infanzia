@@ -24,6 +24,8 @@ mod youtube_catalog;
 mod youtube_playback;
 mod raiplay_catalog;
 mod raiplay_playback;
+mod mediaset_catalog;
+mod mediaset_playback;
 mod saturn_catalog;
 mod saturn_playback;
 pub mod sc_catalog;
@@ -52,7 +54,7 @@ use models::{
 };
 use parental::{CanPlayResult, ProfileLimits, UpdateProfileLimitsInput, WatchSession};
 use profiles::{CreateProfileInput, Profile, UpdateProfileInput};
-use scanner::{resolve_media_root, scan_library};
+use scanner::scan_library;
 use serde::Deserialize;
 use settings::{AppSettings, UpdateSettingsInput};
 use std::collections::{HashMap, HashSet};
@@ -872,6 +874,16 @@ async fn fetch_raiplay_catalog_fast(
     }
 }
 
+async fn fetch_mediaset_catalog_fast(
+    db: Arc<crate::db::Database>,
+) -> Option<mediaset_catalog::MediasetCatalogResponse> {
+    let task = tokio::task::spawn_blocking(move || mediaset_catalog::fetch_catalog(db.as_ref()));
+    match tokio::time::timeout(std::time::Duration::from_secs(20), task).await {
+        Ok(Ok(Ok(response))) => Some(response),
+        _ => None,
+    }
+}
+
 #[tauri::command]
 async fn fetch_sc_catalog_cmd(
     state: State<'_, AppState>,
@@ -881,7 +893,14 @@ async fn fetch_sc_catalog_cmd(
     let loonex_enabled = loonex_catalog::enabled(&state.db);
     let youtube_enabled = youtube_catalog::enabled(&state.db);
     let raiplay_enabled = raiplay_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled && !raiplay_enabled {
+    let mediaset_enabled = mediaset_catalog::enabled(&state.db);
+    if !sc_enabled
+        && !saturn_enabled
+        && !loonex_enabled
+        && !youtube_enabled
+        && !raiplay_enabled
+        && !mediaset_enabled
+    {
         return Ok(sc_catalog::ScCatalogResponse {
             rows: Vec::new(),
             index: Vec::new(),
@@ -976,12 +995,28 @@ async fn fetch_sc_catalog_cmd(
         }
     };
 
-    let (sc_result, saturn, loonex, youtube, raiplay) = tokio::join!(
+    let mediaset_future = async {
+        if !mediaset_enabled {
+            return None;
+        }
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            fetch_mediaset_catalog_fast(Arc::clone(&db)),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => None,
+        }
+    };
+
+    let (sc_result, saturn, loonex, youtube, raiplay, mediaset) = tokio::join!(
         sc_future,
         saturn_future,
         loonex_future,
         youtube_future,
-        raiplay_future
+        raiplay_future,
+        mediaset_future
     );
     let mut response = sc_result?;
 
@@ -1015,6 +1050,14 @@ async fn fetch_sc_catalog_cmd(
             raiplay.rows,
             raiplay.index,
             raiplay.synced_at,
+        );
+    }
+    if let Some(mediaset) = mediaset {
+        merge_external_catalog(
+            &mut response,
+            mediaset.rows,
+            mediaset.index,
+            mediaset.synced_at,
         );
     }
 
@@ -1127,7 +1170,14 @@ async fn refresh_sc_catalog_cmd(
     let loonex_enabled = loonex_catalog::enabled(&state.db);
     let youtube_enabled = youtube_catalog::enabled(&state.db);
     let raiplay_enabled = raiplay_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled && !raiplay_enabled {
+    let mediaset_enabled = mediaset_catalog::enabled(&state.db);
+    if !sc_enabled
+        && !saturn_enabled
+        && !loonex_enabled
+        && !youtube_enabled
+        && !raiplay_enabled
+        && !mediaset_enabled
+    {
         return Ok(sc_catalog::ScCatalogResponse {
             rows: Vec::new(),
             index: Vec::new(),
@@ -1189,6 +1239,16 @@ async fn refresh_sc_catalog_cmd(
                 raiplay.rows,
                 raiplay.index,
                 raiplay.synced_at,
+            );
+        }
+
+        if mediaset_enabled {
+            let mediaset = mediaset_catalog::refresh_catalog_index(db.as_ref())?;
+            merge_external_catalog(
+                &mut response,
+                mediaset.rows,
+                mediaset.index,
+                mediaset.synced_at,
             );
         }
 
@@ -1310,7 +1370,14 @@ async fn search_sc_catalog_page_inner(
     let loonex_enabled = loonex_catalog::enabled(&state.db);
     let youtube_enabled = youtube_catalog::enabled(&state.db);
     let raiplay_enabled = raiplay_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled && !raiplay_enabled {
+    let mediaset_enabled = mediaset_catalog::enabled(&state.db);
+    if !sc_enabled
+        && !saturn_enabled
+        && !loonex_enabled
+        && !youtube_enabled
+        && !raiplay_enabled
+        && !mediaset_enabled
+    {
         return Ok(catalog_search::SearchCatalogPage {
             items: Vec::new(),
             total: 0,
@@ -1334,6 +1401,7 @@ async fn search_sc_catalog_page_inner(
             loonex_enabled,
             youtube_enabled,
             raiplay_enabled,
+            mediaset_enabled,
             &cdn,
             &locale,
         )
@@ -1512,6 +1580,52 @@ async fn resolve_raiplay_stream_cmd(
 }
 
 #[tauri::command]
+async fn fetch_mediaset_on_air_cmd(
+    state: State<'_, AppState>,
+) -> Result<Vec<StremioMetaPreview>, String> {
+    if !mediaset_catalog::enabled(&state.db) {
+        return Ok(Vec::new());
+    }
+    let db = Arc::clone(&state.db);
+    tokio::task::spawn_blocking(move || mediaset_catalog::fetch_on_air_live(db.as_ref()))
+        .await
+        .map_err(|e| format!("Errore dirette Mediaset: {e}"))?
+}
+
+#[tauri::command]
+async fn fetch_mediaset_meta_cmd(
+    state: State<'_, AppState>,
+    slug: String,
+) -> Result<StremioMeta, String> {
+    if !mediaset_catalog::enabled(&state.db) {
+        return Err("Catalogo Mediaset Infinity disabilitato".into());
+    }
+    let db = Arc::clone(&state.db);
+    tokio::task::spawn_blocking(move || mediaset_playback::fetch_title_meta(db.as_ref(), &slug))
+        .await
+        .map_err(|e| format!("Errore meta Mediaset: {e}"))?
+}
+
+#[tauri::command]
+async fn resolve_mediaset_stream_cmd(
+    state: State<'_, AppState>,
+    slug: String,
+    episode_id: Option<String>,
+) -> Result<PlayableStream, String> {
+    if !mediaset_catalog::enabled(&state.db) {
+        return Err("Catalogo Mediaset Infinity disabilitato".into());
+    }
+    let episode_id = episode_id.filter(|s| !s.trim().is_empty());
+    let db = Arc::clone(&state.db);
+    let proxy = state.addon_proxy.clone();
+    tokio::task::spawn_blocking(move || {
+        mediaset_playback::resolve_playback(db.as_ref(), &slug, episode_id.as_deref(), &proxy)
+    })
+    .await
+    .map_err(|e| format!("Errore riproduzione Mediaset: {e}"))?
+}
+
+#[tauri::command]
 async fn resolve_sc_preview_cmd(
     state: State<'_, AppState>,
     title_id: i64,
@@ -1662,11 +1776,13 @@ fn resolve_debrid_stream_cmd(
         addon_id: String::new(),
         addon_name: config.provider,
         is_hls,
+        is_dash: false,
         proxied: false,
         needs_debrid: false,
         info_hash: None,
         file_idx: None,
         sources: Vec::new(),
+        drm_widevine_license_url: None,
     })
 }
 
@@ -1708,11 +1824,13 @@ async fn resolve_torrent_source_cmd(
                 addon_id: String::new(),
                 addon_name: config.provider.clone(),
                 is_hls,
+                is_dash: false,
                 proxied: false,
                 needs_debrid: false,
                 info_hash: None,
                 file_idx: None,
                 sources: Vec::new(),
+                drm_widevine_license_url: None,
             });
         }
     }
@@ -1728,11 +1846,13 @@ async fn resolve_torrent_source_cmd(
         addon_id: String::new(),
         addon_name: "Motore torrent".to_string(),
         is_hls: false,
+        is_dash: false,
         proxied: true,
         needs_debrid: false,
         info_hash: None,
         file_idx: None,
         sources: Vec::new(),
+        drm_widevine_license_url: None,
     })
 }
 
@@ -2348,6 +2468,7 @@ fn init_app(handle: &AppHandle) -> Result<AppState, String> {
     let _ = loonex_catalog::ensure_defaults(&db);
     let _ = youtube_catalog::ensure_defaults(&db);
     let _ = raiplay_catalog::ensure_defaults(&db);
+    let _ = mediaset_catalog::ensure_defaults(&db);
     let _ = db.sync_empty_child_allowlists();
     let db_bootstrap = db.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -2471,6 +2592,9 @@ pub fn run() {
             fetch_raiplay_on_air_cmd,
             fetch_raiplay_meta_cmd,
             resolve_raiplay_stream_cmd,
+            fetch_mediaset_on_air_cmd,
+            fetch_mediaset_meta_cmd,
+            resolve_mediaset_stream_cmd,
             resolve_sc_preview_cmd,
             update_streaming_watch_progress_cmd,
             get_streaming_watch_progress_cmd,

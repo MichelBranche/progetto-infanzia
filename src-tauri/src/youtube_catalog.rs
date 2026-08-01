@@ -388,6 +388,7 @@ fn series_to_preview(series: &YoutubeSeriesCache) -> StremioMetaPreview {
         source_row_key: Some("youtube-classics".to_string()),
         source_row_title: Some("Classici su YouTube".to_string()),
         resume_video_id: None,
+        coming_soon: false,
     }
 }
 

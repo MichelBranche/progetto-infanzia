@@ -203,6 +203,7 @@ export function FriendListRow({
   away,
   dnd,
   avatarUrl,
+  badge,
   trailing,
   onPress,
 }: {
@@ -212,6 +213,7 @@ export function FriendListRow({
   away?: boolean;
   dnd?: boolean;
   avatarUrl?: string;
+  badge?: ReactNode;
   trailing?: ReactNode;
   onPress?: () => void;
 }) {
@@ -237,6 +239,7 @@ export function FriendListRow({
           <p className="truncate font-display text-[14px] font-medium tracking-[-0.02em] text-text-primary">
             {name}
           </p>
+          {badge}
         </div>
         {subtitle && (
           <p className="mt-0.5 truncate text-[12px] text-text-muted">{subtitle}</p>

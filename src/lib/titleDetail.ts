@@ -56,6 +56,7 @@ export interface TitleDetailModel {
   preferredEpisodeId?: string;
   playLabel?: string;
   hasPreview?: boolean;
+  comingSoon?: boolean;
 }
 
 function extractYear(releaseInfo?: string) {
@@ -225,7 +226,7 @@ export function titleDetailFromStremio(
     year: extractYear(meta.releaseInfo),
     runtime: meta.runtime,
     views: formatViews(meta.viewCount),
-    quality: meta.quality,
+    quality: meta.comingSoon ? "Prossimamente" : meta.quality,
     rating: meta.rating,
     castLine: meta.cast?.slice(0, 14).join(", "),
     genreLine: meta.genres.join(", ") || undefined,
@@ -234,8 +235,9 @@ export function titleDetailFromStremio(
     episodes,
     primaryEpisodeId: primaryVideo?.id,
     preferredEpisodeId: preferred,
-    playLabel: "Riproduci",
+    playLabel: meta.comingSoon ? "Prossimamente" : "Riproduci",
     hasPreview: meta.hasPreview,
+    comingSoon: Boolean(meta.comingSoon),
   };
 }
 

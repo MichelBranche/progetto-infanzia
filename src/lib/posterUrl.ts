@@ -181,7 +181,7 @@ export function posterUrlFallbacks(
     // Se il proxy locale/Vercel fallisce (IP bloccato), prova Railway.
     push(scImageServerFallbackUrl(scRel));
     // Ultimo tentativo: CDN diretto (desktop senza stream server).
-    push(`https://cdn.streamingcommunityz.vin/images/${scRel}`);
+    push(`https://cdn.streamingcommunityz.support/images/${scRel}`);
   }
 
   const saturn = trimmed.match(SATURN_CDN_IMAGE_RE);

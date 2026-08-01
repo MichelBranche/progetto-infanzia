@@ -5,6 +5,7 @@ import {
   Bug,
   CheckCircle2,
   Film,
+  HeartHandshake,
   Lightbulb,
   Loader2,
   Megaphone,
@@ -30,6 +31,7 @@ import {
   deleteDevCloudUser,
   moveFeedbackToTrash,
   restoreFeedbackFromTrash,
+  setDevCloudUserDonor,
   setFeedbackStatus,
   unbanDevCloudUser,
   unbanDevIp,
@@ -84,8 +86,16 @@ import { BroadcastAdminPanel } from "./dev/BroadcastAdminPanel";
 import { DevOverviewPanel } from "./dev/DevOverviewPanel";
 import { DevTop10Panel } from "./dev/DevTop10Panel";
 import { DevPrankPanel } from "./dev/DevPrankPanel";
+import { DevDonorsPanel } from "./dev/DevDonorsPanel";
 
-type DevTab = "overview" | "cloud" | "top10" | "feedback" | "broadcasts" | "pranks";
+type DevTab =
+  | "overview"
+  | "cloud"
+  | "donors"
+  | "top10"
+  | "feedback"
+  | "broadcasts"
+  | "pranks";
 
 const LIVE_POLL_MS = 20_000;
 
@@ -109,6 +119,13 @@ const MAIN_TABS: Array<{
     icon: Users,
     title: "Utenti cloud",
     subtitle: "Account auth, profilo app, amici e visioni",
+  },
+  {
+    id: "donors",
+    label: "Utenti paganti",
+    icon: HeartHandshake,
+    title: "Utenti paganti",
+    subtitle: "Segnalazioni donazione da verificare e stemmi assegnati",
   },
   {
     id: "top10",
@@ -210,15 +227,18 @@ function CloudUserDetail({
   user,
   deleteBusy,
   banBusy,
+  donorBusy,
   onDelete,
   onBan,
   onUnban,
   onBanIp,
   onUnbanIp,
+  onSetDonor,
 }: {
   user: DevCloudUser;
   deleteBusy: boolean;
   banBusy: boolean;
+  donorBusy: boolean;
   onDelete: () => void;
   onBan: (input: {
     reason: string;
@@ -232,6 +252,7 @@ function CloudUserDetail({
     durationHours: BanDurationHours;
   }) => void;
   onUnbanIp: (ip: string) => void;
+  onSetDonor: (isDonor: boolean) => void;
 }) {
   const [banReason, setBanReason] = useState("");
   const [banDuration, setBanDuration] = useState<BanDurationHours>(24);
@@ -265,6 +286,7 @@ function CloudUserDetail({
             {user.hasProfile && user.banned ? (
               <DevBadge tone="mint">Registrato</DevBadge>
             ) : null}
+            {user.isDonor ? <DevBadge tone="accent">Donatore</DevBadge> : null}
           </>
         }
       />
@@ -283,6 +305,14 @@ function CloudUserDetail({
           ...(user.platform
             ? [{ label: "Piattaforma", value: formatPlatformLabel(user.platform) }]
             : []),
+          ...(user.isDonor
+            ? [
+                {
+                  label: "Donatore da",
+                  value: formatWhen(user.donorSince),
+                },
+              ]
+            : []),
           ...(user.banned
             ? [
                 {
@@ -298,6 +328,40 @@ function CloudUserDetail({
             : []),
         ]}
       />
+
+      <section className="space-y-3 rounded-2xl border border-amber-300/20 bg-amber-400/[0.04] p-4">
+        <ProfileSectionLabel>Stemma donatore</ProfileSectionLabel>
+        <p className="text-[12px] leading-relaxed text-text-muted">
+          Assegna lo stemma dopo aver verificato il pagamento PayPal (stesso
+          account/email).
+        </p>
+        <DevActionBar>
+          {user.isDonor ? (
+            <DevActionButton
+              tone="neutral"
+              disabled={donorBusy || !user.hasProfile}
+              onClick={() => onSetDonor(false)}
+              icon={donorBusy ? Loader2 : HeartHandshake}
+            >
+              {donorBusy ? "Aggiorno…" : "Rimuovi stemma"}
+            </DevActionButton>
+          ) : (
+            <DevActionButton
+              tone="mint"
+              disabled={donorBusy || !user.hasProfile}
+              onClick={() => onSetDonor(true)}
+              icon={donorBusy ? Loader2 : HeartHandshake}
+            >
+              {donorBusy ? "Aggiorno…" : "Assegna stemma donatore"}
+            </DevActionButton>
+          )}
+        </DevActionBar>
+        {!user.hasProfile ? (
+          <p className="text-[12px] text-warm">
+            Serve un profilo cloud completo per assegnare lo stemma.
+          </p>
+        ) : null}
+      </section>
 
       <section className="space-y-3 rounded-2xl border border-warm/20 bg-warm/[0.04] p-4">
         <ProfileSectionLabel>Ban account + IP</ProfileSectionLabel>
@@ -647,6 +711,7 @@ export function DevConsolePage() {
   const [feedbackActionBusy, setFeedbackActionBusy] = useState(false);
   const [deleteUserBusy, setDeleteUserBusy] = useState(false);
   const [banUserBusy, setBanUserBusy] = useState(false);
+  const [donorBusy, setDonorBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -736,6 +801,11 @@ export function DevConsolePage() {
         user.displayName?.toLowerCase().includes(q),
     );
   }, [cloudUsers, query]);
+
+  const donorUsers = useMemo(
+    () => cloudUsers.filter((user) => user.isDonor),
+    [cloudUsers],
+  );
 
   const filteredFeedback = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -927,6 +997,22 @@ export function DevConsolePage() {
     [refreshCloudUsers],
   );
 
+  const handleSetDonor = useCallback(
+    async (user: DevCloudUser, isDonor: boolean) => {
+      setDonorBusy(true);
+      setError(null);
+      try {
+        await setDevCloudUserDonor(user.userId, isDonor);
+        await refreshCloudUsers();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setDonorBusy(false);
+      }
+    },
+    [refreshCloudUsers],
+  );
+
   const activeMeta = MAIN_TABS.find((t) => t.id === tab) ?? MAIN_TABS[0];
   const ActiveIcon = activeMeta.icon;
 
@@ -945,11 +1031,17 @@ export function DevConsolePage() {
             { label: "Risolti", value: resolvedCount, icon: CheckCircle2 },
             { label: "Cestino", value: trashCount, icon: Trash2 },
           ]
-        : [
-            { label: "Utenti auth", value: cloudUsers.length, icon: Users },
-            { label: "Con profilo", value: registeredCount, icon: Shield },
-            { label: "Solo auth", value: unregisteredCount, icon: UserRound },
-          ];
+        : tab === "donors"
+          ? [
+              { label: "Donatori", value: donorUsers.length, icon: HeartHandshake },
+              { label: "Utenti auth", value: cloudUsers.length, icon: Users },
+              { label: "Con profilo", value: registeredCount, icon: Shield },
+            ]
+          : [
+              { label: "Utenti auth", value: cloudUsers.length, icon: Users },
+              { label: "Con profilo", value: registeredCount, icon: Shield },
+              { label: "Solo auth", value: unregisteredCount, icon: UserRound },
+            ];
 
   const sidebar = (
     <>
@@ -1055,7 +1147,8 @@ export function DevConsolePage() {
                   {tab !== "broadcasts" &&
                     tab !== "overview" &&
                     tab !== "top10" &&
-                    tab !== "pranks" && (
+                    tab !== "pranks" &&
+                    tab !== "donors" && (
                     <DevFilterRow
                       trailing={
                         <DevSearchInput
@@ -1122,6 +1215,8 @@ export function DevConsolePage() {
 
                   {tab === "pranks" && <DevPrankPanel />}
 
+                  {tab === "donors" && <DevDonorsPanel />}
+
                   {tab === "cloud" && (
                     <DevMasterDetail
                       sidebar={
@@ -1138,7 +1233,7 @@ export function DevConsolePage() {
                                 onClick={() => setSelectedCloudId(user.userId)}
                                 title={user.displayName ?? user.email}
                                 subtitle={user.email}
-                                meta={`${user.banned ? "BANNATO · " : ""}${user.friends.length} amici · ${user.recentWatches.length} visioni${user.appVersion ? ` · v${user.appVersion}` : ""}`}
+                                meta={`${user.isDonor ? "DONATORE · " : ""}${user.banned ? "BANNATO · " : ""}${user.friends.length} amici · ${user.recentWatches.length} visioni${user.appVersion ? ` · v${user.appVersion}` : ""}`}
                                 leading={
                                   <DevUserAvatar
                                     name={user.displayName ?? user.email}
@@ -1168,6 +1263,7 @@ export function DevConsolePage() {
                               user={selectedCloudUser}
                               deleteBusy={deleteUserBusy}
                               banBusy={banUserBusy}
+                              donorBusy={donorBusy}
                               onDelete={() =>
                                 void handleDeleteCloudUser(selectedCloudUser)
                               }
@@ -1179,6 +1275,9 @@ export function DevConsolePage() {
                               }
                               onBanIp={(input) => void handleBanIp(input)}
                               onUnbanIp={(ip) => void handleUnbanIp(ip)}
+                              onSetDonor={(isDonor) =>
+                                void handleSetDonor(selectedCloudUser, isDonor)
+                              }
                             />
                           )}
                         </DevDetailPane>

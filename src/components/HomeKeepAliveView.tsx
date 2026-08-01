@@ -51,7 +51,7 @@ interface HomeKeepAliveViewProps {
   homeStreamingPending: boolean;
   continueHomeRow: HomeContinueRow | null;
   top10Row: HomeTop10Row | null;
-  raiplayLiveHomeRow: HomeCatalogRow | null;
+  liveHomeRow: HomeCatalogRow | null;
   homeCatalogRows: HomeCatalogRow[];
   homeCatalogRowsBeforeManga: HomeCatalogRow[];
   homeCatalogRowsAfterManga: HomeCatalogRow[];
@@ -108,7 +108,7 @@ export const HomeKeepAliveView = memo(
     homeStreamingPending,
     continueHomeRow,
     top10Row,
-    raiplayLiveHomeRow,
+    liveHomeRow,
     homeCatalogRows,
     homeCatalogRowsBeforeManga,
     homeCatalogRowsAfterManga,
@@ -184,12 +184,14 @@ export const HomeKeepAliveView = memo(
             </Suspense>
           </div>
         )}
-        {raiplayLiveHomeRow && (
+        {liveHomeRow && (
           <div className="lf-home-live-slot relative">
             <RaiplayLiveHomeRow
-              items={raiplayLiveHomeRow.items}
+              items={liveHomeRow.items}
               animateEntrance={animateEntrance}
               onPlayStreaming={onPlayStreaming}
+              catalog="all"
+              title="In Diretta"
             />
           </div>
         )}

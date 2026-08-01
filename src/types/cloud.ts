@@ -5,6 +5,9 @@ export interface CloudProfile {
   friendCode: string;
   avatarUrl?: string;
   createdAt: string;
+  /** Stemmi assegnato dall'admin dopo una donazione. */
+  isDonor?: boolean;
+  donorSince?: string;
 }
 
 export interface CloudFriend {
@@ -13,6 +16,7 @@ export interface CloudFriend {
   friendCode: string;
   email?: string;
   avatarUrl?: string;
+  isDonor?: boolean;
 }
 
 export interface FriendPresence {

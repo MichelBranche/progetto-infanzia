@@ -131,7 +131,7 @@ fn resolve_palette_fetch_url(url: &str) -> Result<String, String> {
 
     if let Some(rest) = trimmed.strip_prefix("/sc-image/") {
         return Ok(format!(
-            "https://cdn.streamingcommunityz.vin/images/{}",
+            "https://cdn.streamingcommunityz.support/images/{}",
             rest.trim_start_matches('/')
         ));
     }
@@ -139,14 +139,14 @@ fn resolve_palette_fetch_url(url: &str) -> Result<String, String> {
     if let Some(pos) = trimmed.find("/sc-image/") {
         let rest = &trimmed[pos + "/sc-image/".len()..];
         return Ok(format!(
-            "https://cdn.streamingcommunityz.vin/images/{}",
+            "https://cdn.streamingcommunityz.support/images/{}",
             rest.trim_start_matches('/')
         ));
     }
 
     if is_bare_sc_image_filename(trimmed) {
         return Ok(format!(
-            "https://cdn.streamingcommunityz.vin/images/{trimmed}"
+            "https://cdn.streamingcommunityz.support/images/{trimmed}"
         ));
     }
 
@@ -174,7 +174,7 @@ async fn extract_image_palette_inner(url: &str) -> Option<ImagePalette> {
         .ok()?;
 
     let referer = if resolved.to_ascii_lowercase().contains("streamingcommunity") {
-        "https://streamingcommunityz.vin/"
+        "https://streamingcommunityz.support/"
     } else {
         "https://www.themoviedb.org/"
     };

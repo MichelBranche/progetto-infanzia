@@ -901,6 +901,7 @@ impl Database {
                     source_row_key: None,
                     source_row_title: None,
                     resume_video_id: None,
+                    coming_soon: false,
                 })
             })
             .map_err(|e| e.to_string())?;

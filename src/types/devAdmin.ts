@@ -31,6 +31,8 @@ export interface DevCloudUser {
   friendCode?: string;
   avatarUrl?: string;
   profileCreatedAt?: string;
+  isDonor: boolean;
+  donorSince?: string;
   friendsCount: number;
   presenceStatus?: string;
   lastSeenAt?: string;

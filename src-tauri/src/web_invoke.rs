@@ -31,6 +31,7 @@ pub async fn init_web_state() -> Result<Arc<AppState>, String> {
         let _ = crate::loonex_catalog::ensure_defaults(&db);
         let _ = crate::youtube_catalog::ensure_defaults(&db);
         let _ = crate::raiplay_catalog::ensure_defaults(&db);
+        let _ = crate::mediaset_catalog::ensure_defaults(&db);
         let _ = db.sync_empty_child_allowlists();
         let db_bootstrap = db.clone();
         crate::vix_embed::bootstrap(db_bootstrap.as_ref());
@@ -537,6 +538,58 @@ pub async fn dispatch_web_command(
             });
             ok(task.await.map_err(|e| format!("Errore raiplay stream: {e}"))??)
         }
+        "fetch_mediaset_on_air_cmd" => {
+            if !crate::mediaset_catalog::enabled(&state.db) {
+                return ok(Vec::<crate::stremio::StremioMetaPreview>::new());
+            }
+            let db = state.db.clone();
+            let task = tokio::task::spawn_blocking(move || {
+                crate::mediaset_catalog::fetch_on_air_live(db.as_ref())
+            });
+            ok(task.await.map_err(|e| format!("Errore mediaset on air: {e}"))??)
+        }
+        "fetch_mediaset_meta_cmd" => {
+            #[derive(Deserialize)]
+            struct Args {
+                slug: String,
+            }
+            let parsed: Args = parse_args(args)?;
+            if !crate::mediaset_catalog::enabled(&state.db) {
+                return Err("Catalogo Mediaset Infinity disabilitato".into());
+            }
+            let db = state.db.clone();
+            let slug = parsed.slug;
+            let task = tokio::task::spawn_blocking(move || {
+                crate::mediaset_playback::fetch_title_meta(db.as_ref(), &slug)
+            });
+            ok(task.await.map_err(|e| format!("Errore mediaset meta: {e}"))??)
+        }
+        "resolve_mediaset_stream_cmd" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                slug: String,
+                #[serde(default)]
+                episode_id: Option<String>,
+            }
+            let parsed: Args = parse_args(args)?;
+            if !crate::mediaset_catalog::enabled(&state.db) {
+                return Err("Catalogo Mediaset Infinity disabilitato".into());
+            }
+            let episode_id = parsed.episode_id.filter(|s| !s.trim().is_empty());
+            let db = state.db.clone();
+            let proxy = state.addon_proxy.clone();
+            let slug = parsed.slug;
+            let task = tokio::task::spawn_blocking(move || {
+                crate::mediaset_playback::resolve_playback(
+                    db.as_ref(),
+                    &slug,
+                    episode_id.as_deref(),
+                    proxy.as_ref(),
+                )
+            });
+            ok(task.await.map_err(|e| format!("Errore mediaset stream: {e}"))??)
+        }
         "update_streaming_watch_progress_cmd" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
@@ -836,7 +889,14 @@ async fn search_catalog_page_web(
     let loonex_enabled = crate::loonex_catalog::enabled(&state.db);
     let youtube_enabled = crate::youtube_catalog::enabled(&state.db);
     let raiplay_enabled = crate::raiplay_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled && !raiplay_enabled {
+    let mediaset_enabled = crate::mediaset_catalog::enabled(&state.db);
+    if !sc_enabled
+        && !saturn_enabled
+        && !loonex_enabled
+        && !youtube_enabled
+        && !raiplay_enabled
+        && !mediaset_enabled
+    {
         return Ok(crate::catalog_search::SearchCatalogPage {
             items: Vec::new(),
             total: 0,
@@ -858,6 +918,7 @@ async fn search_catalog_page_web(
             loonex_enabled,
             youtube_enabled,
             raiplay_enabled,
+            mediaset_enabled,
             &cdn,
             &locale,
         )
@@ -874,7 +935,14 @@ async fn fetch_sc_catalog_web(
     let loonex_enabled = crate::loonex_catalog::enabled(&state.db);
     let youtube_enabled = crate::youtube_catalog::enabled(&state.db);
     let raiplay_enabled = crate::raiplay_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled && !raiplay_enabled {
+    let mediaset_enabled = crate::mediaset_catalog::enabled(&state.db);
+    if !sc_enabled
+        && !saturn_enabled
+        && !loonex_enabled
+        && !youtube_enabled
+        && !raiplay_enabled
+        && !mediaset_enabled
+    {
         return Ok(crate::sc_catalog::ScCatalogResponse {
             rows: Vec::new(),
             index: Vec::new(),
@@ -958,12 +1026,26 @@ async fn fetch_sc_catalog_web(
         }
     };
 
-    let (sc_result, saturn, loonex, youtube, raiplay) = tokio::join!(
+    let mediaset_future = async {
+        if !mediaset_enabled {
+            return None;
+        }
+        let db = db.clone();
+        let task =
+            tokio::task::spawn_blocking(move || crate::mediaset_catalog::fetch_catalog(db.as_ref()));
+        match tokio::time::timeout(std::time::Duration::from_secs(20), task).await {
+            Ok(Ok(Ok(response))) => Some(response),
+            _ => None,
+        }
+    };
+
+    let (sc_result, saturn, loonex, youtube, raiplay, mediaset) = tokio::join!(
         sc_future,
         saturn_future,
         loonex_future,
         youtube_future,
-        raiplay_future
+        raiplay_future,
+        mediaset_future
     );
     let mut response = sc_result?;
 
@@ -992,6 +1074,14 @@ async fn fetch_sc_catalog_web(
             raiplay.synced_at,
         );
     }
+    if let Some(mediaset) = mediaset {
+        merge_catalog(
+            &mut response,
+            mediaset.rows,
+            mediaset.index,
+            mediaset.synced_at,
+        );
+    }
 
     if sc_enabled {
         let db_meta = state.db.clone();
@@ -1009,7 +1099,14 @@ async fn refresh_sc_catalog_web(
     let loonex_enabled = crate::loonex_catalog::enabled(&state.db);
     let youtube_enabled = crate::youtube_catalog::enabled(&state.db);
     let raiplay_enabled = crate::raiplay_catalog::enabled(&state.db);
-    if !sc_enabled && !saturn_enabled && !loonex_enabled && !youtube_enabled && !raiplay_enabled {
+    let mediaset_enabled = crate::mediaset_catalog::enabled(&state.db);
+    if !sc_enabled
+        && !saturn_enabled
+        && !loonex_enabled
+        && !youtube_enabled
+        && !raiplay_enabled
+        && !mediaset_enabled
+    {
         return Ok(crate::sc_catalog::ScCatalogResponse {
             rows: Vec::new(),
             index: Vec::new(),
@@ -1120,12 +1217,31 @@ async fn refresh_sc_catalog_web(
         }
     };
 
-    let (sc_result, saturn, loonex, youtube, raiplay) = tokio::join!(
+    let mediaset_future = async {
+        if !mediaset_enabled {
+            return None;
+        }
+        let db_m = db.clone();
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            tokio::task::spawn_blocking(move || {
+                crate::mediaset_catalog::refresh_catalog_index(db_m.as_ref())
+            }),
+        )
+        .await
+        {
+            Ok(Ok(Ok(v))) => Some(v),
+            _ => None,
+        }
+    };
+
+    let (sc_result, saturn, loonex, youtube, raiplay, mediaset) = tokio::join!(
         sc_future,
         saturn_future,
         loonex_future,
         youtube_future,
-        raiplay_future
+        raiplay_future,
+        mediaset_future
     );
 
     let mut response = sc_result?;
@@ -1164,6 +1280,14 @@ async fn refresh_sc_catalog_web(
             raiplay.rows,
             raiplay.index,
             raiplay.synced_at,
+        );
+    }
+    if let Some(mediaset) = mediaset {
+        merge_catalog(
+            &mut response,
+            mediaset.rows,
+            mediaset.index,
+            mediaset.synced_at,
         );
     }
 

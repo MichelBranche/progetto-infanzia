@@ -96,6 +96,9 @@ interface VideoPlayerProps {
   media: MediaItem;
   episodes?: MediaItem[];
   isHls?: boolean;
+  isDash?: boolean;
+  /** Proxy locale per licenza Widevine (Mediaset Infinity). */
+  drmWidevineLicenseUrl?: string | null;
   remotePlayback?: {
     contentType: string;
     videoId: string;
@@ -117,8 +120,8 @@ interface VideoPlayerProps {
   onReady?: () => void;
   /**
    * Ri-risolve lo stream da zero. Serve quando gli URL `/remote/...` non sono
-   * piÃ¹ validi (riavvio app desktop o redeploy del server): la registry del
-   * proxy Ã¨ in memoria, quindi l'unico recupero Ã¨ chiedere un nuovo URL.
+   * più validi (riavvio app desktop o redeploy del server): la registry del
+   * proxy è in memoria, quindi l'unico recupero è chiedere un nuovo URL.
    */
   onRetryStream?: () => void;
 }
@@ -195,6 +198,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       media,
       episodes = [],
       isHls = false,
+      isDash = false,
+      drmWidevineLicenseUrl = null,
       remotePlayback,
       onBack,
       onPlayEpisode,
@@ -215,6 +220,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const shakaRef = useRef<{ destroy: () => Promise<void> } | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const lastSave = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
@@ -311,6 +317,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   );
   const effectiveIsHls =
     partySession?.role === "guest" && partyStreamUrl ? partyIsHls : isHls;
+  const effectiveLicenseUrl = normalizePlaybackUrl(
+    drmWidevineLicenseUrl?.trim() || "",
+  );
+  const usesWidevine = Boolean(effectiveLicenseUrl) && (isDash || !effectiveIsHls);
   const isPartyGuest = partySession?.role === "guest";
   const isPartyHost = partySession?.role === "host";
   const remoteProxyId = useMemo(
@@ -690,12 +700,104 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
+    if (shakaRef.current) {
+      void shakaRef.current.destroy();
+      shakaRef.current = null;
+    }
+
+    if (usesWidevine) {
+      let cancelled = false;
+      const licenseUrl = effectiveLicenseUrl;
+
+      void (async () => {
+        try {
+          const shakaMod = await import("shaka-player");
+          const shaka = shakaMod.default ?? shakaMod;
+          if (cancelled || !videoRef.current) return;
+
+          if (shaka.polyfill?.installAll) {
+            shaka.polyfill.installAll();
+          }
+          if (!shaka.Player.isBrowserSupported()) {
+            failPlayback(
+              "Questo browser non supporta la riproduzione DRM (serve Chrome o Edge con Widevine).",
+            );
+            return;
+          }
+
+          const player = new shaka.Player();
+          await player.attach(videoRef.current);
+          if (cancelled) {
+            await player.destroy();
+            return;
+          }
+          shakaRef.current = player;
+
+          player.configure({
+            drm: {
+              servers: {
+                "com.widevine.alpha": licenseUrl,
+              },
+            },
+            streaming: {
+              bufferingGoal: 20,
+              rebufferingGoal: 4,
+              bufferBehind: 15,
+            },
+          });
+
+          player.addEventListener("error", ((event: Event) => {
+            const detail = (event as { detail?: { code?: number; message?: string } }).detail;
+            const msg =
+              detail?.message ||
+              (detail?.code != null
+                ? `Errore player DRM (${detail.code})`
+                : "Errore riproduzione Widevine");
+            failPlayback(msg);
+          }) as (event: Event) => void);
+
+          await player.load(effectiveStreamUrl);
+          if (cancelled) return;
+
+          video.muted = false;
+          const play = video.play();
+          if (play && typeof play.catch === "function") {
+            play.catch(() => {
+              video.muted = true;
+              void video
+                .play()
+                .then(() => {
+                  video.muted = false;
+                  setPlaying(true);
+                })
+                .catch(() => setPlaying(false));
+            });
+          }
+        } catch (err) {
+          if (!cancelled) {
+            failPlayback(
+              err instanceof Error
+                ? err.message
+                : "Impossibile avviare lo stream Widevine Mediaset.",
+            );
+          }
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+        if (shakaRef.current) {
+          void shakaRef.current.destroy();
+          shakaRef.current = null;
+        }
+      };
+    }
 
     if (effectiveIsHls && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
         enableWebVTT: true,
-        // Buffer piÃ¹ stretti: finestre enormi facevano scattare l'UI
+        // Buffer più stretti: finestre enormi facevano scattare l'UI
         // durante scrub/volume (main thread + rete).
         maxBufferLength: 30,
         maxMaxBufferLength: 45,
@@ -795,8 +897,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         if (!data.fatal) return;
 
         // La registry del proxy vive in memoria: dopo un riavvio dell'app o un
-        // redeploy del server gli URL `/remote/...` non esistono piÃ¹. Nessun
-        // retry di rete puÃ² recuperarli, serve ri-risolvere lo stream.
+        // redeploy del server gli URL `/remote/...` non esistono più. Nessun
+        // retry di rete può recuperarli, serve ri-risolvere lo stream.
         const registryLost =
           (data.response?.code === 404 || data.response?.code === 410) &&
           typeof data.url === "string" &&
@@ -836,7 +938,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       video.removeAttribute("src");
       video.load();
     };
-  }, [effectiveStreamUrl, effectiveIsHls, castDevice, markBootDone, failPlayback]);
+  }, [
+    effectiveStreamUrl,
+    effectiveIsHls,
+    usesWidevine,
+    effectiveLicenseUrl,
+    castDevice,
+    markBootDone,
+    failPlayback,
+  ]);
 
   const stopCast = useCallback(async () => {
     if (!castDevice) return;
@@ -1759,7 +1869,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     >
       <video
         ref={videoRef}
-        src={effectiveIsHls && Hls.isSupported() ? undefined : effectiveStreamUrl}
+        src={
+          usesWidevine || (effectiveIsHls && Hls.isSupported())
+            ? undefined
+            : effectiveStreamUrl
+        }
         className="player-video h-full w-full object-contain"
         playsInline
         onClick={onVideoSurfaceClick}

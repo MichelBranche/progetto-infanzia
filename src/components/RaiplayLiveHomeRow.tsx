@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Play } from "lucide-react";
 import type { BrowseItem } from "../lib/browse";
 import { browseItemId } from "../lib/browse";
-import { fetchRaiplayOnAir } from "../lib/addonsApi";
+import { fetchRaiplayOnAir, fetchMediasetOnAir } from "../lib/addonsApi";
 import { adaptPosterUrl } from "../lib/posterUrl";
 import { streamingBrowseItem } from "../lib/streamingBrowse";
 import { usePosterQuality } from "../context/PosterQualityContext";
@@ -33,6 +33,19 @@ const CHANNEL_COLORS: Record<string, string> = {
   raisport: "#003087",
   raisportpiuhd: "#003087",
   raisporthd: "#003087",
+  c5: "#00a0e0",
+  i1: "#e31c23",
+  r4: "#5c2d91",
+  ka: "#e87722",
+  ki: "#8b3a62",
+  kq: "#3d4f66",
+  lb: "#1a7a4c",
+  b6: "#c45c26",
+  lt: "#7a1f2b",
+  fu: "#4a90a4",
+  i2: "#e31c23",
+  kb: "#f5a623",
+  la: "#00a3e0",
 };
 
 function channelIdFromPreview(preview: StremioMetaPreview): string {
@@ -49,7 +62,11 @@ function channelLabel(preview: StremioMetaPreview): string {
   const name = preview.name?.trim();
   if (name) return name;
   const id = channelIdFromPreview(preview);
-  return id ? id.replace(/^rai/, "Rai ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Rai";
+  if (!id) return "Canale";
+  if (id.startsWith("rai")) {
+    return id.replace(/^rai/, "Rai ").replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  return id.toUpperCase();
 }
 
 /** Parsa `live|HH:MM|mins` → orario inizio + progresso 0–1. */
@@ -194,12 +211,17 @@ interface RaiplayLiveHomeRowProps {
   items: BrowseItem[];
   animateEntrance?: boolean;
   onPlayStreaming: (preview: StremioMetaPreview) => void;
+  title?: string;
+  /** Quale on-air refresh usare. `all` = Rai + Mediaset nella stessa riga. */
+  catalog?: "raiplay" | "mediaset" | "all";
 }
 
 export const RaiplayLiveHomeRow = memo(function RaiplayLiveHomeRow({
   items,
   animateEntrance = false,
   onPlayStreaming,
+  title = "In Diretta",
+  catalog = "raiplay",
 }: RaiplayLiveHomeRowProps) {
   const { scrollRef, collapseEpoch, scrollProps } = useRowScrollContainer();
   const [fresh, setFresh] = useState<StremioMetaPreview[] | null>(null);
@@ -208,7 +230,18 @@ export const RaiplayLiveHomeRow = memo(function RaiplayLiveHomeRow({
     let cancelled = false;
     void (async () => {
       try {
-        const next = await fetchRaiplayOnAir();
+        let next: StremioMetaPreview[] = [];
+        if (catalog === "all") {
+          const [rai, mediaset] = await Promise.all([
+            fetchRaiplayOnAir().catch(() => [] as StremioMetaPreview[]),
+            fetchMediasetOnAir().catch(() => [] as StremioMetaPreview[]),
+          ]);
+          next = [...rai, ...mediaset];
+        } else if (catalog === "mediaset") {
+          next = await fetchMediasetOnAir();
+        } else {
+          next = await fetchRaiplayOnAir();
+        }
         if (!cancelled && next.length > 0) setFresh(next);
       } catch {
         /* catalogo già in riga */
@@ -217,14 +250,40 @@ export const RaiplayLiveHomeRow = memo(function RaiplayLiveHomeRow({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [catalog]);
 
   const previews = useMemo(() => {
-    if (fresh?.length) return fresh;
+    if (fresh?.length) {
+      // Se il refresh torna solo un catalogo, non cancellare l’altro già in `items`.
+      if (catalog !== "all") return fresh;
+      const freshKeys = new Set(
+        fresh.map(
+          (p) =>
+            `${p.catalogPrefix ?? ""}:${(p.slug ?? p.id ?? "").toLowerCase()}`,
+        ),
+      );
+      const fromItems = items
+        .filter(
+          (b): b is Extract<BrowseItem, { kind: "streaming" }> =>
+            b.kind === "streaming",
+        )
+        .map((b) => b.preview)
+        .filter((p) => {
+          const key = `${p.catalogPrefix ?? ""}:${(p.slug ?? p.id ?? "").toLowerCase()}`;
+          return !freshKeys.has(key);
+        });
+      // Preferisci ordine: Rai aggiornati, Mediaset aggiornati, eventuali restanti.
+      const rai = fresh.filter((p) => p.catalogPrefix === "raiplay");
+      const mediaset = fresh.filter((p) => p.catalogPrefix === "mediaset");
+      const otherFresh = fresh.filter(
+        (p) => p.catalogPrefix !== "raiplay" && p.catalogPrefix !== "mediaset",
+      );
+      return [...rai, ...mediaset, ...otherFresh, ...fromItems];
+    }
     return items
       .filter((b): b is Extract<BrowseItem, { kind: "streaming" }> => b.kind === "streaming")
       .map((b) => b.preview);
-  }, [fresh, items]);
+  }, [fresh, items, catalog]);
 
   const rowInteractionValue = useMemo(
     () => ({ collapseEpoch }),
@@ -258,7 +317,7 @@ export const RaiplayLiveHomeRow = memo(function RaiplayLiveHomeRow({
         >
           <h2 className="lf-home-row__title title-safe flex items-center gap-2">
             <BroadcastIcon className="h-5 w-5 shrink-0 text-white" />
-            In Diretta
+            {title}
           </h2>
           <button
             type="button"

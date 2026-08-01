@@ -1,5 +1,6 @@
 use crate::db::Database;
 use crate::loonex_catalog;
+use crate::mediaset_catalog;
 use crate::raiplay_catalog;
 use crate::saturn_catalog;
 use crate::sc_catalog;
@@ -54,6 +55,7 @@ fn run_search(
     loonex_enabled: bool,
     youtube_enabled: bool,
     raiplay_enabled: bool,
+    mediaset_enabled: bool,
     cdn: &str,
     locale: &str,
 ) -> Vec<StremioMetaPreview> {
@@ -93,6 +95,9 @@ fn run_search(
     if raiplay_enabled {
         push_unique(raiplay_catalog::search_titles(db, query));
     }
+    if mediaset_enabled {
+        push_unique(mediaset_catalog::search_titles(db, query));
+    }
 
     rank_previews_keep_unmatched(out, query)
 }
@@ -105,6 +110,7 @@ fn cached_search(
     loonex_enabled: bool,
     youtube_enabled: bool,
     raiplay_enabled: bool,
+    mediaset_enabled: bool,
     cdn: &str,
     locale: &str,
 ) -> Vec<StremioMetaPreview> {
@@ -124,6 +130,7 @@ fn cached_search(
                 loonex_enabled,
                 youtube_enabled,
                 raiplay_enabled,
+                mediaset_enabled,
                 cdn,
                 locale,
             );
@@ -144,6 +151,7 @@ fn cached_search(
         loonex_enabled,
         youtube_enabled,
         raiplay_enabled,
+        mediaset_enabled,
         cdn,
         locale,
     );
@@ -168,6 +176,7 @@ pub fn search_catalog_page(
     loonex_enabled: bool,
     youtube_enabled: bool,
     raiplay_enabled: bool,
+    mediaset_enabled: bool,
     cdn: &str,
     locale: &str,
 ) -> SearchCatalogPage {
@@ -180,6 +189,7 @@ pub fn search_catalog_page(
         loonex_enabled,
         youtube_enabled,
         raiplay_enabled,
+        mediaset_enabled,
         cdn,
         locale,
     );
@@ -197,11 +207,5 @@ pub fn search_catalog_page(
         total,
         offset,
         has_more,
-    }
-}
-
-pub fn clear_search_cache() {
-    if let Ok(mut guard) = SEARCH_CACHE.lock() {
-        guard.clear();
     }
 }

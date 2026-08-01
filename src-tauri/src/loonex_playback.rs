@@ -439,6 +439,7 @@ pub fn fetch_title_meta(db: &crate::db::Database, slug: &str) -> Result<StremioM
         quality: None,
         has_preview: false,
         season_numbers,
+        coming_soon: false,
     })
 }
 
@@ -494,11 +495,13 @@ pub fn resolve_playback(
         addon_id: "loonex".to_string(),
         addon_name: "Loonex Cartoni".to_string(),
         is_hls,
+        is_dash: false,
         proxied: true,
         needs_debrid: false,
         info_hash: None,
         file_idx: None,
         sources: Vec::new(),
+        drm_widevine_license_url: None,
     })
 }
 

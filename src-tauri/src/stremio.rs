@@ -77,6 +77,9 @@ pub struct StremioMetaPreview {
     /// Episodio da riprodurre (slider «ultimi episodi», continua a guardare, ecc.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume_video_id: Option<String>,
+    /// Streaming Community: titolo in catalogo ma non ancora riproducibile.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub coming_soon: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,6 +183,9 @@ pub struct StremioMeta {
     pub has_preview: bool,
     #[serde(default)]
     pub season_numbers: Vec<i32>,
+    /// Streaming Community: scheda presente ma stream non ancora pubblicato.
+    #[serde(default)]
+    pub coming_soon: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -197,6 +203,8 @@ pub struct PlayableStream {
     #[serde(default)]
     pub is_hls: bool,
     #[serde(default)]
+    pub is_dash: bool,
+    #[serde(default)]
     pub proxied: bool,
     /// True when this stream is a torrent that must be resolved through a
     /// debrid provider before it can be played.
@@ -208,6 +216,9 @@ pub struct PlayableStream {
     pub file_idx: Option<i32>,
     #[serde(default)]
     pub sources: Vec<String>,
+    /// Proxy locale → Widevine license (thePlatform). Usato da Shaka/EME.
+    #[serde(default)]
+    pub drm_widevine_license_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -419,11 +430,13 @@ pub fn raw_to_playable(
                     addon_id: addon_id.to_string(),
                     addon_name: addon_name.to_string(),
                     is_hls: false,
+                    is_dash: false,
                     proxied: false,
                     needs_debrid: true,
                     info_hash: Some(info_hash.to_lowercase()),
                     file_idx: s.file_idx,
                     sources: s.sources,
+                    drm_widevine_license_url: None,
                 });
             }
 
@@ -459,11 +472,13 @@ pub fn raw_to_playable(
                 addon_id: addon_id.to_string(),
                 addon_name: addon_name.to_string(),
                 is_hls,
+                is_dash: false,
                 proxied,
                 needs_debrid: false,
                 info_hash: None,
                 file_idx: None,
                 sources: Vec::new(),
+                drm_widevine_license_url: None,
             })
         })
         .collect()

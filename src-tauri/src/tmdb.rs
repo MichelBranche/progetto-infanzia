@@ -1,7 +1,7 @@
 use crate::db::Database;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::thread;
 use std::time::Duration;
 

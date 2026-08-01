@@ -5,10 +5,10 @@ function resolvePaletteBackendUrl(url: string): string {
   const trimmed = url.trim();
   const proxyMatch = trimmed.match(/\/sc-image\/(.+)$/);
   if (proxyMatch) {
-    return `https://cdn.streamingcommunityz.vin/images/${proxyMatch[1]}`;
+    return `https://cdn.streamingcommunityz.support/images/${proxyMatch[1]}`;
   }
   if (/^[0-9a-f-]{36}\.[a-z0-9]+$/i.test(trimmed)) {
-    return `https://cdn.streamingcommunityz.vin/images/${trimmed}`;
+    return `https://cdn.streamingcommunityz.support/images/${trimmed}`;
   }
   return trimmed;
 }

@@ -1,7 +1,7 @@
 import type { BrowseItem } from "./browse";
 import { browseItemId } from "./browse";
 import {
-  isRaiplayLiveTarget,
+  isLiveTvTarget,
   isStreamingSeries,
   previewToDetailTarget,
   previewToWatchTarget,
@@ -30,10 +30,11 @@ export function browseDetailAction(
       preview.catalogPrefix === "saturn" ||
       preview.catalogPrefix === "loonex" ||
       preview.catalogPrefix === "youtube" ||
-      preview.catalogPrefix === "raiplay"
+      preview.catalogPrefix === "raiplay" ||
+      preview.catalogPrefix === "mediaset"
     ) {
-      // Dirette RaiPlay: vai al player, salta la scheda titolo.
-      const target = isRaiplayLiveTarget(preview)
+      // Dirette live: vai al player, salta la scheda titolo.
+      const target = isLiveTvTarget(preview)
         ? previewToWatchTarget(preview)
         : previewToDetailTarget(preview);
       if (!target.slug) return null;

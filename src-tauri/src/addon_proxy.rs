@@ -227,6 +227,126 @@ impl AddonProxyRegistry {
             .collect::<Vec<_>>()
             .join("\n")
     }
+
+    /// Riscrive BaseURL DASH verso `/mediaset-dash/{dir_id}/…` così Shaka
+    /// scarica init/segmenti attraverso il proxy (CORS + Referer Mediaset).
+    pub fn rewrite_dash_mpd(
+        &self,
+        mpd_body: &str,
+        mpd_url: &str,
+        request_headers: &HashMap<String, String>,
+        use_proxy: bool,
+    ) -> String {
+        let Ok(mpd) = url::Url::parse(mpd_url) else {
+            return mpd_body.to_string();
+        };
+        let Some(dir_url) = mpd_directory_url(&mpd) else {
+            return mpd_body.to_string();
+        };
+        let dir_id = self.register(
+            dir_url.to_string(),
+            request_headers.clone(),
+            false,
+            use_proxy,
+        );
+        let proxy_base = format!(
+            "{}/mediaset-dash/{dir_id}/",
+            crate::network::stream_http_base()
+        );
+
+        let rewritten = rewrite_mpd_base_urls(mpd_body, &mpd, &dir_url, &proxy_base);
+        rewrite_localhost_in_mpd(&rewritten)
+    }
+}
+
+fn mpd_directory_url(mpd: &url::Url) -> Option<url::Url> {
+    let mut dir = mpd.clone();
+    {
+        let mut segs: Vec<String> = dir
+            .path_segments()
+            .map(|s| s.map(|p| p.to_string()).collect())
+            .unwrap_or_default();
+        if segs.is_empty() {
+            return None;
+        }
+        segs.pop();
+        let path = if segs.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}/", segs.join("/"))
+        };
+        dir.set_path(&path);
+    }
+    dir.set_query(None);
+    dir.set_fragment(None);
+    Some(dir)
+}
+
+fn path_relative_to_dir(absolute: &str, dir: &url::Url) -> Option<String> {
+    let abs = url::Url::parse(absolute).ok()?;
+    let dir_str = dir.as_str().trim_end_matches('/');
+    let abs_str = abs.as_str();
+    let prefix = format!("{dir_str}/");
+    if let Some(rest) = abs_str.strip_prefix(&prefix) {
+        return Some(rest.to_string());
+    }
+    if abs_str.trim_end_matches('/') == dir_str {
+        return Some(String::new());
+    }
+    None
+}
+
+fn rewrite_mpd_base_urls(
+    mpd_body: &str,
+    mpd_url: &url::Url,
+    dir_url: &url::Url,
+    proxy_base: &str,
+) -> String {
+    let re = regex::Regex::new(r"(?is)<BaseURL([^>]*)>([^<]*)</BaseURL>").expect("baseurl re");
+    if re.is_match(mpd_body) {
+        return re
+            .replace_all(mpd_body, |caps: &regex::Captures| {
+                let attrs = &caps[1];
+                let inner = caps[2].trim();
+                let abs = resolve_url(Some(mpd_url), inner);
+                let rel = path_relative_to_dir(&abs, dir_url).unwrap_or_else(|| abs.clone());
+                if rel.starts_with("http://") || rel.starts_with("https://") {
+                    format!("<BaseURL{attrs}>{rel}</BaseURL>")
+                } else {
+                    format!("<BaseURL{attrs}>{proxy_base}{rel}</BaseURL>")
+                }
+            })
+            .into_owned();
+    }
+
+    // Nessun BaseURL: i path SegmentTemplate sono relativi alla directory MPD.
+    let inject = format!("<BaseURL>{proxy_base}</BaseURL>");
+    if let Some(idx) = mpd_body.find("<Period") {
+        let mut out = String::with_capacity(mpd_body.len() + inject.len() + 8);
+        out.push_str(&mpd_body[..idx]);
+        out.push_str(&inject);
+        out.push('\n');
+        out.push_str(&mpd_body[idx..]);
+        out
+    } else if let Some(idx) = mpd_body.find('>') {
+        let mut out = String::with_capacity(mpd_body.len() + inject.len() + 8);
+        out.push_str(&mpd_body[..=idx]);
+        out.push('\n');
+        out.push_str(&inject);
+        out.push_str(&mpd_body[idx + 1..]);
+        out
+    } else {
+        format!("{inject}\n{mpd_body}")
+    }
+}
+
+fn rewrite_localhost_in_mpd(body: &str) -> String {
+    let public = crate::network::stream_http_base();
+    if public.contains("127.0.0.1") {
+        return body.to_string();
+    }
+    let local = format!("http://127.0.0.1:{}", crate::models::STREAM_PORT);
+    body.replace(&local, &public)
 }
 
 /// Riduce una media playlist live alla coda (live edge), aggiornando
@@ -287,6 +407,12 @@ pub fn looks_like_hls_manifest(body: &[u8]) -> bool {
     text.trim_start().starts_with("#EXTM3U")
 }
 
+pub fn looks_like_dash_mpd(body: &[u8]) -> bool {
+    let head = &body[..body.len().min(512)];
+    let text = String::from_utf8_lossy(head);
+    text.contains("<MPD") || text.contains("<mpd")
+}
+
 fn is_hls_playlist_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
     // `type=key` è una chiave AES (binaria) anche se su VixCloud vive sotto
@@ -320,6 +446,7 @@ pub fn should_sniff_manifest(entry: &ProxyEntry, content_type: Option<&str>) -> 
             lower.contains("mpegurl")
                 || lower.contains("m3u8")
                 || lower.contains("m3u")
+                || lower.contains("dash+xml")
                 || lower.contains("text/plain")
         }
         // Senza Content-Type non rischiamo di bufferizzare i .ts:
@@ -328,21 +455,48 @@ pub fn should_sniff_manifest(entry: &ProxyEntry, content_type: Option<&str>) -> 
     }
 }
 
+fn hosts_equal(a: &url::Url, b: &url::Url) -> bool {
+    match (a.host_str(), b.host_str()) {
+        (Some(ha), Some(hb)) => ha.eq_ignore_ascii_case(hb),
+        _ => false,
+    }
+}
+
+/// Query del master/media da propagare sulle URI relative (o same-host senza query).
+///
+/// - `.m3u8`: sempre (Rai/msvdn `tk2`, refresh live).
+/// - Segmenti/chiavi: solo se c'è `hdnea=` (Akamai/netrw Rai 4/Sport/…).
+///   Su msvdn i `.ts` **non** devono ereditare `tk2` (CDN diverso).
+fn should_inherit_base_query(base: &url::Url, target: &url::Url) -> bool {
+    if target.query().is_some() {
+        return false;
+    }
+    let Some(q) = base.query() else {
+        return false;
+    };
+    let path = target.path().to_ascii_lowercase();
+    if path.contains(".m3u8") {
+        return true;
+    }
+    q.contains("hdnea=")
+}
+
 fn resolve_url(base: Option<&url::Url>, reference: &str) -> String {
-    if let Ok(abs) = url::Url::parse(reference) {
+    if let Ok(mut abs) = url::Url::parse(reference) {
+        if let Some(base) = base {
+            if should_inherit_base_query(base, &abs) && hosts_equal(base, &abs) {
+                if let Some(q) = base.query() {
+                    abs.set_query(Some(q));
+                }
+            }
+        }
         return abs.to_string();
     }
     if let Some(base) = base {
         if let Ok(mut joined) = base.join(reference) {
-            // Master Rai/msvdn: `playlist_mo.m3u8?tk2=…` con varianti relative
-            // `rainews_2400/chunklist.m3u8`. Senza query il CDN può rispondere
-            // male al refresh live → levelParsingError dopo pochi secondi.
-            if joined.query().is_none() {
-                let path = joined.path().to_ascii_lowercase();
-                if path.contains(".m3u8") {
-                    if let Some(q) = base.query() {
-                        joined.set_query(Some(q));
-                    }
+            if should_inherit_base_query(base, &joined) {
+                if let Some(q) = base.query() {
+                    joined.set_query(Some(q));
                 }
             }
             return joined.to_string();
@@ -680,7 +834,7 @@ https://cdn.example/seg/001.ts"#;
             joined.contains("rainews_2400/chunklist.m3u8"),
             "{joined}"
         );
-        // I segmenti .ts non devono ereditare la query del master.
+        // I segmenti .ts msvdn/tk2 non devono ereditare la query del master.
         let seg = resolve_url(
             Some(
                 &url::Url::parse("https://cdn.example/hls/rainews_2400/chunklist.m3u8?tk2=abc")
@@ -692,5 +846,42 @@ https://cdn.example/seg/001.ts"#;
             !seg.contains("tk2="),
             "query non doveva finire sul segmento: {seg}"
         );
+    }
+
+    /// Rai 4 / Sport / Movie… usano cdn.netrw.it + token Akamai `hdnea`.
+    /// Senza propagarlo sui `.ts` il CDN rifiuta i segmenti → loading infinito.
+    #[test]
+    fn propagates_hdnea_to_relative_segments() {
+        let media = url::Url::parse(
+            "https://rai4-push.cdn.netrw.it/rai4/playlist_ma.m3u8?hdnea=st~exp~acl=/*~hmac=abc",
+        )
+        .unwrap();
+        let seg = resolve_url(Some(&media), "chunklist_b123/media_0.ts");
+        assert!(
+            seg.contains("hdnea="),
+            "hdnea perso sul segmento netrw: {seg}"
+        );
+        assert!(
+            seg.contains("media_0.ts"),
+            "{seg}"
+        );
+
+        // Nested media playlist must still inherit.
+        let child = resolve_url(Some(&media), "chunklist_b123.m3u8");
+        assert!(child.contains("hdnea="), "{child}");
+
+        // Absolute same-host segment without query.
+        let abs = resolve_url(
+            Some(&media),
+            "https://rai4-push.cdn.netrw.it/rai4/chunklist_b123/media_1.ts",
+        );
+        assert!(abs.contains("hdnea="), "{abs}");
+
+        // Absolute other host: non toccare.
+        let other = resolve_url(
+            Some(&media),
+            "https://other.cdn.example/seg.ts",
+        );
+        assert!(!other.contains("hdnea="), "{other}");
     }
 }

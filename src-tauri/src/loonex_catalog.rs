@@ -20,7 +20,6 @@ const META_LOONEX_APP_URL: &str = "loonex_app_url";
 const DEFAULT_APP_URL: &str = "https://loonex.eu/cartoni";
 const ROW_LIMIT: usize = 48;
 const MIN_CACHED_INDEX: usize = 120;
-const INDEX_TTL_SECS: i64 = 6 * 3600;
 const MAX_ARCHIVE_PAGES: usize = 240;
 const HTTP_TIMEOUT_SECS: u64 = 60;
 const ONLINE_PAGE_DELAY_MS: u64 = 900;
@@ -141,10 +140,6 @@ pub fn site_root_candidates_ordered(db: &Database) -> Vec<PathBuf> {
         }
     }
     roots
-}
-
-pub fn default_site_root() -> PathBuf {
-    best_site_root()
 }
 
 pub fn site_root_path(db: &Database) -> PathBuf {
@@ -527,6 +522,7 @@ fn card_to_preview(db: &Database, card: &LoonexCard) -> StremioMetaPreview {
         source_row_key: Some("loonex-cartoni".to_string()),
         source_row_title: Some("Loonex Archivio Cartoni".to_string()),
         resume_video_id: None,
+        coming_soon: false,
     }
 }
 
@@ -907,23 +903,6 @@ fn sync_online_index(db: &Database) -> Vec<StremioMetaPreview> {
     sync_catalog_index(db, true)
 }
 
-pub fn index_needs_refresh(db: &Database) -> bool {
-    if !enabled(db) {
-        return false;
-    }
-    let count = load_cached_index(db).map(|index| index.len()).unwrap_or(0);
-    if count < MIN_CACHED_INDEX {
-        return true;
-    }
-    let synced_at = db
-        .get_meta(META_LOONEX_INDEX_TS)
-        .ok()
-        .flatten()
-        .and_then(|v| v.parse::<i64>().ok())
-        .unwrap_or(0);
-    now_ts().saturating_sub(synced_at) > INDEX_TTL_SECS
-}
-
 fn load_home_rows(db: &Database) -> Vec<ScCatalogRow> {
     let client = http_client().ok();
     let html = client
@@ -1068,14 +1047,6 @@ pub fn refresh_catalog_index(db: &Database) -> Result<LoonexCatalogResponse, Str
         index,
         synced_at: now_ts(),
     })
-}
-
-pub fn resolve_poster_for_slug(db: &Database, slug: &str) -> Option<String> {
-    let index = load_cached_index(db)?;
-    index
-        .iter()
-        .find(|p| p.slug.as_deref() == Some(slug))
-        .and_then(|p| p.poster.clone())
 }
 
 #[cfg(test)]

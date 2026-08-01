@@ -16,8 +16,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const BUNDLED_SC_CATALOG_SEED_GZ: &[u8] =
     include_bytes!("../resources/sc_catalog_seed.json.gz");
 
-const DEFAULT_APP_URL: &str = "https://streamingcommunityz.vin";
-const DEFAULT_CDN_URL: &str = "https://cdn.streamingcommunityz.vin";
+const DEFAULT_APP_URL: &str = "https://streamingcommunityz.support";
+const DEFAULT_CDN_URL: &str = "https://cdn.streamingcommunityz.support";
 const DEFAULT_LANG: &str = "it";
 const META_SC_RESOLVED_APP: &str = "sc_resolved_app_url";
 const META_SC_REMOTE_MIRRORS: &str = "sc_remote_mirrors_json";
@@ -27,6 +27,8 @@ const REMOTE_MIRRORS_TTL_SECS: i64 = 6 * 3600;
 /// Mirror hardcoded di emergenza (ISP italiani ne bloccano spesso uno sì e uno no).
 /// L'ordine conta poco: `discover_app_url` / `fetch_sliders_for_db` li provano tutti.
 const FALLBACK_APP_URLS: &[&str] = &[
+    "https://streamingcommunityz.support",
+    "https://streamingcommunityz.vin",
     "https://streamingcommunityz.tech",
     "https://streamingunity.dog",
     "https://streamingunity.buzz",
@@ -75,7 +77,6 @@ const META_SC_INDEX: &str = "sc_catalog_index";
 const META_SC_INDEX_TS: &str = "sc_catalog_index_ts";
 const META_SC_INDEX_VERSION: &str = "sc_catalog_index_version";
 const CURRENT_INDEX_VERSION: &str = "14";
-const INDEX_TTL_SECS: i64 = 2 * 3600;
 const SLIDER_ROW_LIMIT: usize = 60;
 const MAX_GENRE_ARCHIVE_PAGES: usize = 40;
 /// Catalogo considerato “completo” per passare al solo delta all’avvio.
@@ -2543,6 +2544,8 @@ pub fn cdn_candidates(db: &crate::db::Database) -> Vec<String> {
 
     push(DEFAULT_CDN_URL);
     for fallback in [
+        "https://cdn.streamingcommunityz.support",
+        "https://cdn.streamingcommunityz.vin",
         "https://cdn.streamingcommunityz.tech",
         "https://cdn.streamingcommunityz.gives",
         "https://cdn.streamingcommunityz.buzz",
@@ -2723,6 +2726,7 @@ fn map_title(cdn: &str, title: ScTitle) -> StremioMetaPreview {
         } else {
             None
         },
+        coming_soon: false,
     }
 }
 
@@ -2808,6 +2812,20 @@ pub fn preview_from_value(
         } else {
             None
         },
+        coming_soon: title
+            .get("coming_soon")
+            .and_then(|v| v.as_bool())
+            .unwrap_or_else(|| {
+                let status = title
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                matches!(
+                    status.as_str(),
+                    "in production" | "planned" | "post production" | "rumored"
+                )
+            }),
     })
 }
 

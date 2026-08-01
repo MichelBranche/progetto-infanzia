@@ -582,6 +582,7 @@ fn card_to_preview(db: &Database, card: &SaturnCard) -> StremioMetaPreview {
         source_row_key: None,
         source_row_title: None,
         resume_video_id: None,
+        coming_soon: false,
     }
 }
 

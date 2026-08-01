@@ -145,6 +145,11 @@ where
         )
         .route("/remote-cast/{id}", get(remote_cast_handler))
         .route(
+            "/mediaset-dash/{id}/{*path}",
+            get(mediaset_dash_handler).head(mediaset_dash_head_handler),
+        )
+        .route("/mediaset-wv/{id}", post(mediaset_wv_license_handler))
+        .route(
             "/torrent/{id}",
             get(torrent_handler).head(torrent_head_handler),
         )
@@ -428,7 +433,7 @@ fn referer_for_image_url(url: &str) -> &'static str {
     } else if lower.contains("saturncdn.net") {
         "https://www.animesaturn.ac/"
     } else if lower.contains("streamingcommunity") || lower.contains("streamingunity") {
-        "https://streamingcommunityz.vin/"
+        "https://streamingcommunityz.support/"
     } else if lower.contains("mangadex.org") {
         "https://mangadex.org/"
     } else if lower.contains("x-cdn-x.com") || lower.contains("welib.org") {
@@ -694,6 +699,119 @@ async fn remote_handler(
     remote_proxy_response(&state, &id, &headers, false).await
 }
 
+async fn mediaset_dash_head_handler(
+    State(state): State<Arc<StreamState>>,
+    Path((id, path)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Response<Body>, StatusCode> {
+    mediaset_dash_response(&state, &id, &path, &headers, true).await
+}
+
+async fn mediaset_dash_handler(
+    State(state): State<Arc<StreamState>>,
+    Path((id, path)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Response<Body>, StatusCode> {
+    mediaset_dash_response(&state, &id, &path, &headers, false).await
+}
+
+async fn mediaset_dash_response(
+    state: &StreamState,
+    id: &str,
+    path: &str,
+    headers: &HeaderMap,
+    head_only: bool,
+) -> Result<Response<Body>, StatusCode> {
+    if path.split('/').any(|p| p == "..") {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let entry = state.addon_proxy.get(id).ok_or(StatusCode::NOT_FOUND)?;
+    let base = entry.upstream_url.trim_end_matches('/');
+    let rel = path.trim_start_matches('/');
+    let upstream = if rel.is_empty() {
+        format!("{base}/")
+    } else {
+        format!("{base}/{rel}")
+    };
+
+    let mut builder =
+        reqwest::Client::builder().timeout(std::time::Duration::from_secs(120));
+    if entry.use_proxy {
+        builder = crate::sc_proxy::apply_async(builder);
+    }
+    let client = builder
+        .build()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut req = client.get(&upstream);
+    for (key, value) in &entry.request_headers {
+        req = req.header(key.as_str(), value.as_str());
+    }
+    if let Some(range) = headers.get(header::RANGE).and_then(|v| v.to_str().ok()) {
+        req = req.header(header::RANGE, range);
+    }
+
+    let resp = req.send().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let mut out = Response::builder().status(status);
+    for (key, value) in resp.headers().iter() {
+        let name = key.as_str();
+        if name.eq_ignore_ascii_case("connection")
+            || name.eq_ignore_ascii_case("transfer-encoding")
+            || name.eq_ignore_ascii_case("content-encoding")
+        {
+            continue;
+        }
+        out = out.header(key, value);
+    }
+    out = out
+        .header(header::CACHE_CONTROL, "no-cache")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+
+    if head_only {
+        return out
+            .body(Body::empty())
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    let stream = resp.bytes_stream();
+    out.body(Body::from_stream(stream))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn mediaset_wv_license_handler(
+    Path(id): Path<String>,
+    body: axum::body::Bytes,
+) -> Result<Response<Body>, StatusCode> {
+    let license_url = crate::mediaset_playback::wv_upstream_license_url(&id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let resp = client
+        .post(&license_url)
+        .header("Origin", crate::mediaset_catalog::app_origin())
+        .header(
+            "Referer",
+            format!("{}/", crate::mediaset_catalog::app_origin()),
+        )
+        .header("User-Agent", crate::mediaset_catalog::user_agent())
+        .header("Content-Type", "application/octet-stream")
+        .body(body.to_vec())
+        .send()
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let bytes = resp.bytes().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, "application/octet-stream")
+        .header(header::CACHE_CONTROL, "no-store")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .body(Body::from(bytes))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 fn rewrite_localhost_stream_urls(body: &str) -> String {
     let public = stream_http_base();
     if public.contains("127.0.0.1") {
@@ -762,6 +880,30 @@ async fn remote_proxy_response(
             let mut builder = Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")
+                .header(header::CACHE_CONTROL, "no-cache")
+                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+            if head_only {
+                builder = builder.header(header::CONTENT_LENGTH, rewritten.len());
+                return builder
+                    .body(Body::empty())
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+            }
+            return builder
+                .body(Body::from(rewritten))
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+        }
+
+        if crate::addon_proxy::looks_like_dash_mpd(&body) {
+            let text = String::from_utf8_lossy(&body);
+            let rewritten = state.addon_proxy.rewrite_dash_mpd(
+                &text,
+                &entry.upstream_url,
+                &entry.request_headers,
+                entry.use_proxy,
+            );
+            let mut builder = Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/dash+xml")
                 .header(header::CACHE_CONTROL, "no-cache")
                 .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
             if head_only {

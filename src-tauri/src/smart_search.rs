@@ -490,6 +490,7 @@ mod tests {
             source_row_key: None,
             source_row_title: None,
             resume_video_id: None,
+            coming_soon: false,
         };
         let mut partial = exact.clone();
         partial.name = "Silo Valley".into();

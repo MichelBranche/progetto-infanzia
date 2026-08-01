@@ -365,6 +365,7 @@ fn fetch_live_meta(client: &Client, slug: &str) -> Result<StremioMeta, String> {
         quality: None,
         has_preview: false,
         season_numbers: Vec::new(),
+        coming_soon: false,
     })
 }
 
@@ -426,6 +427,7 @@ fn fetch_standalone_video_meta(client: &Client, slug: &str) -> Result<StremioMet
         quality: None,
         has_preview: false,
         season_numbers: Vec::new(),
+        coming_soon: false,
     })
 }
 
@@ -514,6 +516,7 @@ pub fn fetch_title_meta(db: &Database, slug: &str) -> Result<StremioMeta, String
                 quality: None,
                 has_preview: false,
                 season_numbers: vec![1],
+                coming_soon: false,
             });
         }
         return Err("Nessuna puntata free disponibile per questo programma".into());
@@ -543,6 +546,7 @@ pub fn fetch_title_meta(db: &Database, slug: &str) -> Result<StremioMeta, String
         quality: None,
         has_preview: false,
         season_numbers,
+        coming_soon: false,
     })
 }
 
@@ -726,11 +730,13 @@ pub fn resolve_playback(
         addon_id: "raiplay".to_string(),
         addon_name: "RaiPlay".to_string(),
         is_hls: true,
+        is_dash: false,
         proxied: true,
         needs_debrid: false,
         info_hash: None,
         file_idx: None,
         sources: Vec::new(),
+        drm_widevine_license_url: None,
     })
 }
 

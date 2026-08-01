@@ -1,4 +1,3 @@
-use crate::models::STREAM_PORT;
 use crate::network::stream_http_base;
 use librqbit::{AddTorrent, AddTorrentOptions, AddTorrentResponse, ManagedTorrent, Session};
 use parking_lot::Mutex;

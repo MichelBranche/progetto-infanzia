@@ -384,6 +384,7 @@ function useSeasonSelection(
 
 function EpisodeList({
   loading,
+  comingSoon = false,
   onPlay,
   onPrefetchPlay,
   renderEpisodeExtra,
@@ -397,6 +398,7 @@ function EpisodeList({
   seasonLoadError = null,
 }: {
   loading: boolean;
+  comingSoon?: boolean;
   onPlay: (episodeId: string, episodeTitle: string) => void;
   onPrefetchPlay?: (episodeId: string) => void;
   renderEpisodeExtra?: (episode: TitleDetailEpisode) => ReactNode;
@@ -479,7 +481,7 @@ function EpisodeList({
             >
               <button
                 type="button"
-                disabled={loading}
+                disabled={loading || comingSoon}
                 onClick={() => onPlay(episode.id, episode.title)}
                 onPointerEnter={() => armPrefetch(episode.id)}
                 onPointerLeave={disarmPrefetch}
@@ -511,7 +513,7 @@ function EpisodeList({
               <div className="lf-title-detail__episode-body">
                 <button
                   type="button"
-                  disabled={loading}
+                  disabled={loading || comingSoon}
                   onClick={() => onPlay(episode.id, episode.title)}
                   className="min-w-0 flex-1 text-left"
                 >
@@ -678,7 +680,9 @@ export function TitleDetailPage({
               <div className="lf-title-detail__actions">
                 <button
                   type="button"
-                  disabled={loading || !primaryEpisodeId}
+                  disabled={
+                    loading || !primaryEpisodeId || Boolean(detail.comingSoon)
+                  }
                   onClick={playPrimary}
                   {...primaryPlayIntent}
                   className="lf-title-detail__play-btn"
@@ -706,7 +710,7 @@ export function TitleDetailPage({
                   )}
                 </CircleActionButton>
 
-                {secondaryPlayAction && (
+                {secondaryPlayAction && !detail.comingSoon && (
                   <button
                     type="button"
                     disabled={loading}
@@ -821,6 +825,7 @@ export function TitleDetailPage({
             )}
             <EpisodeList
               loading={loading}
+              comingSoon={Boolean(detail.comingSoon)}
               onPlay={onPlay}
               onPrefetchPlay={onPrefetchPlay}
               renderEpisodeExtra={renderEpisodeExtra}

@@ -8,6 +8,8 @@ function mapProfile(row: {
   friend_code: string;
   avatar_url?: string | null;
   created_at: string;
+  is_donor?: boolean | null;
+  donor_since?: string | null;
 }): CloudProfile {
   return {
     id: row.id,
@@ -16,6 +18,8 @@ function mapProfile(row: {
     friendCode: row.friend_code,
     avatarUrl: row.avatar_url ?? undefined,
     createdAt: row.created_at,
+    isDonor: Boolean(row.is_donor),
+    donorSince: row.donor_since ?? undefined,
   };
 }
 
@@ -125,7 +129,7 @@ export async function listCloudFriends(): Promise<CloudFriend[]> {
 
   const { data: profiles, error: profileError } = await supabase
     .from("cloud_profiles")
-    .select("id, email, display_name, friend_code, avatar_url")
+    .select("id, email, display_name, friend_code, avatar_url, is_donor")
     .in("id", otherIds);
 
   if (profileError) throw new Error(profileError.message);
@@ -136,6 +140,7 @@ export async function listCloudFriends(): Promise<CloudFriend[]> {
     friendCode: p.friend_code,
     email: p.email,
     avatarUrl: p.avatar_url ?? undefined,
+    isDonor: Boolean(p.is_donor),
   }));
 }
 

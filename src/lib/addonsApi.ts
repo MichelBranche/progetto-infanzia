@@ -350,6 +350,25 @@ export async function resolveRaiplayStream(
   return normalizeStream(stream);
 }
 
+export async function fetchMediasetMeta(slug: string): Promise<StremioMeta> {
+  return invoke<StremioMeta>("fetch_mediaset_meta_cmd", { slug });
+}
+
+export async function fetchMediasetOnAir(): Promise<StremioMetaPreview[]> {
+  return invoke<StremioMetaPreview[]>("fetch_mediaset_on_air_cmd", {});
+}
+
+export async function resolveMediasetStream(
+  slug: string,
+  episodeId?: string,
+): Promise<PlayableStream> {
+  const stream = await invoke<PlayableStream>("resolve_mediaset_stream_cmd", {
+    slug,
+    episodeId: episodeId ?? null,
+  });
+  return normalizeStream(stream);
+}
+
 export async function saveStreamingWatchProgress(
   profileId: string,
   input: StreamingWatchProgressInput,

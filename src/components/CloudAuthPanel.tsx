@@ -12,6 +12,10 @@ import {
 import { EmailConfirmationRequiredError } from "../lib/cloudAuthErrors";
 import { AccessBannedError } from "../lib/accessBan";
 import { useCloudAccount } from "../context/CloudAccountContext";
+import { DonorBadge } from "./DonorBadge";
+import { DonorClaimForm } from "./DonorClaimForm";
+import { openExternal } from "../lib/openExternal";
+import { supportDonateUrl } from "../lib/supportNotice";
 import {
   SettingsAlert,
   SettingsButton,
@@ -35,6 +39,7 @@ export function CloudAuthPanel() {
     signUp,
     signIn,
     signOut,
+    refresh,
   } = useCloudAccount();
 
   const [mode, setMode] = useState<AuthMode>("login");
@@ -89,6 +94,7 @@ export function CloudAuthPanel() {
   };
 
   if (profile) {
+    const donateUrl = supportDonateUrl();
     return (
       <SettingsCard variant="ink">
         <div className="flex items-start justify-between gap-4">
@@ -98,9 +104,12 @@ export function CloudAuthPanel() {
               <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">
                 Connesso
               </p>
-              <p className="font-display mt-1 text-[17px] font-semibold tracking-[-0.02em] text-text-primary">
-                {profile.displayName}
-              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <p className="font-display text-[17px] font-semibold tracking-[-0.02em] text-text-primary">
+                  {profile.displayName}
+                </p>
+                {profile.isDonor ? <DonorBadge /> : null}
+              </div>
               <p className="text-[13px] text-text-secondary">{profile.email}</p>
             </div>
           </div>
@@ -132,6 +141,27 @@ export function CloudAuthPanel() {
             {copied ? "Copiato" : "Copia"}
           </SettingsButton>
         </SettingsInset>
+
+        {!profile.isDonor ? (
+          <SettingsInset className="mt-4 space-y-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">
+              Sostieni Branchefy
+            </p>
+            {donateUrl ? (
+              <SettingsButton
+                variant="secondary"
+                onClick={() => void openExternal(donateUrl)}
+                className="settings-ink-btn-secondary w-full justify-center px-3 py-2"
+              >
+                Apri PayPal
+              </SettingsButton>
+            ) : null}
+            <DonorClaimForm
+              compact
+              onDone={() => void refresh()}
+            />
+          </SettingsInset>
+        ) : null}
       </SettingsCard>
     );
   }

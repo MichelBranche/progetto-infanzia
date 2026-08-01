@@ -14,6 +14,7 @@ export const STREAMING_SERVICES: StreamingService[] = [
   { id: "now", label: "NOW", shortLabel: "NOW", color: "#00c8aa" },
   { id: "hbo", label: "Max", shortLabel: "Max", color: "#b535f6" },
   { id: "raiplay", label: "RaiPlay", shortLabel: "Rai", color: "#00a2ff" },
+  { id: "mediaset", label: "Mediaset Infinity", shortLabel: "M", color: "#5b2d8e" },
 ];
 
 export function streamingSearchUrl(serviceId: string, title: string): string {
@@ -35,6 +36,8 @@ export function streamingSearchUrl(serviceId: string, title: string): string {
       return `https://www.max.com/search?q=${q}`;
     case "raiplay":
       return `https://www.raiplay.it/ricerca.html?q=${q}`;
+    case "mediaset":
+      return `https://mediasetinfinity.mediaset.it/search?q=${q}`;
     default:
       return `https://www.google.com/search?q=${q}+streaming`;
   }

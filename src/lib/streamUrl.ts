@@ -15,7 +15,9 @@ export function normalizePlaybackUrl(url: string): string {
         isLocalVite &&
         (parsed.pathname.startsWith("/remote/") ||
           parsed.pathname.startsWith("/stream/") ||
-          parsed.pathname.startsWith("/torrent/"))
+          parsed.pathname.startsWith("/torrent/") ||
+          parsed.pathname.startsWith("/mediaset-dash/") ||
+          parsed.pathname.startsWith("/mediaset-wv/"))
       ) {
         parsed.protocol = "http:";
         parsed.hostname = "127.0.0.1";
@@ -31,7 +33,9 @@ export function normalizePlaybackUrl(url: string): string {
   if (
     trimmed.includes("/remote/") ||
     trimmed.includes("/stream/") ||
-    trimmed.includes("/torrent/")
+    trimmed.includes("/torrent/") ||
+    trimmed.includes("/mediaset-dash/") ||
+    trimmed.includes("/mediaset-wv/")
   ) {
     return `https://${trimmed.replace(/^\/+/, "")}`;
   }

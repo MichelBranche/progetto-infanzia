@@ -26,6 +26,8 @@ function mapProfile(row: {
   friend_code: string;
   avatar_url?: string | null;
   created_at: string;
+  is_donor?: boolean | null;
+  donor_since?: string | null;
 }): CloudProfile {
   return {
     id: row.id,
@@ -34,6 +36,8 @@ function mapProfile(row: {
     friendCode: row.friend_code,
     avatarUrl: row.avatar_url ?? undefined,
     createdAt: row.created_at,
+    isDonor: Boolean(row.is_donor),
+    donorSince: row.donor_since ?? undefined,
   };
 }
 

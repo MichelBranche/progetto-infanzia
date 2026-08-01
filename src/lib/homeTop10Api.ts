@@ -27,6 +27,7 @@ function mapPreview(raw: Record<string, unknown>): StremioMetaPreview {
       : raw.release_info
         ? String(raw.release_info)
         : undefined,
+    comingSoon: Boolean(raw.comingSoon ?? raw.coming_soon),
   };
 }
 

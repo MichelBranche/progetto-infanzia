@@ -223,6 +223,7 @@ fn preview_from_cached(p: &CachedProgram) -> StremioMetaPreview {
         source_row_key: Some(row_key.to_string()),
         source_row_title: Some(row_title.to_string()),
         resume_video_id: None,
+        coming_soon: false,
     }
 }
 

@@ -94,6 +94,8 @@ export interface StremioMetaPreview {
   resumeEpisodeLabel?: string;
   /** Salvato in "La mia Lista" (streaming) */
   inMyList?: boolean;
+  /** SC: visibile ma non ancora riproducibile */
+  comingSoon?: boolean;
 }
 
 export interface StreamingContinueItem {
@@ -159,6 +161,8 @@ export interface StremioMeta {
   quality?: string;
   hasPreview?: boolean;
   seasonNumbers?: number[];
+  /** SC: scheda sì, stream non ancora disponibile («Prossimamente»). */
+  comingSoon?: boolean;
 }
 
 export interface PlayableStream {
@@ -168,11 +172,14 @@ export interface PlayableStream {
   addonId: string;
   addonName: string;
   isHls: boolean;
+  isDash?: boolean;
   proxied?: boolean;
   needsDebrid?: boolean;
   infoHash?: string;
   fileIdx?: number;
   sources?: string[];
+  /** Proxy Widevine license (thePlatform) per EME/Shaka. */
+  drmWidevineLicenseUrl?: string;
 }
 
 export interface DebridConfig {

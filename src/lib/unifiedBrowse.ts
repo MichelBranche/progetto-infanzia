@@ -15,6 +15,7 @@ import {
   streamingBrowseItem,
   streamingPreviewDedupeKey,
 } from "./streamingBrowse";
+import { mediasetLiveFallbackPreviews } from "./mediasetLive";
 
 export type LibraryMediaType = "film" | "serie" | "cartone";
 
@@ -38,7 +39,8 @@ export function isRaiplayBambiniPreview(preview: StremioMetaPreview): boolean {
     row === "raiplay-serie" ||
     row === "raiplay-sport" ||
     row.startsWith("raiplay-sport-") ||
-    row === "raiplay-live"
+    row === "raiplay-live" ||
+    row === "mediaset-live"
   ) {
     return false;
   }
@@ -50,6 +52,12 @@ export function isRaiplayLivePreview(preview: StremioMetaPreview): boolean {
   if (preview.catalogPrefix !== "raiplay") return false;
   const row = (preview.sourceRowKey ?? "").toLowerCase();
   return row === "raiplay-live" || (preview.slug ?? "").startsWith("live-");
+}
+
+export function isMediasetLivePreview(preview: StremioMetaPreview): boolean {
+  if (preview.catalogPrefix !== "mediaset") return false;
+  const row = (preview.sourceRowKey ?? "").toLowerCase();
+  return row === "mediaset-live" || (preview.slug ?? "").startsWith("live-");
 }
 
 export function isRaiplaySportPreview(preview: StremioMetaPreview): boolean {
@@ -687,7 +695,8 @@ function streamingCatalogHomeRows(
       streamRow.key === "raiplay-serie" ||
       streamRow.key === "raiplay-sport" ||
       streamRow.key.startsWith("raiplay-sport-") ||
-      streamRow.key === "raiplay-live"
+      streamRow.key === "raiplay-live" ||
+      streamRow.key === "mediaset-live"
     ) {
       continue;
     }
@@ -1016,6 +1025,74 @@ export function buildRaiplayLiveHomeRow(
   };
 }
 
+export function buildMediasetLiveHomeRow(
+  catalogPreviews: StremioMetaPreview[],
+  streamingRows: StreamingRow[] = [],
+): UnifiedHomeRow | null {
+  const fromRows = streamingRows.find((row) => row.key === "mediaset-live");
+  let previews =
+    fromRows?.items?.length
+      ? fromRows.items
+      : catalogPreviews.filter(isMediasetLivePreview);
+
+  // Boot cache / merge backend senza Mediaset: mostra comunque i canali free.
+  if (previews.length === 0) {
+    previews = mediasetLiveFallbackPreviews();
+  }
+
+  const items = previews
+    .map((preview) =>
+      streamingBrowseItem(
+        enrichStreamingPreview(preview, {
+          rowKey: "mediaset-live",
+          rowTitle: "In diretta · Mediaset Infinity",
+        }),
+      ),
+    )
+    .slice(0, HOME_ROW_DISPLAY_LIMIT);
+
+  if (items.length < MIN_LIVE_HOME_ROW_ITEMS) {
+    return null;
+  }
+
+  return {
+    key: "home-mediaset-live",
+    title: "In diretta",
+    subtitle: "Canali Mediaset Infinity",
+    items,
+  };
+}
+
+const LIVE_TV_HOME_DISPLAY_LIMIT = 48;
+
+/** Una sola riga Home: RaiPlay + Mediaset Infinity (in quest’ordine). */
+export function buildLiveTvHomeRow(
+  catalogPreviews: StremioMetaPreview[],
+  streamingRows: StreamingRow[] = [],
+): UnifiedHomeRow | null {
+  const rai = buildRaiplayLiveHomeRow(catalogPreviews, streamingRows);
+  const mediaset = buildMediasetLiveHomeRow(catalogPreviews, streamingRows);
+  const items = [
+    ...(rai?.items ?? []),
+    ...(mediaset?.items ?? []),
+  ].slice(0, LIVE_TV_HOME_DISPLAY_LIMIT);
+
+  if (items.length < MIN_LIVE_HOME_ROW_ITEMS) {
+    return null;
+  }
+
+  const parts: string[] = [];
+  if (rai) parts.push("Rai");
+  if (mediaset) parts.push("Mediaset");
+
+  return {
+    key: "home-live-tv",
+    title: "In Diretta",
+    subtitle: parts.length ? parts.join(" · ") : "TV in diretta",
+    items,
+  };
+}
+
 export function insertRaiplayLiveHomeRow(
   rows: UnifiedHomeRow[],
   liveRow: UnifiedHomeRow,
@@ -1033,6 +1110,9 @@ export function insertHomeRowAfterContinue(
       row.key !== pinned.key &&
       row.key !== "home-raiplay-live" &&
       row.key !== "streaming-row-raiplay-live" &&
+      row.key !== "home-mediaset-live" &&
+      row.key !== "streaming-row-mediaset-live" &&
+      row.key !== "home-live-tv" &&
       row.key !== "for-you",
   );
   const continueIdx = filtered.findIndex((row) => row.key === "continue");

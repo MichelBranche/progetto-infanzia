@@ -143,21 +143,39 @@ export async function deleteDevBroadcast(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+type BroadcastListener = () => void;
+
+/** Un solo canale Realtime: più hook non possono chiamare `.on()` dopo `subscribe()`. */
+const broadcastListeners = new Set<BroadcastListener>();
+let broadcastChannel: ReturnType<
+  NonNullable<ReturnType<typeof getSupabase>>["channel"]
+> | null = null;
+
 export function subscribeAppBroadcasts(onChange: () => void): () => void {
   const supabase = getSupabase();
   if (!supabase) return () => {};
 
-  const channel = supabase
-    .channel("app-broadcasts-global")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "app_broadcasts" },
-      () => onChange(),
-    )
-    .subscribe();
+  broadcastListeners.add(onChange);
+
+  if (!broadcastChannel) {
+    broadcastChannel = supabase
+      .channel("app-broadcasts-global")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "app_broadcasts" },
+        () => {
+          for (const listener of broadcastListeners) listener();
+        },
+      )
+      .subscribe();
+  }
 
   return () => {
-    void supabase.removeChannel(channel);
+    broadcastListeners.delete(onChange);
+    if (broadcastListeners.size === 0 && broadcastChannel) {
+      void supabase.removeChannel(broadcastChannel);
+      broadcastChannel = null;
+    }
   };
 }
 

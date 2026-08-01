@@ -37,6 +37,8 @@ export const devServerProxy = {
   "/welib-cover": longApiProxy,
   "/remote": streamMediaProxy,
   "/remote-cast": streamMediaProxy,
+  "/mediaset-dash": streamMediaProxy,
+  "/mediaset-wv": streamMediaProxy,
   "/torrent": streamMediaProxy,
   "/presence": devApiProxy,
   "/watch-party": { ...devApiProxy, ws: true },

@@ -29,6 +29,7 @@ pub fn fetch_title_meta(db: &Database, playlist_id: &str) -> Result<StremioMeta,
         quality: None,
         has_preview: false,
         season_numbers: Vec::new(),
+        coming_soon: false,
     })
 }
 
@@ -48,10 +49,12 @@ pub fn resolve_playback(
         addon_id: "youtube".to_string(),
         addon_name: "YouTube".to_string(),
         is_hls: false,
+        is_dash: false,
         proxied: false,
         needs_debrid: false,
         info_hash: None,
         file_idx: None,
         sources: Vec::new(),
+        drm_widevine_license_url: None,
     })
 }

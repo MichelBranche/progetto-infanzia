@@ -488,7 +488,7 @@ pub fn fetch_embed_html(
     db: &Database,
     html_hints: Option<&str>,
 ) -> Result<String, String> {
-    let referer_url = referer.unwrap_or("https://streamingcommunityz.vin/");
+    let referer_url = referer.unwrap_or("https://streamingcommunityz.support/");
 
     if let Ok(html) = try_fetch_embed_html(client, embed_url, referer_url, db, html_hints) {
         return Ok(html);

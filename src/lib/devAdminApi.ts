@@ -76,6 +76,8 @@ function mapCloudUser(row: Record<string, unknown>): DevCloudUser {
       : undefined,
     appVersion: row.app_version ? String(row.app_version) : undefined,
     platform: row.platform ? String(row.platform) : undefined,
+    isDonor: Boolean(row.is_donor),
+    donorSince: row.donor_since ? String(row.donor_since) : undefined,
     banned: Boolean(row.banned),
     banReason: row.ban_reason ? String(row.ban_reason) : undefined,
     banExpiresAt: row.ban_expires_at
@@ -141,6 +143,18 @@ export async function unbanDevCloudUser(
   const { error } = await supabase.rpc("unban_user", {
     p_user_id: userId,
     p_unban_ips: unbanIps,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function setDevCloudUserDonor(
+  userId: string,
+  isDonor: boolean,
+): Promise<void> {
+  const supabase = await assertDevAdmin();
+  const { error } = await supabase.rpc("dev_set_user_donor", {
+    p_user_id: userId,
+    p_is_donor: isDonor,
   });
   if (error) throw new Error(error.message);
 }

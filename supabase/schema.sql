@@ -19,6 +19,8 @@ create table if not exists public.cloud_profiles (
 );
 
 alter table public.cloud_profiles add column if not exists avatar_url text;
+alter table public.cloud_profiles add column if not exists is_donor boolean not null default false;
+alter table public.cloud_profiles add column if not exists donor_since timestamptz;
 
 create index if not exists cloud_profiles_email_idx on public.cloud_profiles (lower(email));
 
