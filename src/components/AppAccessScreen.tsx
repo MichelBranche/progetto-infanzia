@@ -16,12 +16,13 @@ import { useCloudAccount } from "../context/CloudAccountContext";
 import { useAppAccess } from "../context/AppAccessContext";
 import { readAppAccessMode } from "../lib/appAccess";
 import { AccessBannedError } from "../lib/accessBan";
+import { requestPasswordReset } from "../lib/cloudAuth";
 import { isWebShell } from "../lib/runtimeInvoke";
 import { GUEST_DAILY_LIMIT_SECONDS } from "../lib/guestUsage";
 import { formatDuration } from "../types/media";
 
 type Step = "choose" | "auth";
-type AuthMode = "login" | "register";
+type AuthMode = "login" | "register" | "forgot";
 
 export function AppAccessScreen() {
   const { enabled: cloudEnabled, configHint, signIn, signUp } = useCloudAccount();
@@ -36,13 +37,23 @@ export function AppAccessScreen() {
   const [rememberMe, setRememberMe] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   const guestLimitLabel = formatDuration(GUEST_DAILY_LIMIT_SECONDS) ?? "1h";
 
   const submitAuth = async () => {
     setBusy(true);
     setError(null);
+    setInfo(null);
     try {
+      if (authMode === "forgot") {
+        await requestPasswordReset(email);
+        setInfo(
+          "Ti abbiamo inviato un’email con il link per reimpostare la password. Controlla anche lo spam.",
+        );
+        setAuthMode("login");
+        return;
+      }
       if (authMode === "register") {
         await signUp(email, password, displayName || undefined, rememberMe);
       } else {
@@ -83,7 +94,9 @@ export function AppAccessScreen() {
           <p className="mt-3 text-[14px] leading-relaxed text-text-secondary">
             {step === "choose"
               ? "Registrati per l'accesso completo oppure prova l'app come ospite."
-              : "Accedi o crea un account per sbloccare tutte le funzioni."}
+              : authMode === "forgot"
+                ? "Inserisci l’email dell’account: ti invieremo un link per la nuova password."
+                : "Accedi o crea un account per sbloccare tutte le funzioni."}
           </p>
         </div>
 
@@ -184,6 +197,7 @@ export function AppAccessScreen() {
                 onClick={() => {
                   setStep("choose");
                   setError(null);
+                  setInfo(null);
                 }}
                 className="mb-5 inline-flex items-center gap-2 text-[12px] text-text-muted transition-colors hover:text-text-secondary"
               >
@@ -191,40 +205,61 @@ export function AppAccessScreen() {
                 Indietro
               </button>
 
-              <div className="mb-5 flex rounded-xl bg-white/[0.04] p-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMode("register");
-                    setError(null);
-                  }}
-                  className={`flex-1 rounded-lg py-2 text-[12px] font-medium transition-colors ${
-                    authMode === "register"
-                      ? "bg-white text-black shadow-sm"
-                      : "text-text-muted hover:text-text-primary"
-                  }`}
-                >
-                  Registrati
-                </button>
+              {authMode !== "forgot" ? (
+                <div className="mb-5 flex rounded-xl bg-white/[0.04] p-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode("register");
+                      setError(null);
+                      setInfo(null);
+                    }}
+                    className={`flex-1 rounded-lg py-2 text-[12px] font-medium transition-colors ${
+                      authMode === "register"
+                        ? "bg-white text-black shadow-sm"
+                        : "text-text-muted hover:text-text-primary"
+                    }`}
+                  >
+                    Registrati
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode("login");
+                      setError(null);
+                      setInfo(null);
+                    }}
+                    className={`flex-1 rounded-lg py-2 text-[12px] font-medium transition-colors ${
+                      authMode === "login"
+                        ? "bg-white text-black shadow-sm"
+                        : "text-text-muted hover:text-text-primary"
+                    }`}
+                  >
+                    Accedi
+                  </button>
+                </div>
+              ) : (
                 <button
                   type="button"
                   onClick={() => {
                     setAuthMode("login");
                     setError(null);
+                    setInfo(null);
                   }}
-                  className={`flex-1 rounded-lg py-2 text-[12px] font-medium transition-colors ${
-                    authMode === "login"
-                      ? "bg-white text-black shadow-sm"
-                      : "text-text-muted hover:text-text-primary"
-                  }`}
+                  className="mb-5 text-[12px] font-medium text-accent hover:underline"
                 >
-                  Accedi
+                  ← Torna all’accesso
                 </button>
-              </div>
+              )}
 
               {error && (
                 <p className="mb-3 rounded-lg border border-warm/20 bg-warm/10 px-3 py-2 text-[12px] text-warm">
                   {error}
+                </p>
+              )}
+              {info && (
+                <p className="mb-3 rounded-lg border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-200">
+                  {info}
                 </p>
               )}
 
@@ -232,7 +267,10 @@ export function AppAccessScreen() {
                 className="space-y-3"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (!busy && email.trim() && password.length >= 6) {
+                  const ok =
+                    Boolean(email.trim()) &&
+                    (authMode === "forgot" || password.length >= 6);
+                  if (!busy && ok) {
                     void submitAuth();
                   }
                 }}
@@ -265,51 +303,77 @@ export function AppAccessScreen() {
                     className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-[13px] outline-none focus:border-accent/30"
                   />
                 </div>
-                <div>
-                  <label className="mb-1.5 block text-[11px] font-medium text-text-muted">
-                    Password
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Minimo 6 caratteri"
-                      autoComplete={
-                        authMode === "register" ? "new-password" : "current-password"
-                      }
-                      className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 pr-10 text-[13px] outline-none focus:border-accent/30"
-                    />
+                {authMode !== "forgot" && (
+                  <div>
+                    <label className="mb-1.5 block text-[11px] font-medium text-text-muted">
+                      Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Minimo 6 caratteri"
+                        autoComplete={
+                          authMode === "register"
+                            ? "new-password"
+                            : "current-password"
+                        }
+                        className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 pr-10 text-[13px] outline-none focus:border-accent/30"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-text-muted hover:bg-white/5 hover:text-text-primary"
+                        aria-label={
+                          showPassword ? "Nascondi password" : "Mostra password"
+                        }
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {authMode === "login" && (
+                  <div className="flex justify-end px-0.5">
                     <button
                       type="button"
-                      onClick={() => setShowPassword((v) => !v)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-text-muted hover:bg-white/5 hover:text-text-primary"
-                      aria-label={
-                        showPassword ? "Nascondi password" : "Mostra password"
-                      }
+                      onClick={() => {
+                        setAuthMode("forgot");
+                        setError(null);
+                        setInfo(null);
+                        setPassword("");
+                      }}
+                      className="text-[12px] font-medium text-text-secondary hover:text-accent hover:underline"
                     >
-                      {showPassword ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
+                      Password dimenticata?
                     </button>
                   </div>
-                </div>
-                <label className="flex cursor-pointer items-center gap-2.5 px-0.5 py-0.5">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="h-4 w-4 rounded border-white/20 bg-white/[0.06] accent-white"
-                  />
-                  <span className="text-[12px] text-text-secondary">
-                    Rimani connesso
-                  </span>
-                </label>
+                )}
+                {authMode !== "forgot" && (
+                  <label className="flex cursor-pointer items-center gap-2.5 px-0.5 py-0.5">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="h-4 w-4 rounded border-white/20 bg-white/[0.06] accent-white"
+                    />
+                    <span className="text-[12px] text-text-secondary">
+                      Rimani connesso
+                    </span>
+                  </label>
+                )}
                 <button
                   type="submit"
-                  disabled={busy || !email.trim() || password.length < 6}
+                  disabled={
+                    busy ||
+                    !email.trim() ||
+                    (authMode !== "forgot" && password.length < 6)
+                  }
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-[14px] font-semibold text-black disabled:opacity-50"
                 >
                   {busy ? (
@@ -319,7 +383,11 @@ export function AppAccessScreen() {
                   ) : (
                     <LogIn className="h-4 w-4" />
                   )}
-                  {authMode === "register" ? "Crea account" : "Accedi"}
+                  {authMode === "register"
+                    ? "Crea account"
+                    : authMode === "forgot"
+                      ? "Invia link di reset"
+                      : "Accedi"}
                 </button>
               </form>
             </motion.div>

@@ -48,8 +48,12 @@ import { tryGrandfatherExistingInstall } from "./lib/appAccess";
 import { isWebShell } from "./lib/runtimeInvoke";
 import { AppAccessBootstrap, AppAccessScreen } from "./components/AppAccessScreen";
 import { EmailConfirmedPage } from "./components/EmailConfirmedPage";
+import { ResetPasswordPage } from "./components/ResetPasswordPage";
 import { WebAppInstallPage } from "./components/WebAppInstallPage";
-import { isEmailConfirmedPath } from "./lib/authRoutes";
+import {
+  isEmailConfirmedPath,
+  isResetPasswordPath,
+} from "./lib/authRoutes";
 import { isWebAppInstallPath } from "./lib/webAppRoutes";
 import { GuestUsageWidget } from "./components/GuestUsageWidget";
 import { StickyYouTubeDock } from "./components/StickyYouTubeDock";
@@ -1751,6 +1755,13 @@ function App() {
     isEmailConfirmedPath(window.location.pathname)
   ) {
     return <EmailConfirmedPage />;
+  }
+
+  if (
+    typeof window !== "undefined" &&
+    isResetPasswordPath(window.location.pathname)
+  ) {
+    return <ResetPasswordPage />;
   }
 
   if (

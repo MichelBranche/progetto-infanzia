@@ -1,12 +1,10 @@
-# Branchefy v0.2.29
+# Branchefy v0.2.30
 
 ## Novità
 
-- In Diretta ampliate: canali RaiPlay e Mediaset Infinity nella stessa riga
-- Messaggio di supporto in avvio e stemma Donatore per chi contribuisce
-- Dominio Streaming Community aggiornato e cataloghi più stabili
-- Fix schermo nero dopo il caricamento del catalogo
-- Pulizia codice e asset inutilizzati per un’app più leggera
+- Password dimenticata: puoi reimpostarla via email e tornare ad accedere
+- Copertine dei canali Mediaset in In Diretta (come RaiPlay)
+- Piccoli miglioramenti di stabilità su autenticazione e TV live
 
 ## Piattaforme
 

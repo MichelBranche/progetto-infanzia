@@ -39,7 +39,7 @@ function normalizeAuthMessage(message: string): string {
   }
 
   if (lower.includes("invalid login credentials")) {
-    return "Email o password non corretti.";
+    return "Email o password non corretti. Usa «Password dimenticata» per reimpostarla.";
   }
 
   if (lower.includes("email not confirmed")) {

@@ -268,17 +268,12 @@ pub fn fetch_title_meta(db: &Database, slug: &str) -> Result<StremioMeta, String
                     name = t.to_string();
                 }
             }
-            if let Some(url) = response
-                .pointer("/currentListing/program/thumbnails/image_horizontal/url")
-                .and_then(|v| v.as_str())
-            {
-                let abs = if url.starts_with("//") {
-                    format!("https:{url}")
-                } else {
-                    url.to_string()
-                };
-                poster = Some(abs.clone());
-                background = Some(abs);
+            if let Some(url) = mediaset_catalog::extract_program_thumb_from_nownext(&json) {
+                poster = Some(url.clone());
+                background = Some(url);
+            } else if let Some(ch) = mediaset_catalog::channel_by_call_sign(&call_sign) {
+                poster = Some(ch.brand_logo.to_string());
+                background = Some(ch.brand_logo.to_string());
             }
             release_info = Some("In diretta".to_string());
         }

@@ -138,13 +138,17 @@ Gli utenti possono registrarsi subito senza email di conferma.
 
 Dopo la configurazione SMTP, il limite email diventa modificabile dal dashboard.
 
-### Landing conferma email
+### Landing conferma email / reset password
 
-Dopo la registrazione, il link nell'email apre una pagina dedicata (non l'app intera):
+I link nelle email aprono pagine dedicate (non l'app intera):
 
-- URL: `https://branchefy.it/auth/email-confirmed`
-- Aggiungi in **Authentication → URL Configuration → Redirect URLs**:
-  - `https://branchefy.it/auth/email-confirmed`
-  - `http://localhost:5173/auth/email-confirmed` (sviluppo locale)
+- Conferma: `https://branchefy.it/auth/email-confirmed`
+- Reset password: `https://branchefy.it/auth/reset-password`
 
-La pagina conferma l'account e invita l'utente a chiudere la scheda e accedere dall'app.
+Aggiungi in **Authentication → URL Configuration → Redirect URLs**:
+- `https://branchefy.it/auth/email-confirmed`
+- `https://branchefy.it/auth/reset-password`
+- `http://localhost:5173/auth/email-confirmed` (sviluppo locale)
+- `http://localhost:5173/auth/reset-password` (sviluppo locale)
+
+La conferma invita a chiudere la scheda e accedere dall'app. Il reset lascia scegliere la nuova password e poi accedere di nuovo.

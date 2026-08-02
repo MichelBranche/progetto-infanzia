@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { EmailConfirmationRequiredError } from "../lib/cloudAuthErrors";
 import { AccessBannedError } from "../lib/accessBan";
+import { requestPasswordReset } from "../lib/cloudAuth";
 import { useCloudAccount } from "../context/CloudAccountContext";
 import { DonorBadge } from "./DonorBadge";
 import { DonorClaimForm } from "./DonorClaimForm";
@@ -27,7 +28,7 @@ import {
   SettingsSegmented,
 } from "./settings/SettingsUi";
 
-type AuthMode = "login" | "register";
+type AuthMode = "login" | "register" | "forgot";
 
 export function CloudAuthPanel() {
   const {
@@ -171,6 +172,14 @@ export function CloudAuthPanel() {
     setError(null);
     setMessage(null);
     try {
+      if (mode === "forgot") {
+        await requestPasswordReset(email);
+        setMessage(
+          "Ti abbiamo inviato un’email con il link per reimpostare la password. Controlla anche lo spam.",
+        );
+        setMode("login");
+        return;
+      }
       if (mode === "register") {
         await signUp(email, password, displayName || undefined, rememberMe);
         setMessage("Account creato. Ora puoi aggiungere amici via email.");
@@ -196,6 +205,10 @@ export function CloudAuthPanel() {
     }
   };
 
+  const canSubmit =
+    Boolean(email.trim()) &&
+    (mode === "forgot" || password.length >= 6);
+
   return (
     <SettingsCard>
       <div className="mb-5 flex items-center gap-3">
@@ -205,25 +218,41 @@ export function CloudAuthPanel() {
             Account online
           </h3>
           <p className="text-[12px] text-text-muted">
-            {enabled
-              ? "Amici ovunque, anche fuori dalla stessa rete"
-              : configHint}
+            {mode === "forgot"
+              ? "Ti invieremo un link per scegliere una nuova password"
+              : enabled
+                ? "Amici ovunque, anche fuori dalla stessa rete"
+                : configHint}
           </p>
         </div>
       </div>
 
-      <SettingsSegmented
-        value={mode}
-        options={[
-          { id: "login", label: "Accedi" },
-          { id: "register", label: "Registrati" },
-        ]}
-        onChange={(next) => {
-          setMode(next);
-          setError(null);
-          setMessage(null);
-        }}
-      />
+      {mode !== "forgot" ? (
+        <SettingsSegmented<"login" | "register">
+          value={mode}
+          options={[
+            { id: "login", label: "Accedi" },
+            { id: "register", label: "Registrati" },
+          ]}
+          onChange={(next) => {
+            setMode(next);
+            setError(null);
+            setMessage(null);
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setMode("login");
+            setError(null);
+            setMessage(null);
+          }}
+          className="text-[12px] font-medium text-accent hover:underline"
+        >
+          ← Torna all’accesso
+        </button>
+      )}
 
       {error && <SettingsAlert className="mt-4">{error}</SettingsAlert>}
       {message && (
@@ -236,7 +265,7 @@ export function CloudAuthPanel() {
         className="mt-5 space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!busy && email.trim() && password.length >= 6) {
+          if (!busy && canSubmit) {
             void submit();
           }
         }}
@@ -261,43 +290,65 @@ export function CloudAuthPanel() {
             autoComplete="email"
           />
         </SettingsField>
-        <SettingsField label="Password">
-          <div className="relative">
-            <SettingsInput
-              type={showPassword ? "text" : "password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Minimo 6 caratteri"
-              autoComplete={mode === "register" ? "new-password" : "current-password"}
-              className="pr-11"
-            />
+        {mode !== "forgot" && (
+          <SettingsField label="Password">
+            <div className="relative">
+              <SettingsInput
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Minimo 6 caratteri"
+                autoComplete={
+                  mode === "register" ? "new-password" : "current-password"
+                }
+                className="pr-11"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-text-muted hover:bg-fill hover:text-text-primary"
+                aria-label={showPassword ? "Nascondi password" : "Mostra password"}
+              >
+                {showPassword ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+          </SettingsField>
+        )}
+        {mode === "login" && (
+          <div className="flex justify-end px-0.5">
             <button
               type="button"
-              onClick={() => setShowPassword((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-text-muted hover:bg-fill hover:text-text-primary"
-              aria-label={showPassword ? "Nascondi password" : "Mostra password"}
+              onClick={() => {
+                setMode("forgot");
+                setError(null);
+                setMessage(null);
+                setPassword("");
+              }}
+              className="text-[12px] font-medium text-text-secondary hover:text-accent hover:underline"
             >
-              {showPassword ? (
-                <EyeOff className="h-4 w-4" />
-              ) : (
-                <Eye className="h-4 w-4" />
-              )}
+              Password dimenticata?
             </button>
           </div>
-        </SettingsField>
-        <label className="flex cursor-pointer items-center gap-2.5 px-0.5">
-          <input
-            type="checkbox"
-            checked={rememberMe}
-            onChange={(e) => setRememberMe(e.target.checked)}
-            className="h-4 w-4 rounded border-border bg-fill accent-text-primary"
-          />
-          <span className="text-[12px] text-text-secondary">Rimani connesso</span>
-        </label>
+        )}
+        {mode !== "forgot" && (
+          <label className="flex cursor-pointer items-center gap-2.5 px-0.5">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="h-4 w-4 rounded border-border bg-fill accent-text-primary"
+            />
+            <span className="text-[12px] text-text-secondary">Rimani connesso</span>
+          </label>
+        )}
         <SettingsButton
           type="submit"
           variant="primary"
-          disabled={busy || !email.trim() || password.length < 6}
+          disabled={busy || !canSubmit}
           className="w-full py-3"
         >
           {busy ? (
@@ -307,7 +358,11 @@ export function CloudAuthPanel() {
           ) : (
             <LogIn className="h-4 w-4" />
           )}
-          {mode === "register" ? "Crea account" : "Accedi"}
+          {mode === "register"
+            ? "Crea account"
+            : mode === "forgot"
+              ? "Invia link di reset"
+              : "Accedi"}
         </SettingsButton>
       </form>
     </SettingsCard>

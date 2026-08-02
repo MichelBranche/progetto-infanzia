@@ -2,7 +2,10 @@ import type { User } from "@supabase/supabase-js";
 import { cloudConfigHint } from "./cloudConfig";
 import { getSupabase } from "./supabaseClient";
 import type { CloudProfile } from "../types/cloud";
-import { emailConfirmedRedirectUrl } from "./authRoutes";
+import {
+  emailConfirmedRedirectUrl,
+  passwordResetRedirectUrl,
+} from "./authRoutes";
 import {
   EmailConfirmationRequiredError,
   mapSupabaseAuthError,
@@ -136,6 +139,31 @@ export async function signOutCloud(): Promise<void> {
   const supabase = getSupabase();
   if (!supabase) return;
   await supabase.auth.signOut();
+}
+
+/** Invia email con link per reimpostare la password. */
+export async function requestPasswordReset(email: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error(cloudConfigHint());
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+    redirectTo: passwordResetRedirectUrl(),
+  });
+  if (error) throw mapSupabaseAuthError(error);
+}
+
+/** Imposta la nuova password dopo il click sul link di recovery. */
+export async function updatePassword(newPassword: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error(cloudConfigHint());
+
+  const trimmed = newPassword.trim();
+  if (trimmed.length < 6) {
+    throw new Error("La password deve avere almeno 6 caratteri.");
+  }
+
+  const { error } = await supabase.auth.updateUser({ password: trimmed });
+  if (error) throw mapSupabaseAuthError(error);
 }
 
 export async function getCurrentCloudProfile(): Promise<CloudProfile | null> {

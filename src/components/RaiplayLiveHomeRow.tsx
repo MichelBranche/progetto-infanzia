@@ -152,7 +152,7 @@ function LiveCard({
 }) {
   const { tier } = usePosterQuality();
   const { startHour, progress } = parseLiveSchedule(preview.releaseInfo);
-  const thumb = preview.poster || preview.background;
+  const thumb = preview.poster || preview.background || preview.logo;
   const adapted = thumb ? adaptPosterUrl(thumb, tier) : undefined;
   const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
   const src =

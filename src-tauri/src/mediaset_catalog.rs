@@ -36,6 +36,8 @@ pub struct LiveChannel {
     pub call_sign: &'static str,
     pub name: &'static str,
     pub color_hint: &'static str,
+    /// Logo ufficiale canale (CDN Mediaset) — fallback se manca l’art del programma.
+    pub brand_logo: &'static str,
 }
 
 /// Canali TV free (niente radio). `call_sign` = id nownext / SMIL.
@@ -44,66 +46,79 @@ pub const LIVE_CHANNELS: &[LiveChannel] = &[
         call_sign: "C5",
         name: "Canale 5",
         color_hint: "#00a0e0",
+        brand_logo: "https://static2.mediasetplay.mediaset.it/Mediaset_Italia_Production_-_Main/c5.png",
     },
     LiveChannel {
         call_sign: "I1",
         name: "Italia 1",
         color_hint: "#e31c23",
+        brand_logo: "https://static2.mediasetplay.mediaset.it/Mediaset_Italia_Production_-_Main/i1.png",
     },
     LiveChannel {
         call_sign: "R4",
         name: "Rete 4",
         color_hint: "#5c2d91",
+        brand_logo: "https://static2.mediasetplay.mediaset.it/Mediaset_Italia_Production_-_Main/r4.png",
     },
     LiveChannel {
         call_sign: "KA",
         name: "La5",
         color_hint: "#e87722",
+        brand_logo: "https://static2.mediasetplay.mediaset.it/Mediaset_Italia_Production_-_Main/la5.png",
     },
     LiveChannel {
         call_sign: "KI",
         name: "Iris",
         color_hint: "#8b3a62",
+        brand_logo: "https://static2.mediasetplay.mediaset.it/Mediaset_Italia_Production_-_Main/iris.png",
     },
     LiveChannel {
         call_sign: "KQ",
         name: "Mediaset Extra",
         color_hint: "#3d4f66",
+        brand_logo: "https://static2.mediasetplay.mediaset.it/Mediaset_Italia_Production_-_Main/extra.png",
     },
     LiveChannel {
         call_sign: "LB",
         name: "20 Mediaset",
         color_hint: "#1a7a4c",
+        brand_logo: "https://static2.mediasetplay.mediaset.it/Mediaset_Italia_Production_-_Main/20.png",
     },
     LiveChannel {
         call_sign: "B6",
         name: "Cine34",
         color_hint: "#c45c26",
+        brand_logo: "https://static2.mediasetplay.mediaset.it/Mediaset_Italia_Production_-_Main/b6.png",
     },
     LiveChannel {
         call_sign: "LT",
         name: "Top Crime",
         color_hint: "#7a1f2b",
+        brand_logo: "https://static2.mediasetplay.mediaset.it/Mediaset_Italia_Production_-_Main/topcrime.png",
     },
     LiveChannel {
         call_sign: "FU",
         name: "Focus",
         color_hint: "#4a90a4",
+        brand_logo: "https://static2.mediasetplay.mediaset.it/Mediaset_Italia_Production_-_Main/focus.png",
     },
     LiveChannel {
         call_sign: "I2",
         name: "Italia 2",
         color_hint: "#e31c23",
+        brand_logo: "https://static2.mediasetplay.mediaset.it/Mediaset_Italia_Production_-_Main/i2.png",
     },
     LiveChannel {
         call_sign: "KB",
         name: "Boing",
         color_hint: "#f5a623",
+        brand_logo: "https://static2.mediasetplay.mediaset.it/Mediaset_Italia_Production_-_Main/kb.png",
     },
     LiveChannel {
         call_sign: "LA",
         name: "Cartoonito",
         color_hint: "#00a3e0",
+        brand_logo: "https://static2.mediasetplay.mediaset.it/Mediaset_Italia_Production_-_Main/la.png",
     },
 ];
 
@@ -689,14 +704,16 @@ fn parse_live_from_nownext(ch: &LiveChannel, json: &Value) -> CachedLive {
         .and_then(|s| s.get("title"))
         .and_then(|v| v.as_str())
         .map(str::to_string);
-    let thumb = listing
-        .and_then(|l| {
-            l.pointer("/program/thumbnails/image_horizontal/url")
-                .or_else(|| l.pointer("/program/thumbnails/image_header_poster/url"))
-                .or_else(|| l.pointer("/program/mediasetprogram$thumbURL"))
+    let program_thumbs = listing.and_then(|l| l.pointer("/program/thumbnails"));
+    let thumb = pick_program_thumb(program_thumbs)
+        .or_else(|| {
+            listing
+                .and_then(|l| l.pointer("/program/mediasetprogram$thumbURL"))
                 .and_then(|v| v.as_str())
-        })
-        .map(|u| absolute_url(u));
+                .and_then(nonempty_url)
+        });
+    let station_logo = pick_station_logo(station).or_else(|| Some(ch.brand_logo.to_string()));
+    let cover = thumb.or_else(|| station_logo.clone());
 
     let public_url = response
         .get("publicUrl")
@@ -707,9 +724,9 @@ fn parse_live_from_nownext(ch: &LiveChannel, json: &Value) -> CachedLive {
         slug: format!("live-{}", ch.call_sign),
         call_sign: ch.call_sign.to_string(),
         name: station_title.unwrap_or_else(|| ch.name.to_string()),
-        poster: thumb.clone(),
-        background: thumb,
-        logo: None,
+        poster: cover.clone(),
+        background: cover,
+        logo: station_logo,
         live_title,
         live_start_hour,
         live_duration_mins,
@@ -726,15 +743,105 @@ fn chrono_hhmm(unix_secs: i64) -> Option<String> {
     Some(format!("{hh:02}:{mm:02}"))
 }
 
+fn nonempty_url(raw: &str) -> Option<String> {
+    let t = raw.trim();
+    if t.is_empty() {
+        return None;
+    }
+    Some(absolute_url(t))
+}
+
 fn absolute_url(path: &str) -> String {
     let t = path.trim();
     if t.starts_with("http://") || t.starts_with("https://") {
         t.to_string()
     } else if t.starts_with("//") {
         format!("https:{t}")
+    } else if t.starts_with('/') {
+        format!("https://static2.mediasetplay.mediaset.it{t}")
     } else {
-        format!("https:{t}")
+        format!("https://static2.mediasetplay.mediaset.it/{t}")
     }
+}
+
+pub fn extract_program_thumb_from_nownext(json: &Value) -> Option<String> {
+    let response = json.get("response").unwrap_or(json);
+    pick_program_thumb(response.pointer("/currentListing/program/thumbnails")).or_else(|| {
+        response
+            .pointer("/currentListing/program/mediasetprogram$thumbURL")
+            .and_then(|v| v.as_str())
+            .and_then(nonempty_url)
+    })
+}
+
+/// Preferisce art landscape del programma (chiavi API spesso hanno suffisso dimensioni).
+fn pick_program_thumb(thumbs: Option<&Value>) -> Option<String> {
+    let obj = thumbs?.as_object()?;
+    let preferred = [
+        "image_horizontal_cover",
+        "image_keyframe_poster-1280x720",
+        "img_s_master_16_9-1920x1080",
+        "img_s_stb_hero_hd-1920x1080",
+        "image_keyframe_poster",
+        "image_horizontal",
+        "image_header_poster-1440x630",
+        "image_header_poster",
+    ];
+    for key in preferred {
+        if let Some(url) = obj
+            .get(key)
+            .and_then(|v| v.get("url"))
+            .and_then(|v| v.as_str())
+            .and_then(nonempty_url)
+        {
+            return Some(url);
+        }
+    }
+    // Fallback: qualunque chiave landscape/cover/keyframe con URL.
+    let mut best: Option<(i32, String)> = None;
+    for (key, val) in obj {
+        let kl = key.to_ascii_lowercase();
+        let score = if kl.contains("horizontal_cover") {
+            100
+        } else if kl.contains("keyframe_poster-1280") || kl.contains("master_16_9") {
+            90
+        } else if kl.contains("keyframe") {
+            70
+        } else if kl.contains("header_poster") {
+            50
+        } else if kl.contains("horizontal") {
+            40
+        } else {
+            continue;
+        };
+        if let Some(url) = val
+            .get("url")
+            .and_then(|v| v.as_str())
+            .and_then(nonempty_url)
+        {
+            if best.as_ref().map(|(s, _)| *s).unwrap_or(0) < score {
+                best = Some((score, url));
+            }
+        }
+    }
+    best.map(|(_, url)| url)
+}
+
+fn pick_station_logo(station: Option<&Value>) -> Option<String> {
+    let thumbs = station?.get("thumbnails")?.as_object()?;
+    for (key, val) in thumbs {
+        if !key.to_ascii_lowercase().contains("logo") {
+            continue;
+        }
+        if let Some(url) = val
+            .get("url")
+            .and_then(|v| v.as_str())
+            .and_then(nonempty_url)
+        {
+            return Some(url);
+        }
+    }
+    None
 }
 
 fn preview_from_cached(p: &CachedLive) -> StremioMetaPreview {
@@ -772,13 +879,14 @@ fn preview_from_cached(p: &CachedLive) -> StremioMetaPreview {
 }
 
 fn static_cached(ch: &LiveChannel) -> CachedLive {
+    let logo = Some(ch.brand_logo.to_string());
     CachedLive {
         slug: format!("live-{}", ch.call_sign),
         call_sign: ch.call_sign.to_string(),
         name: ch.name.to_string(),
-        poster: None,
-        background: None,
-        logo: None,
+        poster: logo.clone(),
+        background: logo.clone(),
+        logo,
         live_title: None,
         live_start_hour: None,
         live_duration_mins: None,
@@ -786,24 +894,38 @@ fn static_cached(ch: &LiveChannel) -> CachedLive {
     }
 }
 
+/// NowNext EPG è pubblico sul CDN: niente sessione Gigya per le copertine.
+fn fetch_nownext_public(client: &Client, call_sign: &str) -> Result<Value, String> {
+    let url = format!(
+        "{NOWNEXT_BASE}/{}.json",
+        call_sign.trim().to_ascii_uppercase()
+    );
+    let text = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .header("Origin", APP_ORIGIN)
+        .header("Referer", format!("{APP_ORIGIN}/"))
+        .send()
+        .map_err(|e| format!("NowNext Mediaset: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("NowNext Mediaset non disponibile: {e}"))?
+        .text()
+        .map_err(|e| e.to_string())?;
+    serde_json::from_str(&text).map_err(|e| format!("JSON NowNext non valido: {e}"))
+}
+
 fn load_live_channels(client: &Client, enrich: bool) -> Vec<CachedLive> {
-    let session = if enrich {
-        session(client).ok()
-    } else {
-        None
-    };
     LIVE_CHANNELS
         .iter()
         .map(|ch| {
-            if let Some(ref session) = session {
-                match fetch_nownext(client, session, ch.call_sign) {
-                    Ok(json) if json.get("isOk").and_then(|v| v.as_bool()) != Some(false) => {
-                        parse_live_from_nownext(ch, &json)
-                    }
-                    _ => static_cached(ch),
+            if !enrich {
+                return static_cached(ch);
+            }
+            match fetch_nownext_public(client, ch.call_sign) {
+                Ok(json) if json.get("isOk").and_then(|v| v.as_bool()) != Some(false) => {
+                    parse_live_from_nownext(ch, &json)
                 }
-            } else {
-                static_cached(ch)
+                _ => static_cached(ch),
             }
         })
         .collect()
