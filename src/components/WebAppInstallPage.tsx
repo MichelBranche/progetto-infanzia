@@ -195,11 +195,11 @@ export function WebAppInstallPage() {
         </section>
 
         <aside className="lf-webapp-install__beta" role="note">
-          <p className="lf-webapp-install__warn-label">Versione beta</p>
+          <p className="lf-webapp-install__warn-label">Suggerimento</p>
           <p>
-            La web app mobile è ancora in sviluppo: potresti notare bug o
-            funzioni incomplete. L&apos;app desktop resta l&apos;opzione più
-            stabile per guardare senza problemi.
+            Su iPhone e iPad usa «Aggiungi a Home» per l&apos;esperienza a
+            schermo intero. Cast DLNA e watch party in LAN restano disponibili
+            nell&apos;app desktop.
           </p>
         </aside>
       </main>

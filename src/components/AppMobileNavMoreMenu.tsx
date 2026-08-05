@@ -1,18 +1,38 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
-import { BookOpen, Clapperboard, Sparkles, Trophy, type LucideIcon } from "lucide-react";
-import type { NavItem } from "../data/nav";
+import {
+  Activity,
+  BookOpen,
+  Clapperboard,
+  Clock,
+  MessageCircle,
+  MessageSquare,
+  Settings,
+  Share2,
+  Sparkles,
+  Trophy,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  MOBILE_MORE_NAV_IDS,
+  type MobileMoreNavId,
+  type NavItem,
+} from "../data/nav";
 
 gsap.registerPlugin(useGSAP);
 
-const MOBILE_MORE_ITEM_IDS = ["cartoni", "anime", "manga", "sport"] as const;
-
-const iconMap: Record<(typeof MOBILE_MORE_ITEM_IDS)[number], LucideIcon> = {
+const iconMap: Record<MobileMoreNavId, LucideIcon> = {
   cartoni: Sparkles,
   anime: Clapperboard,
   manga: BookOpen,
   sport: Trophy,
+  capsula: Clock,
+  chats: MessageCircle,
+  invite: Share2,
+  feedback: MessageSquare,
+  settings: Settings,
+  activity: Activity,
 };
 
 interface AppMobileNavMoreMenuProps {
@@ -54,7 +74,7 @@ export function AppMobileNavMoreMenu({
   onClose,
 }: AppMobileNavMoreMenuProps) {
   const tweenRef = useRef<gsap.core.Timeline | null>(null);
-  const items = MOBILE_MORE_ITEM_IDS.map((id) =>
+  const items = MOBILE_MORE_NAV_IDS.map((id) =>
     moreNav.find((entry) => entry.id === id),
   ).filter((entry): entry is NavItem => entry != null);
 
@@ -138,7 +158,7 @@ export function AppMobileNavMoreMenu({
         <div className="mobile-nav-more-bubble__tail" aria-hidden />
         <div className="mobile-nav-more-bubble__items">
           {items.map((item) => {
-            const Icon = iconMap[item.id as (typeof MOBILE_MORE_ITEM_IDS)[number]];
+            const Icon = iconMap[item.id as MobileMoreNavId];
             const active = activeId === item.id;
 
             return (

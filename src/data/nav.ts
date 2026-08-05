@@ -72,6 +72,25 @@ const supportItems: NavItem[] = [
   { id: "invite", label: "Invita amici", icon: "Share2" },
 ];
 
+/**
+ * Voci del menu mobile «Altro» (ordine UI).
+ * Libri restano fuori nav in v1.0 (stack esistente ma non esposto).
+ */
+export const MOBILE_MORE_NAV_IDS = [
+  "cartoni",
+  "anime",
+  "manga",
+  "sport",
+  "capsula",
+  "chats",
+  "invite",
+  "feedback",
+  "settings",
+  "activity",
+] as const;
+
+export type MobileMoreNavId = (typeof MOBILE_MORE_NAV_IDS)[number];
+
 function filterItems(items: NavItem[], hasStreaming: boolean) {
   return items.filter((item) => {
     if (item.id === "streaming") return STREMIO_ADDONS_ENABLED && hasStreaming;
@@ -194,7 +213,7 @@ export const sectionMeta: Record<string, { title: string; subtitle: string }> =
     },
     search: {
       title: "Cerca",
-      subtitle: "Streaming e libreria locale",
+      subtitle: "Film, serie, anime e cataloghi streaming",
     },
     film: { title: "Film", subtitle: "Scopri nuovi film da guardare" },
     anime: {

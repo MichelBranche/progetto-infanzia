@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, useCallback, useEffect } from "react";
 import { Film, Home, MoreHorizontal, Search, Tv } from "lucide-react";
-import { getNavSections, type NavItem } from "../data/nav";
+import { getNavSections, MOBILE_MORE_NAV_IDS, type NavItem } from "../data/nav";
 import { useAddons } from "../context/AddonsContext";
 import { useAppAccess } from "../context/AppAccessContext";
 import type { Profile } from "../types/profile";
@@ -19,7 +19,7 @@ const MOBILE_PRIMARY = [
   { id: "search", label: "Cerca", icon: Search },
 ] as const;
 
-const MOBILE_MORE_CATEGORY_IDS = ["cartoni", "anime", "manga", "sport"] as const;
+const MOBILE_MORE_CATEGORY_IDS = MOBILE_MORE_NAV_IDS;
 
 interface AppMobileNavBarProps {
   activeId: string;

@@ -115,19 +115,29 @@ Catalogo free da `www.raiplay.it` (prefix `raiplay`), playback HLS via relinker.
 - Titoli **DRM** vengono saltati / rifiutati (niente Widevine).
 - Provider filtro browse: **RaiPlay** (anche Film/Serie).
 
+## Checklist ops v1.0 (produzione)
+
+Verificato dal repo (2026-08):
+
+| Check | Stato |
+|-------|--------|
+| Railway `/health` | OK — `branchefy-web-api` risponde |
+| Redirect auth in codice | `/auth/email-confirmed`, `/auth/reset-password` |
+| Migration donor in repo | `supabase/migrations/20260801140000_donors.sql` + `..._donor_claims.sql` |
+
+Da confermare **nel dashboard** prima/dopo il tag 1.0.0:
+
+1. Supabase → SQL: migration donor (+ ban) applicate
+2. Supabase → **SMTP personalizzato** (obbligatorio in produzione; vedi sotto)
+3. Supabase → Redirect URLs (lista sotto)
+4. Vercel env: `VITE_SUPABASE_*`, `BRANCHEFY_API_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+5. Railway: volume su `/data` ancora montato
+
 ## Supabase Auth — registrazione email
 
 Se la registrazione risponde **«email rate limit exceeded»**, il progetto Supabase ha esaurito il limite del **servizio email integrato** (circa **2 email/ora** per tutto il progetto).
 
-### Soluzione rapida (consigliata per beta)
-
-1. Supabase Dashboard → **Authentication** → **Providers** → **Email**
-2. Disattiva **Confirm email**
-3. Salva
-
-Gli utenti possono registrarsi subito senza email di conferma.
-
-### Soluzione produzione
+### Produzione (v1.0)
 
 1. Configura **SMTP personalizzato** (es. [Resend](https://resend.com/docs/send-with-supabase-smtp)):
    - Host: `smtp.resend.com`
@@ -135,8 +145,13 @@ Gli utenti possono registrarsi subito senza email di conferma.
    - User: `resend`
    - Password: API key Resend (`re_...`)
 2. **Authentication** → **Rate Limits** → aumenta **Email sent** (es. 30–100/ora)
+3. Lascia **Confirm email** attivo se usi SMTP (consigliato)
 
 Dopo la configurazione SMTP, il limite email diventa modificabile dal dashboard.
+
+### Solo emergenza / lab locale
+
+Disattivare Confirm email evita l’invio mail ma non è adatto a produzione pubblica.
 
 ### Landing conferma email / reset password
 

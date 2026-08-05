@@ -36,9 +36,10 @@ Push su `main` → Vercel deploya da `web/client/vite.config.ts` che punta alla 
 |---------|---------|-----|
 | Catalogo streaming, auth, chat | ✅ | ✅ |
 | Profili SQLite | ✅ | ✅ (via API) |
-| Cartella film locale | ✅ | ❌ |
 | Cast DLNA | ✅ | ❌ |
 | Watch party LAN | ✅ | ❌ |
+
+La **libreria file locali** non è nel prodotto v1.0 (cataloghi streaming only).
 
 Per nuove feature UI usa `runtimeInvoke` / `usesBackendApi()` così funzionano su entrambi quando il backend lo supporta.
 

@@ -51,7 +51,7 @@ const COPY = {
   "desktop-app": {
     badge: "App desktop",
     title: "Branchefy sul tuo Mac o PC",
-    body: "Scarica l'app desktop per libreria locale, trasmissione alla TV, watch party in LAN e prestazioni migliori sul grande schermo.",
+    body: "Scarica l'app desktop per trasmissione alla TV, watch party in LAN e prestazioni migliori sul grande schermo.",
     cta: "Scarica per desktop",
     icon: Monitor,
   },
