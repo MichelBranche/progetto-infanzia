@@ -227,12 +227,20 @@ enum WsOutbound {
 }
 
 pub async fn handle_socket(
-    socket: WebSocket,
+    mut socket: WebSocket,
     registry: Arc<WatchPartyRegistry>,
     params: WsConnectParams,
 ) {
     let code = params.code.to_uppercase();
     let Some((room_info, mut rx)) = registry.subscribe(&code) else {
+        let err = serde_json::to_string(&WsOutbound::Error {
+            message: format!("Stanza {code} non trovata o già chiusa"),
+        })
+        .unwrap_or_default();
+        if !err.is_empty() {
+            let _ = socket.send(Message::Text(err.into())).await;
+        }
+        let _ = socket.close().await;
         return;
     };
 

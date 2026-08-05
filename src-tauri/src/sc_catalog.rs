@@ -16,8 +16,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const BUNDLED_SC_CATALOG_SEED_GZ: &[u8] =
     include_bytes!("../resources/sc_catalog_seed.json.gz");
 
-const DEFAULT_APP_URL: &str = "https://streamingcommunityz.support";
-const DEFAULT_CDN_URL: &str = "https://cdn.streamingcommunityz.support";
+const DEFAULT_APP_URL: &str = "https://streamingcommunityz.recipes";
+const DEFAULT_CDN_URL: &str = "https://cdn.streamingcommunityz.recipes";
 const DEFAULT_LANG: &str = "it";
 const META_SC_RESOLVED_APP: &str = "sc_resolved_app_url";
 const META_SC_REMOTE_MIRRORS: &str = "sc_remote_mirrors_json";
@@ -27,6 +27,8 @@ const REMOTE_MIRRORS_TTL_SECS: i64 = 6 * 3600;
 /// Mirror hardcoded di emergenza (ISP italiani ne bloccano spesso uno sì e uno no).
 /// L'ordine conta poco: `discover_app_url` / `fetch_sliders_for_db` li provano tutti.
 const FALLBACK_APP_URLS: &[&str] = &[
+    "https://streamingcommunityz.recipes",
+    "https://streamingunity.vip",
     "https://streamingcommunityz.support",
     "https://streamingcommunityz.vin",
     "https://streamingcommunityz.tech",
@@ -500,7 +502,18 @@ fn infer_cdn_from_app(app_base: &str) -> Option<String> {
 }
 
 fn remember_resolved_app(db: &Database, app_base: &str) {
-    let _ = db.set_meta(META_SC_RESOLVED_APP, app_base);
+    let trimmed = app_base.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return;
+    }
+    let _ = db.set_meta(META_SC_RESOLVED_APP, trimmed);
+    if let Some(cdn) = infer_cdn_from_app(trimmed) {
+        let _ = db.set_meta("sc_cdn_url", &cdn);
+    }
+}
+
+fn invalidate_remote_mirrors_cache(db: &Database) {
+    let _ = db.set_meta(META_SC_REMOTE_MIRRORS_TS, "0");
 }
 
 fn now_unix_secs() -> i64 {
@@ -620,15 +633,17 @@ fn fetch_remote_mirror_lists(client: &Client) -> Vec<String> {
     out
 }
 
-fn cached_or_fetch_remote_mirrors(db: &Database, client: &Client) -> Vec<String> {
+fn cached_or_fetch_remote_mirrors(db: &Database, client: &Client, force: bool) -> Vec<String> {
     let now = now_unix_secs();
-    if let Ok(Some(ts_raw)) = db.get_meta(META_SC_REMOTE_MIRRORS_TS) {
-        if let Ok(ts) = ts_raw.parse::<i64>() {
-            if now.saturating_sub(ts) < REMOTE_MIRRORS_TTL_SECS {
-                if let Ok(Some(cached)) = db.get_meta(META_SC_REMOTE_MIRRORS) {
-                    if let Ok(list) = serde_json::from_str::<Vec<String>>(&cached) {
-                        if !list.is_empty() {
-                            return list;
+    if !force {
+        if let Ok(Some(ts_raw)) = db.get_meta(META_SC_REMOTE_MIRRORS_TS) {
+            if let Ok(ts) = ts_raw.parse::<i64>() {
+                if now.saturating_sub(ts) < REMOTE_MIRRORS_TTL_SECS {
+                    if let Ok(Some(cached)) = db.get_meta(META_SC_REMOTE_MIRRORS) {
+                        if let Ok(list) = serde_json::from_str::<Vec<String>>(&cached) {
+                            if !list.is_empty() {
+                                return list;
+                            }
                         }
                     }
                 }
@@ -641,6 +656,15 @@ fn cached_or_fetch_remote_mirrors(db: &Database, client: &Client) -> Vec<String>
         if let Ok(json) = serde_json::to_string(&fresh) {
             let _ = db.set_meta(META_SC_REMOTE_MIRRORS, &json);
             let _ = db.set_meta(META_SC_REMOTE_MIRRORS_TS, &now.to_string());
+        }
+    } else if force {
+        // Mantieni l'ultima lista nota se il refresh remoto fallisce.
+        if let Ok(Some(cached)) = db.get_meta(META_SC_REMOTE_MIRRORS) {
+            if let Ok(list) = serde_json::from_str::<Vec<String>>(&cached) {
+                if !list.is_empty() {
+                    return list;
+                }
+            }
         }
     }
     fresh
@@ -700,8 +724,8 @@ fn probe_app_reachable(client: &Client, app_base: &str, locale: &str) -> bool {
 
 pub fn discover_app_url(db: &Database) -> Result<String, String> {
     let client = http_client()?;
-    // Aggiorna la lista remota (Branchefy + community + redirect) prima di sondare.
-    let remote = cached_or_fetch_remote_mirrors(db, &client);
+    // Discover = recovery: forza refresh liste remote (Branchefy + community + redirect).
+    let remote = cached_or_fetch_remote_mirrors(db, &client, true);
     let mut candidates = app_url_candidates(db);
     let mut seen: HashSet<String> = candidates.iter().cloned().collect();
     for url in remote {
@@ -731,13 +755,34 @@ pub fn resolve_app_url(db: &Database) -> Result<String, String> {
             let base = cached.trim_end_matches('/').to_string();
             if let Ok(client) = http_client() {
                 if probe_app_reachable(&client, &base, &lang(db)) {
+                    remember_resolved_app(db, &base);
                     return Ok(base);
                 }
             }
             let _ = db.set_meta(META_SC_RESOLVED_APP, "");
+            invalidate_remote_mirrors_cache(db);
         }
     }
     discover_app_url(db)
+}
+
+/// Verifica (e se serve risolve) app + CDN SC. Da chiamare all'avvio in background.
+pub fn ensure_sc_endpoints(db: &Database) -> Result<(String, String), String> {
+    let app = resolve_app_url(db)?;
+    let cdn = cdn_url(db);
+    Ok((app, cdn))
+}
+
+/// Probe mirror SC all'avvio senza bloccare la UI (seed catalogo resta disponibile).
+pub fn spawn_sc_endpoint_ensure(db: std::sync::Arc<Database>) {
+    std::thread::spawn(move || match ensure_sc_endpoints(db.as_ref()) {
+        Ok((app, cdn)) => {
+            eprintln!("[sc] endpoints ready app={app} cdn={cdn}");
+        }
+        Err(err) => {
+            eprintln!("[sc] endpoint ensure failed: {err}");
+        }
+    });
 }
 
 pub fn fetch_sliders_for_db(
@@ -2431,6 +2476,7 @@ pub fn spawn_catalog_boot_maintenance(db: std::sync::Arc<Database>) {
     }
 
     std::thread::spawn(move || {
+        let _ = ensure_sc_endpoints(db.as_ref());
         let _ = ensure_bundled_catalog_seed(db.as_ref());
         let needs_full = catalog_needs_background_sync(db.as_ref());
         let cdn = cdn_url(db.as_ref());
@@ -2528,7 +2574,7 @@ pub fn cdn_url(db: &crate::db::Database) -> String {
         .unwrap_or_else(|| DEFAULT_CDN_URL.to_string())
 }
 
-/** Prefer known-good CDNs before any sticky/inferred host that may 404. */
+/** Prefer sticky/resolved CDN, then known-good defaults. */
 pub fn cdn_candidates(db: &crate::db::Database) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
@@ -2541,21 +2587,6 @@ pub fn cdn_candidates(db: &crate::db::Database) -> Vec<String> {
             out.push(trimmed.to_string());
         }
     };
-
-    push(DEFAULT_CDN_URL);
-    for fallback in [
-        "https://cdn.streamingcommunityz.support",
-        "https://cdn.streamingcommunityz.vin",
-        "https://cdn.streamingcommunityz.tech",
-        "https://cdn.streamingcommunityz.gives",
-        "https://cdn.streamingcommunityz.buzz",
-        "https://cdn.streamingcommunityz.space",
-        "https://cdn.streamingcommunityz.ceo",
-        "https://cdn.streamingcommunityz.community",
-        "https://cdn.streamingunity.dog",
-    ] {
-        push(fallback);
-    }
 
     if let Some(cdn) = db
         .get_meta("sc_cdn_url")
@@ -2570,6 +2601,23 @@ pub fn cdn_candidates(db: &crate::db::Database) -> Vec<String> {
         if let Some(cdn) = infer_cdn_from_app(&app) {
             push(&cdn);
         }
+    }
+
+    push(DEFAULT_CDN_URL);
+    for fallback in [
+        "https://cdn.streamingcommunityz.recipes",
+        "https://cdn.streamingunity.vip",
+        "https://cdn.streamingcommunityz.support",
+        "https://cdn.streamingcommunityz.vin",
+        "https://cdn.streamingcommunityz.tech",
+        "https://cdn.streamingcommunityz.gives",
+        "https://cdn.streamingcommunityz.buzz",
+        "https://cdn.streamingcommunityz.space",
+        "https://cdn.streamingcommunityz.ceo",
+        "https://cdn.streamingcommunityz.community",
+        "https://cdn.streamingunity.dog",
+    ] {
+        push(fallback);
     }
 
     out

@@ -247,7 +247,9 @@ function useLiquidCanvas(
         } else {
           cached = readAccents(true);
         }
-      } else if (heroActive !== lastHeroActive || force) {
+      } else {
+        // Fuori home: rileggi sempre il tema utente (settings), non solo al
+        // passaggio hero↔app — altrimenti il picker colori sembra “morto”.
         cached = readAccents(false);
       }
       lastHeroActive = heroActive;
@@ -330,7 +332,9 @@ function useLiquidCanvas(
     paintOnce(performance.now());
     startLoop();
 
+    const onAmbientTheme = () => refreshPalette();
     window.addEventListener("resize", queueResize);
+    window.addEventListener("branchefy:ambient-theme", onAmbientTheme);
     document.addEventListener("visibilitychange", onVisibility);
     const motionMq = window.matchMedia("(prefers-reduced-motion: reduce)");
     motionMq.addEventListener?.("change", onMotionChange);
@@ -340,6 +344,7 @@ function useLiquidCanvas(
       stopLoop();
       if (resizeTimer != null) window.clearTimeout(resizeTimer);
       window.removeEventListener("resize", queueResize);
+      window.removeEventListener("branchefy:ambient-theme", onAmbientTheme);
       document.removeEventListener("visibilitychange", onVisibility);
       motionMq.removeEventListener?.("change", onMotionChange);
       gl.deleteProgram(program);

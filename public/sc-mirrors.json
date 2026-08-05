@@ -1,21 +1,12 @@
 {
-  "updatedAt": "2026-08-01",
+  "updatedAt": "2026-08-05",
   "appUrls": [
-    "https://streamingcommunityz.support",
-    "https://streamingcommunityz.vin",
-    "https://streamingcommunityz.tech",
-    "https://streamingcommunityz.gives",
-    "https://streamingcommunityz.buzz",
-    "https://streamingcommunityz.space",
-    "https://streamingcommunityz.ceo",
-    "https://streamingcommunityz.community",
-    "https://streamingcommunityz.lat",
-    "https://streamingcommunityz.ltd",
-    "https://streamingcommunityz.pizza",
-    "https://streamingunity.dog",
-    "https://streamingunity.buzz"
+    "https://streamingcommunityz.recipes",
+    "https://streamingunity.vip"
   ],
   "cdnUrls": [
+    "https://cdn.streamingcommunityz.recipes",
+    "https://cdn.streamingunity.vip",
     "https://cdn.streamingcommunityz.support",
     "https://cdn.streamingcommunityz.vin",
     "https://cdn.streamingcommunityz.tech",

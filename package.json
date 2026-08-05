@@ -1,7 +1,7 @@
 {
   "name": "branchefy",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,7 +15,10 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "icons": "tauri icon app-icon.png -o src-tauri/icons",
-    "test-addon": "node tools/test-stream-addon.mjs"
+    "test-addon": "node tools/test-stream-addon.mjs",
+    "sc:mirrors-sync": "node tools/sc-mirrors-sync.mjs",
+    "sc:mirrors-sync:write": "node tools/sc-mirrors-sync.mjs --write",
+    "sc:mirrors-sync:defaults": "node tools/sc-mirrors-sync.mjs --write --sync-defaults"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

@@ -1,19 +1,18 @@
-# Branchefy v1.0.0
+# Branchefy v1.1.0
 
 ## Novità
 
-- Prima release **1.0**: catalogo streaming, player, In Diretta (Rai + Mediaset), account cloud, reset password, donazioni
-- Accesso ospite con limite giornaliero, stessa esperienza su web e desktop
-- Menu mobile «Altro» completo (chat, invite, feedback, capsula, impostazioni)
-- Protezione anti schermo nero con ErrorBoundary
-- Messaggi di prodotto allineati: niente promesse sulla libreria file locali (fuori scope v1.0)
+- **Cinema Ambilight**: alone colorato sincronizzato ai bordi del video (toggle lampadina nel player)
+- Pill **Supporta** in navigazione per riaprire il messaggio donazioni
+- Recupero automatico URL StreamingCommunity + tool `sc:mirrors-sync` e mirror aggiornati
+
+## Migliorie
+
+- Watch Party più stabile (sync guest, meno thrash Broadcast, fallback poll)
+- Tema ambient delle impostazioni si applica anche fuori dalla home
+- Prestazioni Ambilight: niente loop a vuoto, meno carico sulla UI intorno al player
 
 ## Note
 
-- Stremio addons restano disattivati di proposito
-- Libri restano fuori dalla navigazione principale
-- In produzione servono SMTP Supabase, redirect auth e migration donor già documentati in `web/README.md`
-
-## Piattaforme
-
-- Web e desktop sulla stessa versione
+- Ambilight non disponibile con Widevine/cast o se lo stream è protetto da CORS
+- Su web il deploy Vercel usa la stessa `src/` del desktop

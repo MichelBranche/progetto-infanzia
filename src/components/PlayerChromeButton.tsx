@@ -9,6 +9,7 @@ interface PlayerChromeButtonProps {
   disabled?: boolean;
   title?: string;
   "aria-label"?: string;
+  "aria-pressed"?: boolean;
 }
 
 /** Bottone chrome senza Framer — scale CSS, niente spring sul main thread. */
@@ -21,6 +22,7 @@ export function PlayerChromeButton({
   disabled = false,
   title,
   "aria-label": ariaLabel,
+  "aria-pressed": ariaPressed,
 }: PlayerChromeButtonProps) {
   const dimension =
     variant === "pill"
@@ -34,6 +36,7 @@ export function PlayerChromeButton({
       type="button"
       title={title}
       aria-label={ariaLabel}
+      aria-pressed={ariaPressed}
       disabled={disabled}
       onTouchStart={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}

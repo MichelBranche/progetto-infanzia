@@ -198,12 +198,29 @@ export function AddonWatchPage({
   const initialAutoplayDoneRef = useRef(false);
   const userPlaybackStartedRef = useRef(false);
   const playbackGenerationRef = useRef(0);
+  /** Sync live senza riscrivere la session React (evita reconnect Broadcast). */
+  const partySyncRef = useRef({
+    playing: watchPartySession?.room.playing ?? false,
+    position: watchPartySession?.room.positionSecs ?? 0,
+  });
 
   useEffect(() => {
     initialAutoplayDoneRef.current = false;
     userPlaybackStartedRef.current = false;
     playbackGenerationRef.current = 0;
   }, [metaId, slug, catalogPrefix, contentType, initialVideoId, initialPreferredVideoId]);
+
+  useEffect(() => {
+    if (!watchPartySession || watchPartySession.role !== "guest") return;
+    partySyncRef.current = {
+      playing: watchPartySession.room.playing,
+      position: watchPartySession.room.positionSecs,
+    };
+  }, [
+    watchPartySession?.room.code,
+    watchPartySession?.role,
+    watchPartySession?.room.content.mediaId,
+  ]);
 
   useWatchPartySync({
     session:
@@ -213,18 +230,23 @@ export function AddonWatchPage({
     profileId,
     profileName,
     cloudUserId: cloudProfile?.id,
-    playing: watchPartySession?.room.playing ?? false,
-    currentTime: watchPartySession?.room.positionSecs ?? 0,
+    playing: partySyncRef.current.playing,
+    currentTime: partySyncRef.current.position,
     onRemoteSync: (nextPlaying, position) => {
+      partySyncRef.current = { playing: nextPlaying, position };
+    },
+    onGuestRoomContent: (content) => {
       const session = watchPartySessionRef.current;
       if (!session || session.role !== "guest") return;
+      if (
+        session.room.content.mediaId === content.mediaId &&
+        session.room.content.contentKind === content.contentKind
+      ) {
+        return;
+      }
       onWatchPartySessionChangeRef.current?.({
         ...session,
-        room: {
-          ...session.room,
-          playing: nextPlaying,
-          positionSecs: position,
-        },
+        room: { ...session.room, content },
       });
     },
   });
@@ -347,7 +369,7 @@ export function AddonWatchPage({
         const resume =
           watchPartySession?.role === "guest"
             ? {
-                watchPosition: watchPartySession.room.positionSecs,
+                watchPosition: partySyncRef.current.position,
                 watchDuration: undefined,
               }
             : await loadProgress();
@@ -367,7 +389,7 @@ export function AddonWatchPage({
         const resume =
           watchPartySession?.role === "guest"
             ? {
-                watchPosition: watchPartySession.room.positionSecs,
+                watchPosition: partySyncRef.current.position,
                 watchDuration: undefined,
               }
             : await loadProgress();
@@ -379,7 +401,7 @@ export function AddonWatchPage({
         setResolving(false);
       }
     },
-    [profileId, watchPartySession, loadStreamResume],
+    [profileId, watchPartySession?.role, loadStreamResume],
   );
 
   useEffect(() => {

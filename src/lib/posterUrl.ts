@@ -5,6 +5,7 @@ import {
   type PosterQualityTier,
 } from "./posterQuality";
 import { isWebShell } from "./runtimeInvoke";
+import { SC_CDN_FALLBACKS } from "./scCdnFallbacks";
 import { scServerBase } from "./scServerFallback";
 
 const TMDB_SIZE_RE = /\/t\/p\/w\d+\//i;
@@ -180,8 +181,10 @@ export function posterUrlFallbacks(
     }
     // Se il proxy locale/Vercel fallisce (IP bloccato), prova Railway.
     push(scImageServerFallbackUrl(scRel));
-    // Ultimo tentativo: CDN diretto (desktop senza stream server).
-    push(`https://cdn.streamingcommunityz.support/images/${scRel}`);
+    // Ultimo tentativo: CDN diretti noti (desktop / mirror alternativi).
+    for (const cdn of SC_CDN_FALLBACKS) {
+      push(`${cdn}/images/${scRel}`);
+    }
   }
 
   const saturn = trimmed.match(SATURN_CDN_IMAGE_RE);

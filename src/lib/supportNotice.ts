@@ -3,6 +3,8 @@ export const SUPPORT_NOTICE_ID = "support-costs-2026-08";
 
 const DISMISS_KEY = `branchefy-support-notice-dismissed:${SUPPORT_NOTICE_ID}`;
 
+export const OPEN_SUPPORT_NOTICE_EVENT = "branchefy:open-support";
+
 /**
  * Link donazione. Priorità: env `VITE_BRANCHEFY_DONATE_URL`, poi fallback sotto.
  * Aggiorna il fallback prima della release se non usi l’env.
@@ -29,4 +31,10 @@ export function dismissSupportNotice(): void {
   } catch {
     // ignore
   }
+}
+
+/** Apre il pannello donazioni (nav pill, impostazioni, ecc.). */
+export function requestOpenSupportNotice(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(OPEN_SUPPORT_NOTICE_EVENT));
 }

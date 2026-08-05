@@ -7,6 +7,7 @@ import { openExternal } from "../lib/openExternal";
 import {
   dismissSupportNotice,
   isSupportNoticeDismissed,
+  OPEN_SUPPORT_NOTICE_EVENT,
   supportDonateUrl,
 } from "../lib/supportNotice";
 import { DonorClaimForm } from "./DonorClaimForm";
@@ -21,21 +22,33 @@ export function SupportNoticeModal() {
   const { visible: broadcastVisible } = useAppBroadcast();
   const { profile, enabled: cloudEnabled } = useCloudAccount();
   const [open, setOpen] = useState(false);
+  const [forced, setForced] = useState(false);
   const [showClaim, setShowClaim] = useState(false);
   const donateUrl = supportDonateUrl();
 
   useEffect(() => {
-    if (broadcastVisible) return;
+    const onOpen = () => {
+      setForced(true);
+      setShowClaim(false);
+      setOpen(true);
+    };
+    window.addEventListener(OPEN_SUPPORT_NOTICE_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_SUPPORT_NOTICE_EVENT, onOpen);
+  }, []);
+
+  useEffect(() => {
+    if (broadcastVisible && !forced) return;
     if (isSupportNoticeDismissed()) {
-      setOpen(false);
+      if (!forced) setOpen(false);
       return;
     }
     const timer = window.setTimeout(() => setOpen(true), 600);
     return () => window.clearTimeout(timer);
-  }, [broadcastVisible]);
+  }, [broadcastVisible, forced]);
 
   const close = () => {
     dismissSupportNotice();
+    setForced(false);
     setOpen(false);
     setShowClaim(false);
   };
@@ -48,7 +61,7 @@ export function SupportNoticeModal() {
 
   return (
     <AnimatePresence>
-      {open && !broadcastVisible && (
+      {open && (!broadcastVisible || forced) && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}

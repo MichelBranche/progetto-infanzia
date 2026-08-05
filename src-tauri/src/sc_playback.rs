@@ -1172,7 +1172,7 @@ mod tests {
         let db = crate::db::Database::open(std::path::Path::new(":memory:")).expect("db");
         crate::vix_embed::bootstrap(&db);
         let stream = resolve_playback(
-            "https://streamingcommunityz.support",
+            "https://streamingcommunityz.recipes",
             "it",
             63783,
             "messaggi-per-isabelle",

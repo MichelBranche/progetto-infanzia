@@ -40,6 +40,8 @@ pub async fn init_web_state() -> Result<Arc<AppState>, String> {
     .await
     .map_err(|e| format!("Init database: {e}"))??;
 
+    crate::sc_catalog::spawn_sc_endpoint_ensure(db.clone());
+
     let addon_proxy = Arc::new(AddonProxyRegistry::new());
     let torrent_engine = Arc::new(TorrentEngine::new(torrent_cache_dir));
     let watch_party = Arc::new(WatchPartyRegistry::new());

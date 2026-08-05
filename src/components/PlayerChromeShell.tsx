@@ -1,6 +1,7 @@
 import { memo, type ReactNode, type RefObject } from "react";
 import {
   Cast,
+  Lamp,
   Languages,
   ListVideo,
   Loader2,
@@ -51,6 +52,8 @@ interface PlayerChromeShellProps {
   canCast: boolean;
   castingTo: string | null;
   partySessionActive: boolean;
+  cinemaAmbientOn: boolean;
+  cinemaAmbientSupported: boolean;
   prevEp: MediaItem | null;
   nextEp: MediaItem | null;
   qualityOptions: PlayerMenuOption[];
@@ -80,6 +83,7 @@ interface PlayerChromeShellProps {
   onOpenEpisodes: () => void;
   onOpenCast: () => void;
   onOpenParty: () => void;
+  onToggleCinemaAmbient: () => void;
   onStopCast: () => void;
   onPlayPrevEpisode?: () => void;
   onPlayNextEpisode?: () => void;
@@ -138,6 +142,8 @@ export const PlayerChromeShell = memo(function PlayerChromeShell({
   canCast,
   castingTo,
   partySessionActive,
+  cinemaAmbientOn,
+  cinemaAmbientSupported,
   prevEp,
   nextEp,
   qualityOptions,
@@ -167,6 +173,7 @@ export const PlayerChromeShell = memo(function PlayerChromeShell({
   onOpenEpisodes,
   onOpenCast,
   onOpenParty,
+  onToggleCinemaAmbient,
   onStopCast,
   onPlayPrevEpisode,
   onPlayNextEpisode,
@@ -272,6 +279,26 @@ export const PlayerChromeShell = memo(function PlayerChromeShell({
                 }
               >
                 <Users className="h-4 w-4" />
+              </PlayerChromeButton>
+              <PlayerChromeButton
+                onClick={onToggleCinemaAmbient}
+                disabled={!cinemaAmbientSupported}
+                title={
+                  !cinemaAmbientSupported
+                    ? "Effetto cinema non disponibile su questo stream"
+                    : cinemaAmbientOn
+                      ? "Disattiva effetto cinema"
+                      : "Effetto cinema (luci ambiente)"
+                }
+                aria-label="Effetto cinema"
+                aria-pressed={cinemaAmbientOn}
+                className={
+                  cinemaAmbientOn
+                    ? "border-amber-300/40 bg-amber-400/15 text-amber-100 hover:bg-amber-400/20"
+                    : ""
+                }
+              >
+                <Lamp className="h-4 w-4" />
               </PlayerChromeButton>
             </div>
           </div>
@@ -581,6 +608,17 @@ export const PlayerChromeShell = memo(function PlayerChromeShell({
                       className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[13px] text-white/85 hover:bg-white/10"
                     >
                       <Users className="h-4 w-4" /> Guarda insieme
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onToggleCinemaAmbient}
+                      disabled={!cinemaAmbientSupported}
+                      className={`flex w-full items-center gap-2 px-3 py-2.5 text-left text-[13px] hover:bg-white/10 disabled:opacity-40 ${
+                        cinemaAmbientOn ? "text-amber-100" : "text-white/85"
+                      }`}
+                    >
+                      <Lamp className="h-4 w-4" />{" "}
+                      {cinemaAmbientOn ? "Cinema attivo" : "Effetto cinema"}
                     </button>
                     {showQuality && (
                       <>

@@ -22,6 +22,7 @@ import { AppTopNavMoreMenu, animateAppTopNavMoreMenuClose } from "./AppTopNavMor
 import { AppTopNavProfileMenuPanel } from "./AppTopNavProfileMenu";
 import { AppTopNavFriendsBar } from "./AppTopNavFriendsBar";
 import { AppTopNavFriendsChevron } from "./AppTopNavFriendsChevron";
+import { AppTopNavDonatePill } from "./AppTopNavDonatePill";
 import { useFriendsMenu } from "../context/FriendsMenuContext";
 import {
   animateNavLinkHover,
@@ -628,6 +629,8 @@ export function AppTopNav({
                 )}
               </div>
 
+              <AppTopNavDonatePill />
+
               <div
                 ref={toolbarRef}
                 className="glass-header app-top-nav__toolbar relative flex items-center gap-0.5 p-1.5"
@@ -700,7 +703,9 @@ export function AppTopNav({
               </div>
             </div>
 
-            <div className={`app-top-nav__actions pointer-events-auto ml-auto flex shrink-0 items-center gap-1 ${showDesktopChrome ? "hidden" : "flex"}`}>
+            <div className={`app-top-nav__actions pointer-events-auto ml-auto flex shrink-0 items-center gap-1.5 ${showDesktopChrome ? "hidden" : "flex"}`}>
+              <AppTopNavDonatePill compact={isMobileDevice} />
+
               <NavToolbarButton
                 onClick={onOpenSearch}
                 className={`app-top-nav__icon flex shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 ${

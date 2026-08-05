@@ -32,6 +32,7 @@ import {
   type PlayerActionKind,
   type PlayerActionPulse,
 } from "./PlayerActionFeedback";
+import { CinemaAmbient } from "./CinemaAmbient";
 import { WatchPartyPanel } from "./WatchPartyPanel";
 import { useWatchPartySync, DRIFT_THRESHOLD_SEC } from "../hooks/useWatchPartySync";
 import { closeCloudWatchParty } from "../lib/cloudWatchParty";
@@ -40,6 +41,13 @@ import { useWatchPartyHost } from "../context/WatchPartyHostContext";
 import { closeChatPopup } from "../lib/chatPopup";
 import { WatchPartyChatDock } from "./WatchPartyChatDock";
 import type { WatchPartySession } from "../types/watchParty";
+import {
+  readCinemaAmbientEnabled,
+  releaseCinemaAmbientResources,
+  resetCinemaAmbientTainted,
+  writeCinemaAmbientEnabled,
+} from "../lib/cinemaAmbient";
+import { useCompactShell } from "../context/MobileDeviceContext";
 import { parseRemoteProxyId } from "../lib/cast";
 import {
   formatAudioTrackLabel,
@@ -284,6 +292,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   onRetryStreamRef.current = onRetryStream;
   const [showCast, setShowCast] = useState(false);
   const [showPartyPanel, setShowPartyPanel] = useState(false);
+  const [cinemaAmbientOn, setCinemaAmbientOn] = useState(readCinemaAmbientEnabled);
+  const [cinemaAmbientSupported, setCinemaAmbientSupported] = useState(true);
+  const { isCompactShell } = useCompactShell();
   const [partySession, setPartySession] = useState<WatchPartySession | null>(
     watchPartySessionProp ?? null,
   );
@@ -323,6 +334,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const usesWidevine = Boolean(effectiveLicenseUrl) && (isDash || !effectiveIsHls);
   const isPartyGuest = partySession?.role === "guest";
   const isPartyHost = partySession?.role === "host";
+  const cinemaSupported = cinemaAmbientSupported && !usesWidevine && !castDevice;
+  const cinemaActive = cinemaAmbientOn && cinemaSupported;
   const remoteProxyId = useMemo(
     () => parseRemoteProxyId(effectiveStreamUrl),
     [effectiveStreamUrl],
@@ -1151,6 +1164,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     };
   }, [partySession?.role]);
 
+  const updatePartySession = useCallback(
+    (next: WatchPartySession | null) => {
+      setPartySession(next);
+      setHostSession(next);
+      onWatchPartySessionChange?.(next);
+    },
+    [onWatchPartySessionChange, setHostSession],
+  );
+  const updatePartySessionRef = useRef(updatePartySession);
+  updatePartySessionRef.current = updatePartySession;
+
   const {
     members: partyMembers,
     connected: partyConnected,
@@ -1175,18 +1199,24 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       });
       setPartyIsHls(guestHls);
     },
+    onGuestRoomContent: (content) => {
+      const session = partySessionRef.current;
+      if (!session || session.role !== "guest") return;
+      if (
+        session.room.content.mediaId === content.mediaId &&
+        session.room.content.streamUrl === content.streamUrl &&
+        session.room.content.contentKind === content.contentKind
+      ) {
+        return;
+      }
+      updatePartySessionRef.current({
+        ...session,
+        room: { ...session.room, content },
+      });
+    },
   });
 
   notifyPartySeekRef.current = notifyPartySeek;
-
-  const updatePartySession = useCallback(
-    (next: WatchPartySession | null) => {
-      setPartySession(next);
-      setHostSession(next);
-      onWatchPartySessionChange?.(next);
-    },
-    [onWatchPartySessionChange, setHostSession],
-  );
 
   const leaveParty = useCallback(async () => {
     const closingCode = partySession?.room.code;
@@ -1211,16 +1241,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const cloudProfileRef = useRef(cloudProfile);
   cloudProfileRef.current = cloudProfile;
 
-  // Se l'host esce dal player senza chiudere la party, elimina la stanza cloud
-  // per non lasciarla attiva per sempre.
+  // Chiudi la stanza cloud solo a chiusura tab/finestra, non a ogni unmount
+  // React (Strict Mode / cambio overlay uccidevano la party a caso).
   useEffect(() => {
-    return () => {
+    const onPageHide = () => {
       const session = partySessionRef.current;
       const profile = cloudProfileRef.current;
       if (session?.role === "host" && session.relay === "cloud" && profile) {
         void closeCloudWatchParty(session.room.code, profile.id);
       }
     };
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
   }, []);
 
   const seek = useCallback(
@@ -1858,26 +1890,54 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     showAudioMenu ||
     showMoreMenu;
 
+  useEffect(() => {
+    // Nuovo stream: riprova il campionamento (DRM/CORS possono cambiare).
+    resetCinemaAmbientTainted();
+    setCinemaAmbientSupported(!usesWidevine);
+  }, [effectiveStreamUrl, usesWidevine]);
+
+  useEffect(() => {
+    return () => {
+      releaseCinemaAmbientResources();
+    };
+  }, []);
+
   return (
     <div
       ref={containerRef}
-      className="player-shell relative flex h-full flex-col bg-black"
+      className={`player-shell relative flex h-full flex-col overflow-hidden bg-black${
+        cinemaActive ? " player-shell--cinema" : ""
+      }`}
       onMouseMove={onPlayerPointerMove}
       onClick={resetHideTimer}
       onTouchStart={resetHideTimer}
       onTouchMove={onPlayerPointerMove}
     >
-      <video
-        ref={videoRef}
-        src={
-          usesWidevine || (effectiveIsHls && Hls.isSupported())
-            ? undefined
-            : effectiveStreamUrl
-        }
-        className="player-video h-full w-full object-contain"
-        playsInline
-        onClick={onVideoSurfaceClick}
-      />
+      <div className="player-cinema-stage">
+        <CinemaAmbient
+          videoRef={videoRef}
+          enabled={cinemaActive}
+          playing={playing && !castDevice}
+          compact={isCompactShell}
+          onUnsupported={() => {
+            setCinemaAmbientSupported(false);
+            setCinemaAmbientOn(false);
+            writeCinemaAmbientEnabled(false);
+          }}
+        />
+
+        <video
+          ref={videoRef}
+          src={
+            usesWidevine || (effectiveIsHls && Hls.isSupported())
+              ? undefined
+              : effectiveStreamUrl
+          }
+          className="player-video h-full w-full object-contain"
+          playsInline
+          onClick={onVideoSurfaceClick}
+        />
+      </div>
 
       {activeCueText && (
         <div className="pointer-events-none absolute inset-x-0 bottom-[88px] z-[25] flex justify-center px-6 sm:bottom-[96px] sm:px-10">
@@ -1905,6 +1965,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         canCast={canCast}
         castingTo={castingTo}
         partySessionActive={Boolean(partySession)}
+        cinemaAmbientOn={cinemaActive}
+        cinemaAmbientSupported={cinemaSupported}
         prevEp={prevEp ?? null}
         nextEp={nextEp ?? null}
         qualityOptions={qualityOptions.map((o) => ({
@@ -1970,6 +2032,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           setShowPartyPanel(true);
           showControlsRef.current = true;
           setShowControls(true);
+        }}
+        onToggleCinemaAmbient={() => {
+          if (!cinemaSupported) return;
+          setCinemaAmbientOn((prev) => {
+            const next = !prev;
+            writeCinemaAmbientEnabled(next);
+            if (next) resetCinemaAmbientTainted();
+            return next;
+          });
+          setShowMoreMenu(false);
+          resetHideTimer();
         }}
         onStopCast={() => void stopCast()}
         onPlayPrevEpisode={prevEp ? playPrevEpisode : undefined}

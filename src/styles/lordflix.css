@@ -2217,10 +2217,24 @@ html.is-tauri .glass-header,
 .glass-header.app-top-nav__left-dock,
 .glass-header.app-top-nav__toolbar,
 .glass-header.app-top-nav__nav-dock,
+.glass-header.app-top-nav__donate-pill,
 .glass-header.mobile-nav-bar {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
   background: var(--lf-chrome-bg-solid);
+}
+
+.app-top-nav__donate-pill {
+  padding: 0.2rem 0.55rem 0.2rem 0.3rem;
+  border-color: color-mix(in srgb, var(--lf-chrome-border) 70%, rgb(255 196 80 / 0.35));
+}
+
+.app-top-nav__donate-pill:hover {
+  border-color: color-mix(in srgb, var(--lf-chrome-border-hover) 55%, rgb(255 196 80 / 0.5));
+}
+
+.app-top-nav__donate-pill:active {
+  transform: scale(0.97);
 }
 
 @media (min-width: 1024px) {
@@ -5782,8 +5796,159 @@ html.admin-prank-meltdown body {
 }
 
 /* —— Player Netflix-like chrome —— */
+/* Cinema Ambilight — alone agganciato al frame object-fit (non ai pillarbox) */
+.player-cinema-stage {
+  position: relative;
+  z-index: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+.player-shell--cinema .player-cinema-stage {
+  /* L’alone può spingere un filo oltre il frame; resta nello stage. */
+  overflow: hidden;
+}
+
+.player-shell--cinema .player-video {
+  /* Dimensioni impostate da CinemaAmbient sul frame object-fit. */
+  max-width: none;
+  max-height: none;
+}
+
+.cinema-ambient {
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+  overflow: hidden;
+  opacity: 1;
+  /* Isola il lavoro GPU: meno jank sulla UI intorno al player. */
+  contain: strict;
+  isolation: isolate;
+  transform: translateZ(0);
+}
+
+.cinema-ambient__edge,
+.cinema-ambient__corner,
+.cinema-ambient__accent {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  filter: blur(40px);
+  transition: none;
+  /* plus-lighter forza compositing pesante su tutta la pagina. */
+  mix-blend-mode: normal;
+}
+
+.cinema-ambient--compact .cinema-ambient__edge,
+.cinema-ambient--compact .cinema-ambient__corner,
+.cinema-ambient--compact .cinema-ambient__accent {
+  filter: blur(28px);
+}
+
+/* Fasce laterali strette e luminose: glow “attaccato” al frame */
+.cinema-ambient__edge--left {
+  left: 0;
+  top: 10%;
+  width: 28%;
+  height: 80%;
+  background: var(--cinema-left, rgb(48 28 88));
+  opacity: 0.95;
+}
+
+.cinema-ambient__edge--right {
+  right: 0;
+  top: 10%;
+  width: 28%;
+  height: 80%;
+  background: var(--cinema-right, rgb(48 28 88));
+  opacity: 0.95;
+}
+
+.cinema-ambient__edge--top {
+  left: 10%;
+  top: 0;
+  width: 80%;
+  height: 26%;
+  background: var(--cinema-top, rgb(36 22 72));
+  opacity: 0.9;
+}
+
+.cinema-ambient__edge--bottom {
+  left: 10%;
+  bottom: 0;
+  width: 80%;
+  height: 28%;
+  background: var(--cinema-bottom, rgb(24 16 48));
+  opacity: 0.92;
+}
+
+.cinema-ambient__corner {
+  width: 34%;
+  height: 34%;
+  opacity: 0.9;
+  filter: blur(32px);
+}
+
+.cinema-ambient--compact .cinema-ambient__corner {
+  filter: blur(24px);
+}
+
+.cinema-ambient__corner--tl {
+  left: 0;
+  top: 0;
+  background: var(--cinema-tl, rgb(52 30 96));
+}
+
+.cinema-ambient__corner--tr {
+  right: 0;
+  top: 0;
+  background: var(--cinema-tr, rgb(52 30 96));
+}
+
+.cinema-ambient__corner--bl {
+  left: 0;
+  bottom: 0;
+  background: var(--cinema-bl, rgb(32 18 64));
+}
+
+.cinema-ambient__corner--br {
+  right: 0;
+  bottom: 0;
+  background: var(--cinema-br, rgb(32 18 64));
+}
+
+.cinema-ambient__accent {
+  left: 22%;
+  top: 22%;
+  width: 56%;
+  height: 56%;
+  background: var(--cinema-accent, rgb(88 42 140 / 0.9));
+  opacity: 0.28;
+  filter: blur(60px);
+}
+
+.cinema-ambient--compact .cinema-ambient__accent {
+  filter: blur(40px);
+  opacity: 0.22;
+}
+
 .player-shell {
   isolation: isolate;
+}
+
+.player-shell .player-video {
+  position: relative;
+  z-index: 1;
+  /* Trasparente: i pillarbox devono mostrare l’Ambilight dietro, non un nero opaco. */
+  background: transparent;
+}
+
+.player-shell--cinema .player-video {
+  background: transparent;
 }
 
 .player-video {

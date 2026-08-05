@@ -2474,6 +2474,7 @@ fn init_app(handle: &AppHandle) -> Result<AppState, String> {
     tauri::async_runtime::spawn_blocking(move || {
         crate::vix_embed::bootstrap(db_bootstrap.as_ref());
     });
+    sc_catalog::spawn_sc_endpoint_ensure(db.clone());
     let media_root = parking_lot::RwLock::new(std::path::PathBuf::new());
 
     let addon_proxy = Arc::new(AddonProxyRegistry::new());
