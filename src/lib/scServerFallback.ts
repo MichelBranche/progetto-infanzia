@@ -1,9 +1,8 @@
-//! Fallback StreamingCommunity via server (solo desktop).
+//! Fallback StreamingCommunity via server (solo desktop, **opzionale**).
 //!
-//! Se l'IP di casa è bloccato da StreamingCommunity (Cloudflare / anti-bot),
-//! i comandi SC falliscono in locale. In quel caso (o per account in allowlist)
-//! li inoltriamo al server Railway — lo stesso della web app — così le
-//! richieste escono dall'IP del server.
+//! Il desktop funziona in locale senza web/Railway. Se l'IP di casa è bloccato
+//! da StreamingCommunity (Cloudflare / anti-bot), *quando* il server è online
+//! possiamo ripiegare lì. Se il server non c'è, resta solo il percorso locale.
 
 /** Account che forzano sempre il percorso server (diagnostica / IP bloccati noti). */
 const FORCE_SERVER_EMAILS = new Set<string>([

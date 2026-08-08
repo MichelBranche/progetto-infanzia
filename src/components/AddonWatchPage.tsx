@@ -53,6 +53,36 @@ import type { BrowseItem } from "../lib/browse";
 import { nextEpisode } from "../lib/browse";
 import { RelatedTitlesSection } from "./RelatedTitlesSection";
 
+function mergeMetaVideos(
+  prev: StremioMeta,
+  videos: StremioMeta["videos"],
+): StremioMeta {
+  const byId = new Map(prev.videos.map((video) => [video.id, video]));
+  for (const video of videos) {
+    byId.set(video.id, video);
+  }
+  const merged = [...byId.values()].sort((a, b) => {
+    const seasonA = a.season ?? 0;
+    const seasonB = b.season ?? 0;
+    if (seasonA !== seasonB) return seasonA - seasonB;
+    return (a.episode ?? 0) - (b.episode ?? 0);
+  });
+  return { ...prev, videos: merged };
+}
+
+/** Prossima stagione nota in meta (seasonNumbers o episodi già caricati). */
+function nextSeasonAfter(meta: StremioMeta, season: number): number | null {
+  const known = new Set<number>();
+  for (const s of meta.seasonNumbers ?? []) known.add(s);
+  for (const video of meta.videos) {
+    if (video.season != null) known.add(video.season);
+  }
+  const following = [...known]
+    .filter((s) => s > season)
+    .sort((a, b) => a - b);
+  return following[0] ?? null;
+}
+
 interface StreamResume {
   watchPosition?: number;
   watchDuration?: number;
@@ -198,6 +228,7 @@ export function AddonWatchPage({
   const initialAutoplayDoneRef = useRef(false);
   const userPlaybackStartedRef = useRef(false);
   const playbackGenerationRef = useRef(0);
+  const seasonLoadRef = useRef(new Map<number, Promise<StremioMeta["videos"]>>());
   /** Sync live senza riscrivere la session React (evita reconnect Broadcast). */
   const partySyncRef = useRef({
     playing: watchPartySession?.room.playing ?? false,
@@ -457,6 +488,42 @@ export function AddonWatchPage({
     void loadEpisodeProgress();
   }, [meta, playback, loadEpisodeProgress]);
 
+  // Titoli «Prossimamente»: ricontrolla SC e sblocca Play appena diventano disponibili.
+  useEffect(() => {
+    if (!isSc || !slug || !meta?.comingSoon || playback) return;
+    let cancelled = false;
+    const target = {
+      contentType,
+      metaId,
+      slug,
+      catalogPrefix,
+    };
+    const tick = () => {
+      void fetchScMeta(metaId, slug)
+        .then((data) => {
+          if (cancelled) return;
+          putCachedAddonMeta(target, data);
+          setMeta(data);
+        })
+        .catch(() => {
+          // ignore transient errors while polling
+        });
+    };
+    const id = window.setInterval(tick, 90_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [
+    isSc,
+    slug,
+    meta?.comingSoon,
+    playback,
+    contentType,
+    metaId,
+    catalogPrefix,
+  ]);
+
   const seriesEpisodes = useMemo(
     () => (meta ? metaVideosToMediaItems(meta) : []),
     [meta],
@@ -626,30 +693,77 @@ export function AddonWatchPage({
     }
   }, [meta, isSc, slug, metaId, playStream]);
 
+  const ensureSeasonVideos = useCallback(
+    async (season: number): Promise<StremioMeta["videos"]> => {
+      if (!isSc || !slug) return [];
+      const already =
+        meta?.videos.filter((video) => video.season === season) ?? [];
+      if (already.length > 0) return already;
+
+      const inflight = seasonLoadRef.current.get(season);
+      if (inflight) return inflight;
+
+      const promise = fetchScSeasonEpisodes(metaId, slug, season)
+        .then((videos) => {
+          if (videos.length > 0) {
+            setMeta((prev) => (prev ? mergeMetaVideos(prev, videos) : prev));
+          }
+          return videos;
+        })
+        .finally(() => {
+          seasonLoadRef.current.delete(season);
+        });
+      seasonLoadRef.current.set(season, promise);
+      return promise;
+    },
+    [isSc, slug, meta, metaId],
+  );
+
   const handleLoadSeason = useCallback(
     async (season: number) => {
       if (!isSc || !slug || !meta) return;
-      const videos = await fetchScSeasonEpisodes(metaId, slug, season);
-      if (videos.length > 0) {
-        setMeta((prev) => {
-          if (!prev) return prev;
-          const byId = new Map(prev.videos.map((video) => [video.id, video]));
-          for (const video of videos) {
-            byId.set(video.id, video);
-          }
-          const merged = [...byId.values()].sort((a, b) => {
-            const seasonA = a.season ?? 0;
-            const seasonB = b.season ?? 0;
-            if (seasonA !== seasonB) return seasonA - seasonB;
-            return (a.episode ?? 0) - (b.episode ?? 0);
-          });
-          return { ...prev, videos: merged };
-        });
-      }
+      const videos = await ensureSeasonVideos(season);
       return stremioVideosToDetailEpisodes(meta, videos, episodeProgress);
     },
-    [isSc, slug, meta, metaId, episodeProgress],
+    [isSc, slug, meta, ensureSeasonVideos, episodeProgress],
   );
+
+  /** Autoplay / next: se manca in lista, carica la stagione successiva. */
+  const resolveNextEpisodeId = useCallback(
+    async (currentId: string): Promise<string | null> => {
+      if (!meta) return null;
+      const immediate = nextEpisode(metaVideosToMediaItems(meta), currentId);
+      if (immediate) return immediate.id;
+      if (!isSc || !slug) return null;
+
+      const current = meta.videos.find((video) => video.id === currentId);
+      const season = current?.season;
+      if (season == null) return null;
+
+      const followingSeason = nextSeasonAfter(meta, season);
+      if (followingSeason == null) return null;
+
+      const videos = await ensureSeasonVideos(followingSeason);
+      if (videos.length === 0) return null;
+      const sorted = [...videos].sort(
+        (a, b) => (a.episode ?? 0) - (b.episode ?? 0),
+      );
+      return sorted[0]?.id ?? null;
+    },
+    [meta, isSc, slug, ensureSeasonVideos],
+  );
+
+  // Precarica la stagione successiva così up-next/autoplay la trovano in lista.
+  useEffect(() => {
+    if (!playback || !meta || !isSc || !slug) return;
+    const current = meta.videos.find((video) => video.id === playback.videoId);
+    const season = current?.season;
+    if (season == null) return;
+    const followingSeason = nextSeasonAfter(meta, season);
+    if (followingSeason == null) return;
+    if (meta.videos.some((video) => video.season === followingSeason)) return;
+    void ensureSeasonVideos(followingSeason);
+  }, [playback, meta, isSc, slug, ensureSeasonVideos]);
 
   useEffect(() => {
     if (
@@ -797,6 +911,7 @@ export function AddonWatchPage({
             const video = meta.videos.find((v) => v.id === videoId);
             void startPlayback(videoId, video?.title?.trim() || meta.name);
           }}
+          onResolveNextEpisode={isSc ? resolveNextEpisodeId : undefined}
           watchPartySession={watchPartySession}
           onWatchPartySessionChange={onWatchPartySessionChange}
           onStreamAudioLanguageChange={

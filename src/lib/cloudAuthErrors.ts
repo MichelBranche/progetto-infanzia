@@ -54,6 +54,16 @@ function normalizeAuthMessage(message: string): string {
     return "Indirizzo email non valido.";
   }
 
+  if (
+    lower.includes("email temporanee") ||
+    lower.includes("email temporanea") ||
+    lower.includes("non sei furbo") ||
+    lower.includes("disposable") ||
+    lower.includes("temporary email")
+  ) {
+    return "L'uso di email temporanee non è tollerato, bro non sei furbo.";
+  }
+
   if (lower.includes("for security purposes") && lower.includes("seconds")) {
     return message.replace(
       /for security purposes/i,

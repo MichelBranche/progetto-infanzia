@@ -93,14 +93,22 @@ export async function signUpWithEmail(
   const supabase = getSupabase();
   if (!supabase) throw new Error(cloudConfigHint());
 
+  const trimmedEmail = email.trim();
+  const { isDisposableEmail, DISPOSABLE_EMAIL_MESSAGE } = await import(
+    "./disposableEmail"
+  );
+  if (isDisposableEmail(trimmedEmail)) {
+    throw new Error(DISPOSABLE_EMAIL_MESSAGE);
+  }
+
   prepareAuthRemember(rememberMe);
 
   const { data, error } = await supabase.auth.signUp({
-    email: email.trim(),
+    email: trimmedEmail,
     password,
     options: {
       emailRedirectTo: emailConfirmedRedirectUrl(),
-      data: { display_name: displayName?.trim() || email.split("@")[0] },
+      data: { display_name: displayName?.trim() || trimmedEmail.split("@")[0] },
     },
   });
 
@@ -108,7 +116,7 @@ export async function signUpWithEmail(
   if (!data.user) throw new Error("Registrazione non completata");
 
   if (!data.session) {
-    throw new EmailConfirmationRequiredError(email.trim());
+    throw new EmailConfirmationRequiredError(trimmedEmail);
   }
 
   return ensureCloudProfile(data.user);

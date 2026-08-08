@@ -135,6 +135,18 @@ Da confermare **nel dashboard** prima/dopo il tag 1.0.0:
 
 ## Supabase Auth — registrazione email
 
+### Blocco email temporanee
+
+1. Applica la migration `supabase/migrations/20260808150000_block_disposable_emails.sql`
+2. Dashboard → **Authentication → Hooks → Before User Created**
+   - Type: **Postgres Function**
+   - Schema: `public`
+   - Function: `hook_prevent_disposable_email`
+
+Senza l’hook, resta solo il controllo lato app (aggirabile). Con l’hook la registrazione viene rifiutata anche via API.
+
+Lista domini: ~8200 da [disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains). Rigenera con `npm run emails:disposable-sync` dopo aver scaricato il `.conf`.
+
 Se la registrazione risponde **«email rate limit exceeded»**, il progetto Supabase ha esaurito il limite del **servizio email integrato** (circa **2 email/ora** per tutto il progetto).
 
 ### Produzione (v1.0)

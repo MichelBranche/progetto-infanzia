@@ -9,12 +9,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Snapshot gzip del catalogo SC incluso nella release (generato da `export-sc-catalog-seed`).
 const BUNDLED_SC_CATALOG_SEED_GZ: &[u8] =
     include_bytes!("../resources/sc_catalog_seed.json.gz");
+/// Mirror SC shippati con il desktop (indipendenti da branchefy.it / web).
+const BUNDLED_SC_MIRRORS_JSON: &str = include_str!("../resources/sc-mirrors.json");
 
 const DEFAULT_APP_URL: &str = "https://streamingcommunityz.recipes";
 const DEFAULT_CDN_URL: &str = "https://cdn.streamingcommunityz.recipes";
@@ -43,16 +45,17 @@ const FALLBACK_APP_URLS: &[&str] = &[
     "https://streamingcommunityz.ltd",
     "https://streamingcommunityz.pizza",
 ];
-/// Liste aggiornate a runtime (push su main / community) senza rilasciare l'app.
+/// Liste aggiornate a runtime (opzionali: il desktop ha già i mirror bundled).
+/// Ordine: GitHub/jsDelivr prima; branchefy.it per ultimo (non deve essere un requisito).
 const REMOTE_MIRROR_SOURCES: &[&str] = &[
-    // Lista ufficiale Branchefy (aggiornabile con un commit, senza release desktop).
-    "https://branchefy.it/sc-mirrors.json",
     "https://raw.githubusercontent.com/MichelBranche/progetto-infanzia/main/public/sc-mirrors.json",
     "https://cdn.jsdelivr.net/gh/MichelBranche/progetto-infanzia@main/public/sc-mirrors.json",
     // Liste community (formato domains.json StreamingCommunity / VibraVid).
     "https://cdn.jsdelivr.net/gh/sana888999/GinxStream@main/Test/Downloads/Conf/domains.json",
     "https://cdn.jsdelivr.net/gh/TopEnt3r/MultiDownloader@main/Downloader/StreamingCommunity/StreamingCommunity-main/.github/.domain/domains.json",
     "https://cdn.jsdelivr.net/gh/falcosan/StreamVault@main/assets/domains.json",
+    // Opzionale: solo se la web è online.
+    "https://branchefy.it/sc-mirrors.json",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,8 +99,13 @@ pub const TITLE_META_ENRICH_BATCH: usize = 60;
 const TITLE_META_ENRICH_WORKERS: usize = 3;
 const TITLE_META_ENRICH_SAVE_EVERY: usize = 40;
 const META_SC_META_ENRICH_CURSOR: &str = "sc_catalog_meta_enrich_cursor";
+const META_SC_COMING_SOON_CURSOR: &str = "sc_catalog_coming_soon_cursor";
+/// Quanti «Prossimamente» ricontrollare per ciclo (pagina dettaglio live).
+const COMING_SOON_REFRESH_BATCH: usize = 36;
+const COMING_SOON_REFRESH_WORKERS: usize = 2;
 
 static META_ENRICH_RUNNING: Mutex<bool> = Mutex::new(false);
+static COMING_SOON_REFRESH_RUNNING: Mutex<bool> = Mutex::new(false);
 static CATALOG_BOOT_RUNNING: Mutex<bool> = Mutex::new(false);
 /// Cache in-process dell'indice (evita di riparsare ~10MB JSON ad ogni fetch).
 static INDEX_MEM_CACHE: Mutex<Option<(i64, String, Vec<StremioMetaPreview>)>> = Mutex::new(None);
@@ -571,9 +579,24 @@ fn extract_sc_urls_from_remote_json(value: &serde_json::Value) -> Vec<String> {
     out
 }
 
+fn bundled_mirror_urls() -> Vec<String> {
+    match serde_json::from_str::<serde_json::Value>(BUNDLED_SC_MIRRORS_JSON) {
+        Ok(json) => extract_sc_urls_from_remote_json(&json),
+        Err(_) => Vec::new(),
+    }
+}
+
 fn fetch_remote_mirror_lists(client: &Client) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
+
+    // Prima i mirror shippati nel binario: nessuna dipendenza da web/CDN.
+    for url in bundled_mirror_urls() {
+        if seen.insert(url.clone()) {
+            out.push(url);
+        }
+    }
+
     let Ok(quick) = http_client_with_timeout(8) else {
         return out;
     };
@@ -694,6 +717,9 @@ fn app_url_candidates(db: &Database) -> Vec<String> {
             }
         }
     }
+    for url in bundled_mirror_urls() {
+        push(&url);
+    }
     push(DEFAULT_APP_URL);
     for fallback in FALLBACK_APP_URLS {
         push(fallback);
@@ -743,8 +769,8 @@ pub fn discover_app_url(db: &Database) -> Result<String, String> {
     let _ = db.set_meta(META_SC_RESOLVED_APP, "");
     Err(
         "Nessun mirror Streaming Community raggiungibile dall'app. \
-Nel browser può funzionare un altro dominio: Branchefy prova i mirror noti, \
-li aggiorna online e, se serve, ripiega sul server. Aggiorna l'app o cambia DNS/VPN."
+Prova un'altra rete/DNS/VPN, oppure aggiorna l'app: i mirror sono già inclusi \
+nel desktop e non dipendono dal sito web."
             .into(),
     )
 }
@@ -1185,6 +1211,8 @@ fn apply_preview_metadata(
             existing.poster = incoming.poster.clone();
         }
     }
+    // Sblocco/attesa: la pagina dettaglio è la fonte di verità su coming_soon.
+    existing.coming_soon = incoming.coming_soon;
 }
 
 fn insert_preview(
@@ -1854,6 +1882,7 @@ pub fn enrich_cached_index_metadata(db: &Database, limit: usize) -> Result<usize
         let before_genres = existing.genres.len();
         let before_type = existing.r#type.clone();
         let before_services = existing.streaming_services.clone();
+        let before_coming_soon = existing.coming_soon;
         apply_preview_metadata(existing, &enriched, None, None);
         // Pagina dettaglio: i generi SC reali sostituiscono il dump degli archivi genere.
         if !enriched.genres.is_empty() {
@@ -1872,6 +1901,7 @@ pub fn enrich_cached_index_metadata(db: &Database, limit: usize) -> Result<usize
         if existing.genres.len() != before_genres
             || existing.r#type != before_type
             || existing.streaming_services != before_services
+            || existing.coming_soon != before_coming_soon
         {
             updated += 1;
             dirty = true;
@@ -1891,6 +1921,167 @@ pub fn enrich_cached_index_metadata(db: &Database, limit: usize) -> Result<usize
         save_cached_index(db, &index, true)?;
     }
     Ok(updated)
+}
+
+/// Ricontrolla i titoli ancora segnati «Prossimamente» e li sblocca se SC li ha aperti.
+/// Restituisce quanti titoli sono passati da coming_soon=true a false.
+pub fn refresh_coming_soon_titles(db: &Database, limit: usize) -> Result<usize, String> {
+    let Some((mut index, _)) = load_cached_index(db) else {
+        return Ok(0);
+    };
+    let app = resolve_app_url(db).or_else(|_| discover_app_url(db))?;
+    let cdn = cdn_url(db);
+    let locale = lang(db);
+    let app_base = app.trim_end_matches('/').to_string();
+    let client = http_client()?;
+    let _ = client
+        .get(format!("{app_base}/{locale}"))
+        .header("Accept", "text/html,application/xhtml+xml")
+        .send();
+
+    let cursor = db
+        .get_meta(META_SC_COMING_SOON_CURSOR)
+        .ok()
+        .flatten()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .unwrap_or(0);
+
+    let mut candidates: Vec<(usize, String, String)> = index
+        .iter()
+        .enumerate()
+        .filter(|(_, preview)| {
+            preview.coming_soon
+                && preview.catalog_prefix.as_deref().unwrap_or("sc") == "sc"
+                && preview
+                    .slug
+                    .as_ref()
+                    .is_some_and(|s| !s.trim().is_empty())
+        })
+        .filter_map(|(idx, preview)| {
+            let slug = preview.slug.as_ref()?.clone();
+            Some((idx, preview.id.clone(), slug))
+        })
+        .collect();
+
+    if candidates.is_empty() {
+        let _ = db.set_meta(META_SC_COMING_SOON_CURSOR, "0");
+        return Ok(0);
+    }
+
+    let start = cursor % candidates.len();
+    candidates.rotate_left(start);
+    candidates.truncate(limit.max(1));
+
+    let (tx, rx) = std::sync::mpsc::channel::<(usize, Option<StremioMetaPreview>)>();
+    let worker_count = COMING_SOON_REFRESH_WORKERS.min(candidates.len()).max(1);
+    let chunk_size = (candidates.len() + worker_count - 1) / worker_count;
+
+    for chunk in candidates.chunks(chunk_size) {
+        let chunk: Vec<_> = chunk.to_vec();
+        let tx = tx.clone();
+        let client = client.clone();
+        let app_base = app_base.clone();
+        let cdn = cdn.clone();
+        let locale = locale.clone();
+        std::thread::spawn(move || {
+            let html_client = HtmlPageClient::new(client, &app_base);
+            for (idx, id, slug) in chunk {
+                let enriched =
+                    fetch_title_preview_from_detail(&html_client, &cdn, &locale, &id, &slug);
+                let _ = tx.send((idx, enriched));
+                std::thread::sleep(Duration::from_millis(jittered_ms(400)));
+            }
+        });
+    }
+    drop(tx);
+
+    let mut unlocked = 0usize;
+    let mut processed = 0usize;
+    let mut dirty = false;
+    for (idx, enriched_opt) in rx {
+        processed += 1;
+        let Some(enriched) = enriched_opt else {
+            continue;
+        };
+        let Some(existing) = index.get_mut(idx) else {
+            continue;
+        };
+        let was_coming_soon = existing.coming_soon;
+        apply_preview_metadata(existing, &enriched, None, None);
+        if !enriched.genres.is_empty() {
+            existing.genres = enriched.genres.clone();
+        }
+        existing.streaming_services = Some(
+            enriched
+                .streaming_services
+                .clone()
+                .unwrap_or_default(),
+        );
+        if !enriched.r#type.is_empty() {
+            existing.r#type = enriched.r#type.clone();
+        }
+        existing.coming_soon = enriched.coming_soon;
+        if was_coming_soon && !existing.coming_soon {
+            unlocked += 1;
+        }
+        repair_preview(existing);
+        dirty = true;
+    }
+
+    let next_cursor = start.saturating_add(processed);
+    let _ = db.set_meta(META_SC_COMING_SOON_CURSOR, &next_cursor.to_string());
+
+    if dirty {
+        save_cached_index(db, &index, true)?;
+    }
+    Ok(unlocked)
+}
+
+/// Loop periodico: ricontrolla i «Prossimamente» e li sblocca quando SC li pubblica.
+pub fn spawn_coming_soon_refresh(db: std::sync::Arc<Database>) {
+    {
+        let Ok(mut running) = COMING_SOON_REFRESH_RUNNING.lock() else {
+            return;
+        };
+        if *running {
+            return;
+        }
+        *running = true;
+    }
+
+    std::thread::spawn(move || {
+        // Prima passata subito dopo il boot (seed può avere coming_soon obsoleti).
+        loop {
+            match refresh_coming_soon_titles(db.as_ref(), COMING_SOON_REFRESH_BATCH) {
+                Ok(0) => {
+                    // Nessuno sbloccato in questo batch: pausa più lunga, poi riparti.
+                    std::thread::sleep(Duration::from_secs(10 * 60));
+                }
+                Ok(_) => {
+                    // Qualcosa sbloccato: continua più spesso.
+                    std::thread::sleep(Duration::from_secs(45));
+                }
+                Err(_) => {
+                    std::thread::sleep(Duration::from_secs(3 * 60));
+                }
+            }
+        }
+    });
+}
+
+/// Allinea `coming_soon` nell'indice catalogo dopo un fetch meta live.
+pub fn sync_index_coming_soon(db: &Database, title_id: &str, coming_soon: bool) {
+    let Some((mut index, _)) = load_cached_index(db) else {
+        return;
+    };
+    let Some(preview) = index.iter_mut().find(|item| item.id == title_id) else {
+        return;
+    };
+    if preview.coming_soon == coming_soon {
+        return;
+    }
+    preview.coming_soon = coming_soon;
+    let _ = save_cached_index(db, &index, true);
 }
 
 /// Avvia un worker in background che arricchisce finché restano titoli da completare.
@@ -2489,7 +2680,8 @@ pub fn spawn_catalog_boot_maintenance(db: std::sync::Arc<Database>) {
         if let Ok(mut running) = CATALOG_BOOT_RUNNING.lock() {
             *running = false;
         }
-        spawn_continuous_metadata_enrichment(db);
+        spawn_continuous_metadata_enrichment(Arc::clone(&db));
+        spawn_coming_soon_refresh(db);
     });
 }
 

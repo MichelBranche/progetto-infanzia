@@ -1,5 +1,6 @@
 /**
- * Verifica i mirror Streaming Community e aggiorna public/sc-mirrors.json.
+ * Verifica i mirror Streaming Community e aggiorna public/sc-mirrors.json
+ * (+ copia in src-tauri/resources per il desktop bundled).
  *
  * Usage:
  *   node tools/sc-mirrors-sync.mjs              # dry-run (report)
@@ -14,6 +15,12 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const MIRRORS_PATH = path.join(ROOT, "public", "sc-mirrors.json");
+const MIRRORS_DESKTOP_PATH = path.join(
+  ROOT,
+  "src-tauri",
+  "resources",
+  "sc-mirrors.json",
+);
 const SC_CATALOG_RS = path.join(ROOT, "src-tauri", "src", "sc_catalog.rs");
 const SC_CDN_TS = path.join(ROOT, "src", "lib", "scCdnFallbacks.ts");
 
@@ -327,8 +334,12 @@ async function main() {
     return;
   }
 
-  fs.writeFileSync(MIRRORS_PATH, `${JSON.stringify(payload, null, 2)}\n`);
+  const body = `${JSON.stringify(payload, null, 2)}\n`;
+  fs.writeFileSync(MIRRORS_PATH, body);
+  fs.mkdirSync(path.dirname(MIRRORS_DESKTOP_PATH), { recursive: true });
+  fs.writeFileSync(MIRRORS_DESKTOP_PATH, body);
   console.log(`\nWrote ${path.relative(ROOT, MIRRORS_PATH)}`);
+  console.log(`Wrote ${path.relative(ROOT, MIRRORS_DESKTOP_PATH)}`);
 
   if (syncDefaults) {
     const cdnPrimary = inferCdn(primary) || cdnUrls[0];

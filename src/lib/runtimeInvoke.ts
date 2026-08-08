@@ -138,28 +138,39 @@ async function postInvoke<T>(
   return payload as T;
 }
 
+/**
+ * Desktop = invoke nativo Tauri (sempre sufficiente).
+ * Il server web/Railway è solo un fallback opzionale se SC blocca l'IP di casa:
+ * se il server non c'è, il desktop continua con l'errore locale (non si spegne).
+ */
 export async function runtimeInvoke<T>(
   command: string,
   args?: RuntimeInvokeArgs,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
   if (isTauri()) {
-    // Account noti con IP bloccato: SC sempre via server.
+    const local = () => tauriInvoke<T>(command, args);
+    const serverOptional = async (): Promise<T | null> => {
+      try {
+        return await postInvoke<T>(scServerBase(), command, args, timeoutMs);
+      } catch {
+        return null;
+      }
+    };
+
+    // Allowlist diagnostica: prova server, ma se è down torna al locale.
     if (shouldForceScToServer(command)) {
-      return postInvoke<T>(scServerBase(), command, args, timeoutMs);
+      const fromServer = await serverOptional();
+      if (fromServer !== null) return fromServer;
+      return local();
     }
 
     try {
-      return await tauriInvoke<T>(command, args);
+      return await local();
     } catch (error) {
-      // Altri utenti: se SC non risponde dall'IP di casa, ripiega sul server
-      // (stesso percorso della web app). Catalogo/seed locale restano ok.
       if (SC_COMMANDS.has(command) && isScUnreachableError(error)) {
-        try {
-          return await postInvoke<T>(scServerBase(), command, args, timeoutMs);
-        } catch {
-          throw error;
-        }
+        const fromServer = await serverOptional();
+        if (fromServer !== null) return fromServer;
       }
       throw error;
     }

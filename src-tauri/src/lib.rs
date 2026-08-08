@@ -1286,7 +1286,9 @@ async fn fetch_sc_meta_cmd(
     let locale = sc_catalog::lang(&state.db);
     tokio::task::spawn_blocking(move || {
         let app = sc_catalog::resolve_app_url(db.as_ref())?;
-        sc_playback::fetch_title_meta(&app, &cdn, &locale, title_id, &slug)
+        let meta = sc_playback::fetch_title_meta(&app, &cdn, &locale, title_id, &slug)?;
+        sc_catalog::sync_index_coming_soon(db.as_ref(), &meta.id, meta.coming_soon);
+        Ok(meta)
     })
     .await
     .map_err(|e| format!("Errore metadati: {e}"))?

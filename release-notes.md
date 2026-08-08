@@ -1,18 +1,19 @@
-# Branchefy v1.1.0
+# Branchefy v1.2.0
 
 ## Novità
 
-- **Cinema Ambilight**: alone colorato sincronizzato ai bordi del video (toggle lampadina nel player)
-- Pill **Supporta** in navigazione per riaprire il messaggio donazioni
-- Recupero automatico URL StreamingCommunity + tool `sc:mirrors-sync` e mirror aggiornati
+- Blocco **email temporanee** in registrazione (messaggio chiaro in app + hook Supabase)
+- Desktop **autonomo dalla web**: mirror SC e immagini locali, Railway solo opzionale
+- Autoplay serie: a fine stagione continua automaticamente con la successiva
+- Titoli SC «Prossimamente» si sbloccano da soli quando diventano disponibili
 
 ## Migliorie
 
-- Watch Party più stabile (sync guest, meno thrash Broadcast, fallback poll)
-- Tema ambient delle impostazioni si applica anche fuori dalla home
-- Prestazioni Ambilight: niente loop a vuoto, meno carico sulla UI intorno al player
+- Worker in background che ricontrolla i titoli ancora non riproducibili
+- Cache meta più corta sui «Prossimamente» e refresh in scheda titolo
+- `sc-mirrors.json` incluso nel binario desktop
 
 ## Note
 
-- Ambilight non disponibile con Widevine/cast o se lo stream è protetto da CORS
-- Su web il deploy Vercel usa la stessa `src/` del desktop
+- Su Supabase: migration disposable email + hook **Before User Created** → `hook_prevent_disposable_email`
+- Web e desktop sulla stessa versione

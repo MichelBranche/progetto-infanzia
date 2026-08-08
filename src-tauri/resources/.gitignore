@@ -1,5 +1,7 @@
 # Snapshot catalogo SC precaricato nella release (gzip JSON).
 # Rigenera con: npm run catalog:export-seed
+# Mirror SC bundled: aggiorna con npm run sc:mirrors-sync:write
 *
 !.gitignore
 !sc_catalog_seed.json.gz
+!sc-mirrors.json

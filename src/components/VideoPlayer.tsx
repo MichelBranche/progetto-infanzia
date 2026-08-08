@@ -119,6 +119,11 @@ interface VideoPlayerProps {
   };
   onBack: () => void | Promise<void>;
   onPlayEpisode?: (id: string) => void;
+  /**
+   * Se `nextEpisode` non è in lista (es. fine stagione non ancora caricata),
+   * prova a risolvere l’episodio successivo in modo asincrono.
+   */
+  onResolveNextEpisode?: (currentId: string) => Promise<string | null>;
   watchPartySession?: WatchPartySession | null;
   onWatchPartySessionChange?: (session: WatchPartySession | null) => void;
   onStreamAudioLanguageChange?: (
@@ -211,6 +216,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       remotePlayback,
       onBack,
       onPlayEpisode,
+      onResolveNextEpisode,
       watchPartySession: watchPartySessionProp,
       onWatchPartySessionChange,
       onStreamAudioLanguageChange,
@@ -235,6 +241,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   const sessionStartRef = useRef(0);
   const autoplayCancelledRef = useRef(false);
   const episodeNavTriggeredRef = useRef(false);
+  const resolveNextKickRef = useRef(false);
+  const onResolveNextEpisodeRef = useRef(onResolveNextEpisode);
+  onResolveNextEpisodeRef.current = onResolveNextEpisode;
   const castDeviceRef = useRef<CastDevice | null>(null);
   const saveChainRef = useRef(Promise.resolve());
   const leavingRef = useRef(false);
@@ -589,9 +598,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   );
 
   const playNextEpisode = useCallback(() => {
-    if (!nextEp) return;
-    playEpisode(nextEp);
-  }, [nextEp, playEpisode]);
+    if (episodeNavTriggeredRef.current) return;
+    if (nextEp) {
+      playEpisode(nextEp);
+      return;
+    }
+    if (!onPlayEpisode || !onResolveNextEpisode) return;
+    episodeNavTriggeredRef.current = true;
+    setShowUpNext(false);
+    setAutoplaySeconds(null);
+    void onResolveNextEpisode(media.id).then((videoId) => {
+      if (!videoId) {
+        episodeNavTriggeredRef.current = false;
+        return;
+      }
+      onPlayEpisode(videoId);
+    });
+  }, [nextEp, playEpisode, onPlayEpisode, onResolveNextEpisode, media.id]);
 
   const playPrevEpisode = useCallback(() => {
     if (!prevEp) return;
@@ -627,6 +650,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   useEffect(() => {
     autoplayCancelledRef.current = false;
     episodeNavTriggeredRef.current = false;
+    resolveNextKickRef.current = false;
     setShowUpNext(false);
     setAutoplaySeconds(null);
     bootDoneRef.current = false;
@@ -1490,15 +1514,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       if (controlsBusyRef.current) {
         // Durante scrub/volume non aggiornare up-next (setState sul chrome).
       } else if (
-        nextEp &&
+        (nextEp || onResolveNextEpisodeRef.current) &&
         onPlayEpisode &&
         !autoplayCancelledRef.current &&
         video.duration > 0 &&
         video.duration - t <= lead
       ) {
+        // Fine stagione: carica in anticipo la stagione successiva.
+        if (!nextEp && !resolveNextKickRef.current && onResolveNextEpisodeRef.current) {
+          resolveNextKickRef.current = true;
+          void onResolveNextEpisodeRef.current(media.id);
+        }
         const secs = Math.max(0, Math.ceil(video.duration - t));
-        setShowUpNext((prev) => (prev ? prev : true));
-        setAutoplaySeconds((prev) => (prev === secs ? prev : secs));
+        // Solo UI "Up next" se abbiamo già l’episodio (evita card vuota).
+        if (nextEp) {
+          setShowUpNext((prev) => (prev ? prev : true));
+          setAutoplaySeconds((prev) => (prev === secs ? prev : secs));
+        }
       } else if (video.duration - t > lead) {
         setShowUpNext((prev) => (prev ? false : prev));
         setAutoplaySeconds((prev) => (prev == null ? prev : null));
@@ -1577,7 +1609,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       video.removeEventListener("error", onMediaError);
       void saveProgress(video.currentTime, video.duration);
     };
-  }, [effectiveStreamUrl, resumeAt, saveProgress, nextEp, playNextEpisode, castDevice, onPlayEpisode, notify, markBootDone, failPlayback]);
+  }, [effectiveStreamUrl, resumeAt, saveProgress, nextEp, playNextEpisode, castDevice, onPlayEpisode, notify, markBootDone, failPlayback, media.id]);
 
   useEffect(() => {
     const flushOnHide = () => {
@@ -1627,12 +1659,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   useEffect(() => {
     if (
       autoplaySeconds === 0 &&
-      nextEp &&
+      (nextEp || onResolveNextEpisode) &&
       !autoplayCancelledRef.current
     ) {
       playNextEpisode();
     }
-  }, [autoplaySeconds, nextEp, playNextEpisode]);
+  }, [autoplaySeconds, nextEp, onResolveNextEpisode, playNextEpisode]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2046,7 +2078,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         }}
         onStopCast={() => void stopCast()}
         onPlayPrevEpisode={prevEp ? playPrevEpisode : undefined}
-        onPlayNextEpisode={nextEp ? playNextEpisode : undefined}
+        onPlayNextEpisode={
+          nextEp || onResolveNextEpisode ? playNextEpisode : undefined
+        }
         onToggleQualityMenu={() => {
           setShowQualityMenu((open) => !open);
           setShowSubtitleMenu(false);

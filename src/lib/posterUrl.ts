@@ -61,9 +61,9 @@ function scImageProxyUrl(rel: string): string {
   if (isWebShell()) {
     return normalizeWebAssetUrl(`/sc-image/${clean}`) ?? `/sc-image/${clean}`;
   }
-  // Desktop: Railway prima del stream locale — il bind :17890 può fallire
-  // in silenzio e lasciare tutte le locandine rotte.
-  return scImageServerFallbackUrl(clean);
+  // Desktop: sempre proxy locale — indipendente da web/Railway.
+  // Se :17890 non risponde, PosterImage prova i fallback (CDN / server opzionale).
+  return scImageLocalProxyUrl(clean);
 }
 
 function scImageLocalProxyUrl(rel: string): string {
@@ -178,12 +178,17 @@ export function posterUrlFallbacks(
   if (scRel) {
     if (!isWebShell()) {
       push(scImageLocalProxyUrl(scRel));
-    }
-    // Se il proxy locale/Vercel fallisce (IP bloccato), prova Railway.
-    push(scImageServerFallbackUrl(scRel));
-    // Ultimo tentativo: CDN diretti noti (desktop / mirror alternativi).
-    for (const cdn of SC_CDN_FALLBACKS) {
-      push(`${cdn}/images/${scRel}`);
+      // CDN diretti: desktop non dipende dal server web.
+      for (const cdn of SC_CDN_FALLBACKS) {
+        push(`${cdn}/images/${scRel}`);
+      }
+      // Railway solo come ultimo ripiego opzionale (se online).
+      push(scImageServerFallbackUrl(scRel));
+    } else {
+      push(scImageServerFallbackUrl(scRel));
+      for (const cdn of SC_CDN_FALLBACKS) {
+        push(`${cdn}/images/${scRel}`);
+      }
     }
   }
 

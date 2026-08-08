@@ -46,7 +46,9 @@ export function getCachedAddonMeta(
   const key = metaCacheKey(target);
   const hit = metaCache.get(key);
   if (!hit) return null;
-  if (Date.now() - hit.at > META_TTL_MS) {
+  // «Prossimamente»: TTL corto così un unlock SC compare in fretta.
+  const ttl = hit.data.comingSoon ? 60_000 : META_TTL_MS;
+  if (Date.now() - hit.at > ttl) {
     metaCache.delete(key);
     return null;
   }
@@ -68,7 +70,8 @@ export async function prefetchAddonWatchMeta(
   target: AddonWatchTarget,
 ): Promise<StremioMeta | null> {
   const cached = getCachedAddonMeta(target);
-  if (cached) return cached;
+  // Non riusare a lungo i meta «Prossimamente»: devono potersi sbloccare.
+  if (cached && !cached.comingSoon) return cached;
 
   const prefix = target.catalogPrefix;
   const canPrefetch =
